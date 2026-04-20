@@ -39,7 +39,7 @@ fi
 cd "$REPO_DIR"
 echo "[1/6] Installing system dependencies..."
 apt-get update
-apt-get install -y nftables frr curl wget unzip iproute2
+apt-get install -y nftables frr curl wget unzip iproute2 jq
 
 echo "[2/6] Setting up routing rules and system settings..."
 
@@ -132,7 +132,7 @@ fi
 
 # Fallback to GitHub API if git fails
 if [ -z "$PROXYGW_LATEST" ]; then
-    PROXYGW_LATEST=$(curl --retry 3 --connect-timeout 5 -s -4 https://api.github.com/repos/zlylong/proxygw/releases/latest | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/' || true)
+    PROXYGW_LATEST=$(curl --retry 3 --connect-timeout 5 --fail -s -4 https://api.github.com/repos/zlylong/proxygw/releases/latest | jq -r '.tag_name // empty' || true)
 fi
 
 # Ultimate fallback if both git and API fail (GFW block / no IPv4)
@@ -231,7 +231,7 @@ chmod +x "$REPO_DIR/core/xray/xray" || true
 # Check and download Mosdns if it doesn't match the architecture or doesn't exist
 if ! "$REPO_DIR/core/mosdns/mosdns" version >/dev/null 2>&1; then
     echo "Downloading Mosdns for $ARCH..."
-    MOSDNS_LATEST=$(curl -s -4 https://api.github.com/repos/IrineSistiana/mosdns/releases/latest | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
+    MOSDNS_LATEST=$(curl --retry 3 --connect-timeout 5 --fail -s -4 https://api.github.com/repos/IrineSistiana/mosdns/releases/latest | jq -r '.tag_name // empty' || true)
     if [ -n "$MOSDNS_LATEST" ]; then
         MOSDNS_URL="https://github.com/IrineSistiana/mosdns/releases/download/${MOSDNS_LATEST}/mosdns-linux-${MOSDNS_ARCH}.zip"
         wget -q -4 -O /tmp/mosdns.zip "$MOSDNS_URL"

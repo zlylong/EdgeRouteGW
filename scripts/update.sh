@@ -7,6 +7,9 @@ set -euo pipefail
 REPO_DIR="/root/proxygw"
 cd "$REPO_DIR"
 
+apt-get update >/dev/null 2>&1 || true
+apt-get install -y jq >/dev/null 2>&1 || true
+
 echo "=== ProxyGW Update ==="
 echo "[1/4] Pulling latest changes..."
 git fetch origin
@@ -24,7 +27,7 @@ fi
 
 # Fallback to GitHub API if git fails
 if [ -z "$PROXYGW_LATEST" ]; then
-    PROXYGW_LATEST=$(curl --retry 3 --connect-timeout 5 -s -4 https://api.github.com/repos/zlylong/proxygw/releases/latest | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/' || true)
+    PROXYGW_LATEST=$(curl --retry 3 --connect-timeout 5 --fail -s -4 https://api.github.com/repos/zlylong/proxygw/releases/latest | jq -r '.tag_name // empty' || true)
 fi
 
 # Ultimate fallback if both git and API fail (GFW block / no IPv4)
