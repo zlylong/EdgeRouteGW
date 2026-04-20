@@ -6,10 +6,30 @@ async function mockDashboardApis(page) {
     regenerateCalls: 0,
     rollbackCalls: 0,
     checkCalls: 0,
+    saveDnsCalls: 0,
+    addRuleCalls: 0,
+    deleteRuleCalls: 0,
+    toggleNodeCalls: 0,
+    setDefaultNodeCalls: 0,
+    deleteNodeCalls: 0,
     lastImport: null,
     lastRegenerate: null,
     lastRollback: null,
     lastCheck: null,
+    lastDnsSave: null,
+    lastRuleAdd: null,
+    lastRuleDelete: null,
+    lastNodeToggle: null,
+    lastNodeDefault: null,
+    lastNodeDelete: null,
+    dns: { local: '223.5.5.5', remote: '8.8.8.8', lazy: true, mode: 'smart' },
+    nodes: [
+      { id: 1, name: 'n1', group: 'g1', type: 'Vmess', address: '1.1.1.1', port: 443, uuid: 'u1', active: true, ping: 10, params: '{}', is_default: false },
+      { id: 2, name: 'n2', group: 'g2', type: 'Vless', address: '2.2.2.2', port: 8443, uuid: 'u2', active: true, ping: 20, params: '{"flow":"xtls-rprx-vision"}', is_default: true }
+    ],
+    rules: [
+      { id: 1, type: 'domain', value: 'example.com', policy: 'proxy' }
+    ],
     remoteNodes: [
       {
         id: 2,
@@ -39,10 +59,51 @@ async function mockDashboardApis(page) {
     if (path === '/api/status') return json({ status: 'running', mode: 'B', xray: true, ospf: true, mosdns: true, xrayVersion: '26.3.27', geoVersion: '2026-04-20', mosdnsVersion: 'v5', cpu: '1.0', ram: '10.0', up: '0 MB', down: '0 MB' });
     if (path === '/api/traffic') return json({ speed: { up: 0, down: 0 }, total_24h: { up: 0, down: 0 } });
     if (path === '/api/cron') return json({ enabled: false, time: '04:00' });
-    if (path === '/api/dns') return json({ local: '223.5.5.5', remote: '8.8.8.8', lazy: true, mode: 'smart' });
-    if (path === '/api/nodes' && method === 'GET') return json([]);
-    if (path === '/api/rules') return json([]);
-    if (path === '/api/rules/categories') return json({ geosite: [], geoip: [] });
+    if (path === '/api/dns' && method === 'GET') return json(state.dns);
+    if (path === '/api/dns' && method === 'POST') {
+      state.saveDnsCalls += 1;
+      state.lastDnsSave = { path, method, body: req.postDataJSON() };
+      state.dns = {
+        local: state.lastDnsSave.body.Local,
+        remote: state.lastDnsSave.body.Remote,
+        lazy: state.lastDnsSave.body.Lazy,
+        mode: state.lastDnsSave.body.Mode,
+      };
+      return json({ success: true });
+    }
+    if (path === '/api/nodes' && method === 'GET') return json(state.nodes);
+    if (path === '/api/nodes/1/toggle' && method === 'PUT') {
+      state.toggleNodeCalls += 1;
+      state.lastNodeToggle = { path, method };
+      state.nodes = state.nodes.map(node => node.id === 1 ? { ...node, active: !node.active } : node);
+      return json({ success: true });
+    }
+    if (path === '/api/nodes/1/default' && method === 'PUT') {
+      state.setDefaultNodeCalls += 1;
+      state.lastNodeDefault = { path, method };
+      state.nodes = state.nodes.map(node => ({ ...node, is_default: node.id === 1 }));
+      return json({ success: true });
+    }
+    if (path === '/api/nodes/1' && method === 'DELETE') {
+      state.deleteNodeCalls += 1;
+      state.lastNodeDelete = { path, method };
+      state.nodes = state.nodes.filter(node => node.id !== 1);
+      return json({ success: true });
+    }
+    if (path === '/api/rules' && method === 'GET') return json(state.rules);
+    if (path === '/api/rules/categories') return json({ geosite: ['cn'], geoip: ['private'] });
+    if (path === '/api/rules' && method === 'POST') {
+      state.addRuleCalls += 1;
+      state.lastRuleAdd = { path, method, body: req.postDataJSON() };
+      state.rules = state.rules.concat([{ id: 2, type: state.lastRuleAdd.body.Type, value: state.lastRuleAdd.body.Value, policy: state.lastRuleAdd.body.Policy }]);
+      return json({ success: true });
+    }
+    if (path === '/api/rules/1' && method === 'DELETE') {
+      state.deleteRuleCalls += 1;
+      state.lastRuleDelete = { path, method };
+      state.rules = state.rules.filter(rule => rule.id !== 1);
+      return json({ success: true });
+    }
     if (path === '/api/remote_nodes' && method === 'GET') return json(state.remoteNodes);
     if (path === '/api/remote_nodes/2' && method === 'GET') {
       return json({
@@ -98,7 +159,7 @@ async function mockDashboardApis(page) {
   return state;
 }
 
-test.describe('remote node button e2e', () => {
+test.describe('dashboard button e2e', () => {
   test.beforeEach(async ({ page }) => {
     page.on('dialog', dialog => dialog.accept());
   });
@@ -156,6 +217,74 @@ test.describe('remote node button e2e', () => {
       path: '/api/remote_nodes/2/rollback',
       method: 'POST',
       body: { history_id: 1 }
+    });
+  });
+
+  test('node buttons dispatch toggle default and delete requests', async ({ page }) => {
+    const state = await mockDashboardApis(page);
+    await page.goto('/');
+
+    await page.getByText('节点管理').click();
+
+    let row = page.locator('tr', { hasText: 'n1' });
+    await expect(row).toContainText('设为默认');
+    await row.getByRole('button', { name: '设为默认' }).click();
+    await expect(page.getByText('已设为默认节点')).toBeVisible();
+    expect(state.setDefaultNodeCalls).toBe(1);
+    expect(state.lastNodeDefault).toEqual({ path: '/api/nodes/1/default', method: 'PUT' });
+
+    row = page.locator('tr', { hasText: 'n1' });
+    await row.getByRole('button', { name: '停用' }).click();
+    expect(state.toggleNodeCalls).toBe(1);
+    expect(state.lastNodeToggle).toEqual({ path: '/api/nodes/1/toggle', method: 'PUT' });
+
+    row = page.locator('tr', { hasText: 'n1' });
+    await row.getByRole('button', { name: '删除' }).click();
+    await expect(page.getByText('删除此节点？')).toBeVisible();
+    await page.getByRole('button', { name: '确认' }).click();
+    expect(state.deleteNodeCalls).toBe(1);
+    expect(state.lastNodeDelete).toEqual({ path: '/api/nodes/1', method: 'DELETE' });
+  });
+
+  test('rule buttons dispatch add and delete requests', async ({ page }) => {
+    const state = await mockDashboardApis(page);
+    await page.goto('/');
+
+    await page.getByText('路由分流规则').click();
+    await page.getByPlaceholder('输入或选择匹配值...').fill('openai.com');
+    await page.getByRole('button', { name: '添加规则' }).click();
+
+    expect(state.addRuleCalls).toBe(1);
+    expect(state.lastRuleAdd).toEqual({
+      path: '/api/rules',
+      method: 'POST',
+      body: { Type: 'domain', Value: 'openai.com', Policy: 'proxy' }
+    });
+
+    const ruleRow = page.locator('tr', { hasText: 'example.com' });
+    await ruleRow.getByRole('button', { name: '删除' }).click();
+    await expect(page.getByText('删除此分流规则？')).toBeVisible();
+    await page.getByRole('button', { name: '确认' }).click();
+
+    expect(state.deleteRuleCalls).toBe(1);
+    expect(state.lastRuleDelete).toEqual({ path: '/api/rules/1', method: 'DELETE' });
+  });
+
+  test('dns save button dispatches dns update request', async ({ page }) => {
+    const state = await mockDashboardApis(page);
+    await page.goto('/');
+
+    await page.getByText('DNS 设置').click();
+    await page.getByPlaceholder('例: 114.114.114.114 或 https://223.5.5.5/dns-query').fill('119.29.29.29');
+    await page.getByPlaceholder('例: 8.8.8.8 或 tls://8.8.4.4').fill('1.1.1.1');
+    await page.getByRole('button', { name: '保存并应用' }).click();
+
+    await expect(page.getByText('DNS 配置已保存！')).toBeVisible();
+    expect(state.saveDnsCalls).toBe(1);
+    expect(state.lastDnsSave).toEqual({
+      path: '/api/dns',
+      method: 'POST',
+      body: { Local: '119.29.29.29', Remote: '1.1.1.1', Lazy: true, Mode: 'smart' }
     });
   });
 });

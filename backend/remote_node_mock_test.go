@@ -2,6 +2,7 @@ package main
 
 import (
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -147,5 +148,51 @@ func TestCheckRemoteNode_OfflineWhenConnectorFails(t *testing.T) {
 	}
 	if !strings.Contains(w.Body.String(), `"success":false`) {
 		t.Fatalf("unexpected body: %s", w.Body.String())
+	}
+}
+
+func TestDoDeployRoutine_LogsRemoteStdoutAndStderrOnFailure(t *testing.T) {
+	setupFeatureSuiteRouter(t)
+
+	oldConnect := remoteConnect
+	defer func() { remoteConnect = oldConnect }()
+
+	remoteConnect = func(host string, port int, user string, authType string, credential string, expectedHostKey string) (remoteSSHClient, error) {
+		return &fakeSSHClient{run: func(cmd string) (string, string, error) {
+			return "apt stdout", "apt stderr", fmt.Errorf("Process exited with status 100")
+		}}, nil
+	}
+
+	req := RemoteNodeReq{
+		Name:          "192.168.20.152",
+		Type:          "vless",
+		SSHHost:       "192.168.20.152",
+		SSHPort:       22,
+		SSHUser:       "root",
+		SSHHostKey:    "SHA256:test",
+		SSHAuthType:   "password",
+		SSHCredential: "secret123",
+		Region:        "lab",
+		Remark:        "seed",
+	}
+
+	doDeployRoutine(2, req, true, nil)
+
+	var status string
+	if err := db.QueryRow("SELECT status FROM remote_nodes WHERE id = 2").Scan(&status); err != nil {
+		t.Fatal(err)
+	}
+	if status != "Failed" {
+		t.Fatalf("want status Failed got %s", status)
+	}
+
+	var logText string
+	if err := db.QueryRow("SELECT log_text FROM remote_node_logs WHERE node_id = 2 ORDER BY id DESC LIMIT 1").Scan(&logText); err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"Process exited with status 100", "apt stdout", "apt stderr"} {
+		if !strings.Contains(logText, want) {
+			t.Fatalf("expected %q in log text: %s", want, logText)
+		}
 	}
 }

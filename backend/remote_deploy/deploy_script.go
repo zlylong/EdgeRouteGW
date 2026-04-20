@@ -26,8 +26,24 @@ AllowedIPs = %s
 	script := `#!/bin/bash
 set -e
 export DEBIAN_FRONTEND=noninteractive
-apt-get update
-apt-get install -y wireguard iptables iproute2 curl
+retry_cmd() {
+  local attempt=1
+  local max_attempts=5
+  local delay=2
+  while true; do
+    "$@" && return 0
+    local exit_code=$?
+    if [ "$attempt" -ge "$max_attempts" ]; then
+      return "$exit_code"
+    fi
+    sleep "$delay"
+    attempt=$((attempt + 1))
+    delay=$((delay * 2))
+  done
+}
+retry_cmd apt-get update
+retry_cmd apt-get install -y wireguard iptables iproute2 curl
+mkdir -p /etc/wireguard
 echo net.ipv4.ip_forward=1 > /etc/sysctl.d/99-wireguard-forward.conf
 sysctl -p /etc/sysctl.d/99-wireguard-forward.conf
 echo "%s" | base64 -d > /etc/wireguard/wg0.conf
@@ -80,11 +96,26 @@ func GenerateVlessRealityInstallScript(port int, uuid, privateKey, shortId, serv
 	script := `#!/bin/bash
 set -e
 export DEBIAN_FRONTEND=noninteractive
-apt-get update
-apt-get install -y curl unzip coreutils
+retry_cmd() {
+  local attempt=1
+  local max_attempts=5
+  local delay=2
+  while true; do
+    "$@" && return 0
+    local exit_code=$?
+    if [ "$attempt" -ge "$max_attempts" ]; then
+      return "$exit_code"
+    fi
+    sleep "$delay"
+    attempt=$((attempt + 1))
+    delay=$((delay * 2))
+  done
+}
+retry_cmd apt-get update
+retry_cmd apt-get install -y curl unzip coreutils
 mkdir -p /usr/local/etc/xray
 mkdir -p /usr/local/share/xray
-curl -L -H "Cache-Control: no-cache" -o xray.zip https://github.com/XTLS/Xray-core/releases/latest/download/Xray-linux-64.zip
+retry_cmd curl -4 --fail --location --retry 5 --retry-delay 2 --retry-all-errors -H "Cache-Control: no-cache" -o xray.zip https://github.com/XTLS/Xray-core/releases/latest/download/Xray-linux-64.zip
 unzip -o xray.zip -d /usr/local/bin/xray-core
 mv /usr/local/bin/xray-core/xray /usr/local/bin/xray
 mv /usr/local/bin/xray-core/geoip.dat /usr/local/share/xray/

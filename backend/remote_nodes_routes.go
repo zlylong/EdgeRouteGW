@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/url"
 	"proxygw/remote_deploy"
+	"strings"
 )
 
 type RemoteNodeReq struct {
@@ -267,11 +268,18 @@ func doDeployRoutine(id int64, req RemoteNodeReq, isUpdate bool, params map[stri
 	}
 
 	logAction(id, "deploy", "running", "Executing installation script on remote host...")
-	_, _, err = sshClient.RunCommand(script)
+	stdout, stderr, err := sshClient.RunCommand(script)
 
 	if err != nil {
 		db.Exec("UPDATE remote_nodes SET status = 'Failed' WHERE id = ?", id)
-		logAction(id, "deploy", "failed", fmt.Sprintf("Deployment failed: %v", err))
+		failureLog := fmt.Sprintf("Deployment failed: %v", err)
+		if strings.TrimSpace(stdout) != "" {
+			failureLog += "\nstdout:\n" + strings.TrimSpace(stdout)
+		}
+		if strings.TrimSpace(stderr) != "" {
+			failureLog += "\nstderr:\n" + strings.TrimSpace(stderr)
+		}
+		logAction(id, "deploy", "failed", failureLog)
 		return
 	}
 
