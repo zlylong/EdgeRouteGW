@@ -1509,16 +1509,39 @@ window.onerror = function(msg, url, line, col, error) { alert("JS Error: " + msg
                 };
                 
                 const importToLocal = async (node) => {
-                    if (node && node.type === 'vless' && node.vless) {
-                        showToast('已复制链接，请在节点表粘贴导入');
-                        copyText(node.vless.share_link);
-                        activeTab.value = 'nodes';
-                        showRemoteDetailsModal.value = false;
-                    } else if (node && node.type === 'wg' && node.wg) {
-                        showToast('已复制链接，请在节点表粘贴导入');
-                        copyText(node.wg.share_link);
-                        activeTab.value = 'nodes';
-                        showRemoteDetailsModal.value = false;
+                    let shareLink = '';
+                    if (node && node.type === 'vless' && node.vless && node.vless.share_link) {
+                        shareLink = node.vless.share_link;
+                    } else if (node && node.type === 'wg' && node.wg && node.wg.share_link) {
+                        shareLink = node.wg.share_link;
+                    }
+
+                    if (!shareLink) {
+                        showToast('导入失败：节点分享链接为空', 'error');
+                        return;
+                    }
+
+                    try {
+                        const res = await apiFetch('/api/nodes/import', {
+                            method: 'POST',
+                            body: JSON.stringify({ Url: shareLink })
+                        });
+
+                        if (res.ok) {
+                            showToast('已导入至网关节点列表');
+                            activeTab.value = 'nodes';
+                            showRemoteDetailsModal.value = false;
+                            await loadData();
+                        } else {
+                            let msg = '导入失败';
+                            try {
+                                const data = await res.json();
+                                if (data && data.error) msg += '：' + data.error;
+                            } catch (e) {}
+                            showToast(msg, 'error');
+                        }
+                    } catch (e) {
+                        showToast('导入失败：请求异常', 'error');
                     }
                 };
 
