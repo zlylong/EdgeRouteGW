@@ -176,12 +176,21 @@ func doDeployRoutine(id int64, req RemoteNodeReq, isUpdate bool, params map[stri
 
 		endpoint := fmt.Sprintf("%s:%d", req.SSHHost, port)
 
-		if !isUpdate {
-			db.Exec("INSERT INTO remote_node_wg (node_id, server_priv, server_pub, client_priv, client_pub, endpoint, port, tunnel_addr, client_addr) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-				id, sPriv, sPub, cPriv, cPub, endpoint, port, tunnel, clientIP)
-		} else {
-			db.Exec("UPDATE remote_node_wg SET server_priv=?, server_pub=?, client_priv=?, client_pub=?, endpoint=?, port=?, tunnel_addr=?, client_addr=? WHERE node_id=?",
-				sPriv, sPub, cPriv, cPub, endpoint, port, tunnel, clientIP, id)
+		if _, err := db.Exec(`INSERT INTO remote_node_wg (node_id, server_priv, server_pub, client_priv, client_pub, endpoint, port, tunnel_addr, client_addr)
+				VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+				ON CONFLICT(node_id) DO UPDATE SET
+					server_priv=excluded.server_priv,
+					server_pub=excluded.server_pub,
+					client_priv=excluded.client_priv,
+					client_pub=excluded.client_pub,
+					endpoint=excluded.endpoint,
+					port=excluded.port,
+					tunnel_addr=excluded.tunnel_addr,
+					client_addr=excluded.client_addr`,
+			id, sPriv, sPub, cPriv, cPub, endpoint, port, tunnel, clientIP); err != nil {
+			db.Exec("UPDATE remote_nodes SET status = 'Failed' WHERE id = ?", id)
+			logAction(id, "deploy", "failed", fmt.Sprintf("Failed to persist WireGuard params: %v", err))
+			return
 		}
 
 		script = remote_deploy.GenerateWGInstallScript(port, sPriv, cPub, tunnel)
@@ -224,12 +233,21 @@ func doDeployRoutine(id int64, req RemoteNodeReq, isUpdate bool, params map[stri
 		shareLink = fmt.Sprintf("vless://%s@%s:%d?security=reality&sni=%s&fp=chrome&pbk=%s&sid=%s&type=tcp&flow=xtls-rprx-vision&encryption=none#%s",
 			uuid, req.SSHHost, port, serverName, rPub, shortId, url.QueryEscape(req.Name))
 
-		if !isUpdate {
-			db.Exec("INSERT INTO remote_node_vless (node_id, uuid, reality_priv, reality_pub, short_id, server_name, dest, port, share_link) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-				id, uuid, rPriv, rPub, shortId, serverName, dest, port, shareLink)
-		} else {
-			db.Exec("UPDATE remote_node_vless SET uuid=?, reality_priv=?, reality_pub=?, short_id=?, server_name=?, dest=?, port=?, share_link=? WHERE node_id=?",
-				uuid, rPriv, rPub, shortId, serverName, dest, port, shareLink, id)
+		if _, err := db.Exec(`INSERT INTO remote_node_vless (node_id, uuid, reality_priv, reality_pub, short_id, server_name, dest, port, share_link)
+				VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+				ON CONFLICT(node_id) DO UPDATE SET
+					uuid=excluded.uuid,
+					reality_priv=excluded.reality_priv,
+					reality_pub=excluded.reality_pub,
+					short_id=excluded.short_id,
+					server_name=excluded.server_name,
+					dest=excluded.dest,
+					port=excluded.port,
+					share_link=excluded.share_link`,
+			id, uuid, rPriv, rPub, shortId, serverName, dest, port, shareLink); err != nil {
+			db.Exec("UPDATE remote_nodes SET status = 'Failed' WHERE id = ?", id)
+			logAction(id, "deploy", "failed", fmt.Sprintf("Failed to persist VLESS params: %v", err))
+			return
 		}
 
 		script = remote_deploy.GenerateVlessRealityInstallScript(port, uuid, rPriv, shortId, serverName, dest)
