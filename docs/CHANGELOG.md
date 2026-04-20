@@ -1,5 +1,11 @@
 # ProxyGW Changelog
 
+## [1.5.7] - 2026-04-20
+### 🐞 修复 (Bug Fixes)
+- **三模式配置纠偏**: 修复 Mode A 误启用 FakeDNS/FakeIP 的错误。现在仅 Mode B 使用 FakeIP/FakeDNS；Mode A 与 Mode C 均恢复为真实远程 DNS 解析，避免 Mode A 下 LAN ACL 旁路设备命中 FakeIP 黑洞。
+- **模式切换原子回滚**: 重构 `/api/mode` 切换流程，改为按步骤应用 `nftables` / `FRR` / `Mosdns` / `Xray`，任一步失败即自动回滚到旧模式，避免数据库模式、路由状态和运行配置出现半切换污染。
+- **模式回归测试补齐**: 新增三模式配置与切换回归测试，覆盖 FakeDNS/FakeIP 归属、切换失败自动回滚、切换成功后路由状态收敛，防止后续再把 Mode A 配坏。
+
 ## [1.5.6] - 2026-04-20
 ### 🐞 修复 (Bug Fixes)
 - **远程节点创建恢复**: 修复 `backend/main.go` 中被破坏的 SQLite migration，恢复 `remote_nodes.ssh_host_key` 自动补列逻辑，解决新建远程节点时报 `Failed to insert node` 的问题。
