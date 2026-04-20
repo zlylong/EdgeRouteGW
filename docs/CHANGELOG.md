@@ -1,5 +1,12 @@
 # ProxyGW Changelog
 
+## [Unreleased] - 2026-04-20
+### 🐞 修复 (Bug Fixes)
+- **远程节点创建恢复**: 修复 `backend/main.go` 中被破坏的 SQLite migration，恢复 `remote_nodes.ssh_host_key` 自动补列逻辑，解决新建远程节点时报 `Failed to insert node` 的问题。
+- **远程节点参数重部署自愈**: 修复远程节点首次部署失败后再次重试时，`remote_node_wg` / `remote_node_vless` 仅执行 `UPDATE` 导致 0 行更新的问题。现改为 `UPSERT`，确保重部署后分享链接、端口、Reality/WG 参数都能正确落库。
+- **远程节点导入到网关列表**: 修复远程节点详情页“导入至网关节点列表”按钮仅复制链接、不实际导入的假动作问题。现在按钮会直接调用 `/api/nodes/import` 并在成功后自动刷新本地节点列表。
+- **导入空分享链接问题**: 修复由于远程 VLESS 参数未落库导致详情页 `share_link` 为空，进而触发“导入失败：节点分享链接为空”的问题。
+
 ## [1.5.5] - 2026-04-19
 ### ✨ 新特性 (Features)
 - **底层架构重构**: OSPF 宣告引擎与 FakeIP / Xray 解耦，引入守护进程 `domainIPUpdater`。
