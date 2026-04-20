@@ -47,9 +47,11 @@ func setupFeatureSuiteRouter(t *testing.T) *gin.Engine {
 
 	mustMkdirAll(t, filepath.Join(root, "core", "xray"))
 	mustMkdirAll(t, filepath.Join(root, "core", "mosdns"))
+	mustMkdirAll(t, filepath.Join(root, "core", "frr"))
 	mustWriteFile(t, filepath.Join(root, "core", "xray", "config.json"), `{"log":{"loglevel":"warning"}}`)
 	mustWriteFile(t, filepath.Join(root, "core", "mosdns", "config.yaml"), "log:\n  level: info\n")
 	mustWriteFile(t, filepath.Join(root, "core", "mosdns", "geodata.ver"), "2026-04-20")
+	mustWriteFile(t, filepath.Join(root, "core", "frr", "frr.conf"), "router ospf\n ospf router-id 192.168.20.154\n")
 
 	dbPath := filepath.Join(root, "feature.db")
 	tdb, err := sql.Open("sqlite3", dbPath)
@@ -216,7 +218,7 @@ func TestFeatureSuite_AuthConfigAndSystem(t *testing.T) {
 	})
 
 	t.Run("config endpoints return seeded content", func(t *testing.T) {
-		for _, path := range []string{"/api/config/xray", "/api/config/mosdns"} {
+		for _, path := range []string{"/api/config/xray", "/api/config/mosdns", "/api/config/frr"} {
 			w := httptest.NewRecorder()
 			r.ServeHTTP(w, authedRequest(http.MethodGet, path))
 			if w.Code != http.StatusOK {

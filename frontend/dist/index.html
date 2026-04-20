@@ -920,11 +920,13 @@ PersistentKeepalive = 25
                             <button @click="currentConfigTab = 'xray'" :class="{'border-blue-500 text-blue-600': currentConfigTab === 'xray', 'border-transparent text-gray-500 hover:text-gray-700': currentConfigTab !== 'xray'}" class="whitespace-nowrap py-2 px-4 border-b-2 font-medium text-sm transition-colors focus:outline-none">Xray Core 配置</button>
                             <button @click="currentConfigTab = 'mosdns'" :class="{'border-blue-500 text-blue-600': currentConfigTab === 'mosdns', 'border-transparent text-gray-500 hover:text-gray-700': currentConfigTab !== 'mosdns'}" class="whitespace-nowrap py-2 px-4 border-b-2 font-medium text-sm transition-colors focus:outline-none">Mosdns 配置</button>
                             <button @click="currentConfigTab = 'nftables'" :class="{'border-blue-500 text-blue-600': currentConfigTab === 'nftables', 'border-transparent text-gray-500 hover:text-gray-700': currentConfigTab !== 'nftables'}" class="whitespace-nowrap py-2 px-4 border-b-2 font-medium text-sm transition-colors focus:outline-none">Nftables 配置</button>
+                            <button @click="currentConfigTab = 'frr'" :class="{'border-blue-500 text-blue-600': currentConfigTab === 'frr', 'border-transparent text-gray-500 hover:text-gray-700': currentConfigTab !== 'frr'}" class="whitespace-nowrap py-2 px-4 border-b-2 font-medium text-sm transition-colors focus:outline-none">FRR 配置</button>
                         </div>
 
                         <pre v-if="currentConfigTab === 'xray'" class="bg-[#1e1e1e] text-[#00ff00] p-4 rounded-lg flex-1 overflow-x-auto text-xs shadow-inner" style="min-height: 400px; margin-top: 0;">{{ xrayConfigStr }}</pre>
                         <pre v-if="currentConfigTab === 'mosdns'" class="bg-[#1e1e1e] text-yellow-400 p-4 rounded-lg flex-1 overflow-x-auto text-xs shadow-inner" style="min-height: 400px; margin-top: 0;">{{ mosdnsConfigStr }}</pre>
                         <pre v-if="currentConfigTab === 'nftables'" class="bg-[#1e1e1e] text-blue-400 p-4 rounded-lg flex-1 overflow-x-auto text-xs shadow-inner" style="min-height: 400px; margin-top: 0;">{{ nftablesConfigStr }}</pre>
+                        <pre v-if="currentConfigTab === 'frr'" class="bg-[#1e1e1e] text-purple-400 p-4 rounded-lg flex-1 overflow-x-auto text-xs shadow-inner" style="min-height: 400px; margin-top: 0;">{{ frrConfigStr }}</pre>
                     </div>
 
                         </transition>
@@ -1331,12 +1333,14 @@ window.onerror = function(msg, url, line, col, error) { alert("JS Error: " + msg
                 const xrayConfigStr = ref("");
                 const mosdnsConfigStr = ref("");
                 const nftablesConfigStr = ref("");
+                const frrConfigStr = ref("");
                 const currentConfigTab = ref("xray");
 
                 const loadConfigs = async () => {
                     apiFetch('/api/config/xray').then(r => r.text()).then(t => xrayConfigStr.value = t);
                     apiFetch('/api/config/mosdns').then(r => r.text()).then(t => mosdnsConfigStr.value = t);
                     apiFetch('/api/config/nftables').then(r => r.text()).then(t => nftablesConfigStr.value = t);
+                    apiFetch('/api/config/frr').then(r => r.text()).then(t => frrConfigStr.value = t);
                 };
 
                 let initLoaded = false;
@@ -1696,7 +1700,7 @@ Mode C: 纯OSPF (恢复真实IP宣告)`)) {
                     showAclModal, aclForm, openAddAcl, saveAcl, deleteAcl, updateLanDefault,
                     currentConfigTab,
                     loadData,
-                    isSubmitting, isLoading, vlessParams, cron, saveCron, showPwdModal, pwdForm, logout, changePwd, toastMsg, toastType, confirmData, doConfirm, isUpdating, token, password, login, categories, xrayConfigStr, mosdnsConfigStr, nftablesConfigStr, loadConfigs, newRule, addRule, activeTab, tabs, currentTabLabel, nodes, rules, dns, dnsLogs, ospf, sysStatus, applyConfig, toggleMode, changeMode, importNodeUrl, pingNodes, openAddNode, editNode, saveNode, showNodeModal, editingNode, deleteNode, toggleNode, deleteRule, saveDns, updateComp, showMosdnsRollbackModal, mosdnsVersions, selectedMosdnsRollbackVersion, openMosdnsRollbackModal, confirmMosdnsRollback, showRollbackModal, xrayVersions, selectedRollbackVersion, openRollbackModal, confirmRollback, remoteNodes, showRemoteNodeModal, showRemoteDetailsModal, selectedRemoteNode, remoteNodeForm, loadRemoteNodes, openAddRemoteNode, submitRemoteNode, viewRemoteNode, checkRemoteNode, confirmDeleteRemoteNode, copyText, importToLocal, isDeploying, showBatchModal, batchText, submitBatchNodes, showHistoryModal, nodeHistory, setDefaultNode, regenerateNode, loadNodeHistory, rollbackNode }
+                    isSubmitting, isLoading, vlessParams, cron, saveCron, showPwdModal, pwdForm, logout, changePwd, toastMsg, toastType, confirmData, doConfirm, isUpdating, token, password, login, categories, xrayConfigStr, mosdnsConfigStr, nftablesConfigStr, frrConfigStr, loadConfigs, newRule, addRule, activeTab, tabs, currentTabLabel, nodes, rules, dns, dnsLogs, ospf, sysStatus, applyConfig, toggleMode, changeMode, importNodeUrl, pingNodes, openAddNode, editNode, saveNode, showNodeModal, editingNode, deleteNode, toggleNode, deleteRule, saveDns, updateComp, showMosdnsRollbackModal, mosdnsVersions, selectedMosdnsRollbackVersion, openMosdnsRollbackModal, confirmMosdnsRollback, showRollbackModal, xrayVersions, selectedRollbackVersion, openRollbackModal, confirmRollback, remoteNodes, showRemoteNodeModal, showRemoteDetailsModal, selectedRemoteNode, remoteNodeForm, loadRemoteNodes, openAddRemoteNode, submitRemoteNode, viewRemoteNode, checkRemoteNode, confirmDeleteRemoteNode, copyText, importToLocal, isDeploying, showBatchModal, batchText, submitBatchNodes, showHistoryModal, nodeHistory, setDefaultNode, regenerateNode, loadNodeHistory, rollbackNode }
             }
         }).mount('#app');
     </script>
