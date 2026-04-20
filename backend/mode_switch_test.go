@@ -280,3 +280,22 @@ func TestModeSwitchUpsertsModeWhenMissing(t *testing.T) {
 		t.Fatalf("want mode C got %s", mode)
 	}
 }
+
+func TestModeSwitchSetServices_ToleratesFailedFRRState(t *testing.T) {
+	oldSetServices := modeSwitchSetServices
+	defer func() { modeSwitchSetServices = oldSetServices }()
+
+	calls := []string{}
+	modeSwitchSetServices = func(mode string) error {
+		calls = append(calls, "reset-failed")
+		calls = append(calls, "start-frr")
+		return nil
+	}
+
+	if err := modeSwitchSetServices("B"); err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Join(calls, ","); got != "reset-failed,start-frr" {
+		t.Fatalf("unexpected calls: %s", got)
+	}
+}

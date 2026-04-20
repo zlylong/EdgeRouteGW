@@ -17,20 +17,26 @@ import (
 )
 
 var modeSwitchSetServices = func(mode string) error {
-	if mode == "A" {
+	if exec.Command("systemctl", "is-active", "--quiet", "nftables").Run() != nil {
 		if err := exec.Command("systemctl", "start", "nftables").Run(); err != nil {
 			return err
 		}
-		if err := exec.Command("systemctl", "stop", "frr").Run(); err != nil {
-			return err
+	}
+
+	_ = exec.Command("systemctl", "reset-failed", "frr").Run()
+	if mode == "A" {
+		if exec.Command("systemctl", "is-active", "--quiet", "frr").Run() == nil {
+			if err := exec.Command("systemctl", "stop", "frr").Run(); err != nil {
+				return err
+			}
 		}
 		return nil
 	}
-	if err := exec.Command("systemctl", "start", "nftables").Run(); err != nil {
-		return err
-	}
-	if err := exec.Command("systemctl", "start", "frr").Run(); err != nil {
-		return err
+
+	if exec.Command("systemctl", "is-active", "--quiet", "frr").Run() != nil {
+		if err := exec.Command("systemctl", "start", "frr").Run(); err != nil {
+			return err
+		}
 	}
 	return nil
 }
