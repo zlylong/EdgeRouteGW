@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"database/sql"
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
@@ -14,6 +15,83 @@ import (
 
 	"github.com/gin-gonic/gin"
 )
+
+var modeSwitchSetServices = func(mode string) error {
+	if mode == "A" {
+		if err := exec.Command("systemctl", "start", "nftables").Run(); err != nil {
+			return err
+		}
+		if err := exec.Command("systemctl", "stop", "frr").Run(); err != nil {
+			return err
+		}
+		return nil
+	}
+	if err := exec.Command("systemctl", "start", "nftables").Run(); err != nil {
+		return err
+	}
+	if err := exec.Command("systemctl", "start", "frr").Run(); err != nil {
+		return err
+	}
+	return nil
+}
+
+var modeSwitchSyncFRR = func() error {
+	syncFRRConfig()
+	return nil
+}
+
+var modeSwitchApplyNftables = func() error { return applyNftablesConfig() }
+var modeSwitchApplyMosdns = func() error { return applyMosdnsConfig() }
+var modeSwitchApplyXray = func() error { return applyXrayConfig() }
+var modeSwitchFinalizeRoutes = func(mode string) error {
+	if mode == "C" {
+		return nil
+	}
+	_, err := db.Exec("UPDATE routes_table SET status='candidate' WHERE status='published'")
+	return err
+}
+
+func currentMode() string {
+	var mode string
+	if err := db.QueryRow("SELECT value FROM settings WHERE key='mode'").Scan(&mode); err != nil || strings.TrimSpace(mode) == "" {
+		return "A"
+	}
+	return strings.TrimSpace(mode)
+}
+
+func rollbackModeChange(mode string) {
+	_, _ = db.Exec("UPDATE settings SET value=? WHERE key='mode'", mode)
+	_ = modeSwitchSetServices(mode)
+	_ = modeSwitchSyncFRR()
+	_ = modeSwitchApplyNftables()
+	_ = modeSwitchApplyMosdns()
+	_ = modeSwitchApplyXray()
+	_ = modeSwitchFinalizeRoutes(mode)
+}
+
+func applyModeChange(newMode string) error {
+	oldMode := currentMode()
+	if _, err := db.Exec("UPDATE settings SET value=? WHERE key='mode'", newMode); err != nil {
+		return err
+	}
+
+	steps := []func() error{
+		func() error { return modeSwitchSetServices(newMode) },
+		modeSwitchSyncFRR,
+		modeSwitchApplyNftables,
+		modeSwitchApplyMosdns,
+		modeSwitchApplyXray,
+		func() error { return modeSwitchFinalizeRoutes(newMode) },
+	}
+
+	for _, step := range steps {
+		if err := step(); err != nil {
+			rollbackModeChange(oldMode)
+			return err
+		}
+	}
+	return nil
+}
 
 func readCPUUsage() float64 {
 	getStat := func() (idle, total float64) {
@@ -145,31 +223,19 @@ func registerSystemRoutes(api *gin.RouterGroup) {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "mode must be A, B, or C"})
 			return
 		}
-		if _, err := db.Exec("UPDATE settings SET value=? WHERE key='mode'", req.Mode); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "db error"})
-			return
-		}
-		if req.Mode != "C" {
-			db.Exec("UPDATE routes_table SET status='candidate' WHERE status='published'")
-		}
-		if req.Mode == "A" {
-			exec.Command("systemctl", "start", "nftables").Run()
-			exec.Command("systemctl", "stop", "frr").Run()
-		} else {
-			exec.Command("systemctl", "start", "nftables").Run()
-			exec.Command("systemctl", "start", "frr").Run()
-		}
-		syncFRRConfig()
-		if err := applyNftablesConfig(); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": "Nftables failed: " + err.Error()})
-			return
-		}
-		if err := applyMosdnsConfig(); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": "Mosdns failed: " + err.Error()})
-			return
-		}
-		if err := applyXrayConfig(); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": "Xray failed: " + err.Error()})
+		if err := applyModeChange(req.Mode); err != nil {
+			msg := err.Error()
+			switch {
+			case errors.Is(err, sql.ErrConnDone):
+				msg = "db error"
+			case strings.Contains(msg, "nft") || strings.Contains(strings.ToLower(msg), "nftables"):
+				msg = "Nftables failed: " + err.Error()
+			case strings.Contains(strings.ToLower(msg), "mosdns"):
+				msg = "Mosdns failed: " + err.Error()
+			case strings.Contains(strings.ToLower(msg), "xray"):
+				msg = "Xray failed: " + err.Error()
+			}
+			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": msg})
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{"success": true})

@@ -32,7 +32,7 @@ func buildBaseXrayConfig(mode string) map[string]interface{} {
 		},
 	}
 
-	if mode != "C" {
+	if mode == "B" {
 		config["fakedns"] = []map[string]interface{}{
 			{
 				"id":       "fakedns",

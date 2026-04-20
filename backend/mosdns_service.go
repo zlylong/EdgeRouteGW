@@ -10,9 +10,9 @@ func renderMosdnsConfig(local, remote string, lazy bool, mode string) string {
 		lazyExec = "      - exec: $lazy_cache\n      - matches: [ has_resp ]\n        exec: return\n"
 	}
 
-	proxyDomainExec := "exec: $forward_fakeip"
-	if mode == "C" {
-		proxyDomainExec = "exec: $forward_remote"
+	proxyDomainExec := "exec: $forward_remote"
+	if mode == "B" {
+		proxyDomainExec = "exec: $forward_fakeip"
 	}
 
 	configStr := `log:
