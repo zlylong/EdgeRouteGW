@@ -1,6 +1,6 @@
 # ProxyGW Changelog
 
-## [Unreleased] - 2026-04-20
+## [1.5.6] - 2026-04-20
 ### 🐞 修复 (Bug Fixes)
 - **远程节点创建恢复**: 修复 `backend/main.go` 中被破坏的 SQLite migration，恢复 `remote_nodes.ssh_host_key` 自动补列逻辑，解决新建远程节点时报 `Failed to insert node` 的问题。
 - **远程节点参数重部署自愈**: 修复远程节点首次部署失败后再次重试时，`remote_node_wg` / `remote_node_vless` 仅执行 `UPDATE` 导致 0 行更新的问题。现改为 `UPSERT`，确保重部署后分享链接、端口、Reality/WG 参数都能正确落库。
