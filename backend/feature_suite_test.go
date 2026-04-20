@@ -1,0 +1,528 @@
+package main
+
+import (
+	"database/sql"
+	"encoding/base64"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"strings"
+	"sync"
+	"testing"
+	"time"
+
+	"github.com/gin-gonic/gin"
+	_ "github.com/mattn/go-sqlite3"
+)
+
+var featureSuiteMu sync.Mutex
+
+func setupFeatureSuiteRouter(t *testing.T) *gin.Engine {
+	t.Helper()
+	featureSuiteMu.Lock()
+	gin.SetMode(gin.TestMode)
+
+	oldDB := db
+	oldCachedGeosite := append([]string(nil), cachedGeosite...)
+	oldCachedGeoip := append([]string(nil), cachedGeoip...)
+	oldOspfLogs := append([]string(nil), ospfLogs...)
+	oldApplyTimer := applyTimer
+
+	applyMutex.Lock()
+	if applyTimer != nil {
+		applyTimer.Stop()
+		applyTimer = nil
+	}
+	applyMutex.Unlock()
+	cachedGeosite = nil
+	cachedGeoip = nil
+	ospfLogs = nil
+	clearSyncMap(&sessions)
+	clearSyncMap(&loginAttempts)
+
+	root := t.TempDir()
+	t.Setenv("PROXYGW_HOME", root)
+
+	mustMkdirAll(t, filepath.Join(root, "core", "xray"))
+	mustMkdirAll(t, filepath.Join(root, "core", "mosdns"))
+	mustWriteFile(t, filepath.Join(root, "core", "xray", "config.json"), `{"log":{"loglevel":"warning"}}`)
+	mustWriteFile(t, filepath.Join(root, "core", "mosdns", "config.yaml"), "log:\n  level: info\n")
+	mustWriteFile(t, filepath.Join(root, "core", "mosdns", "geodata.ver"), "2026-04-20")
+
+	dbPath := filepath.Join(root, "feature.db")
+	tdb, err := sql.Open("sqlite3", dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	db = tdb
+	t.Cleanup(func() {
+		applyMutex.Lock()
+		if applyTimer != nil {
+			applyTimer.Stop()
+			applyTimer = nil
+		}
+		db = oldDB
+		cachedGeosite = oldCachedGeosite
+		cachedGeoip = oldCachedGeoip
+		ospfLogs = oldOspfLogs
+		applyTimer = oldApplyTimer
+		applyMutex.Unlock()
+		clearSyncMap(&sessions)
+		clearSyncMap(&loginAttempts)
+		_ = tdb.Close()
+		featureSuiteMu.Unlock()
+	})
+
+	stmts := []string{
+		`CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT);`,
+		`CREATE TABLE rules (id INTEGER PRIMARY KEY AUTOINCREMENT, type TEXT, value TEXT, policy TEXT);`,
+		`CREATE TABLE nodes (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, grp TEXT, type TEXT, address TEXT, port INTEGER, uuid TEXT, params TEXT, active BOOLEAN DEFAULT 1, ping INTEGER DEFAULT 0);`,
+		`CREATE TABLE lan_acls (id INTEGER PRIMARY KEY AUTOINCREMENT, type TEXT, value TEXT, policy TEXT, remark TEXT, created_at DATETIME DEFAULT CURRENT_TIMESTAMP);`,
+		`CREATE TABLE remote_nodes (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, type TEXT, ssh_host TEXT, ssh_port INTEGER, ssh_user TEXT, ssh_auth_type TEXT, ssh_credential TEXT, ssh_host_key TEXT, region TEXT, status TEXT, remark TEXT, created_at DATETIME DEFAULT CURRENT_TIMESTAMP, updated_at DATETIME DEFAULT CURRENT_TIMESTAMP);`,
+		`CREATE TABLE remote_node_wg (node_id INTEGER PRIMARY KEY, server_priv TEXT, server_pub TEXT, client_priv TEXT, client_pub TEXT, endpoint TEXT, port INTEGER, tunnel_addr TEXT, client_addr TEXT);`,
+		`CREATE TABLE remote_node_vless (node_id INTEGER PRIMARY KEY, uuid TEXT, reality_priv TEXT, reality_pub TEXT, short_id TEXT, server_name TEXT, dest TEXT, port INTEGER, share_link TEXT);`,
+		`CREATE TABLE remote_node_history (id INTEGER PRIMARY KEY AUTOINCREMENT, node_id INTEGER, type TEXT, params TEXT, created_at DATETIME DEFAULT CURRENT_TIMESTAMP);`,
+		`CREATE TABLE remote_node_logs (id INTEGER PRIMARY KEY AUTOINCREMENT, node_id INTEGER, action TEXT, status TEXT, log_text TEXT, created_at DATETIME DEFAULT CURRENT_TIMESTAMP);`,
+		`CREATE TABLE traffic_history (ts DATETIME, up_bytes INTEGER, down_bytes INTEGER);`,
+		`CREATE TABLE routes_table (ip TEXT PRIMARY KEY, domain TEXT, source TEXT, first_seen DATETIME, last_seen DATETIME, ttl INTEGER, status TEXT, miss_count INTEGER DEFAULT 0);`,
+	}
+	for _, stmt := range stmts {
+		if _, err := tdb.Exec(stmt); err != nil {
+			t.Fatalf("create schema failed: %v", err)
+		}
+	}
+
+	seed := []string{
+		`INSERT INTO settings(key, value) VALUES ('password', 'admin')`,
+		`INSERT INTO settings(key, value) VALUES ('dns_local', '223.5.5.5')`,
+		`INSERT INTO settings(key, value) VALUES ('dns_remote', '8.8.8.8')`,
+		`INSERT INTO settings(key, value) VALUES ('dns_lazy', 'true')`,
+		`INSERT INTO settings(key, value) VALUES ('dns_mode', 'smart')`,
+		`INSERT INTO settings(key, value) VALUES ('mode', 'B')`,
+		`INSERT INTO settings(key, value) VALUES ('cron_enabled', 'false')`,
+		`INSERT INTO settings(key, value) VALUES ('cron_time', '04:00')`,
+		`INSERT INTO settings(key, value) VALUES ('lan_default_policy', 'proxy')`,
+		`INSERT INTO settings(key, value) VALUES ('default_node_id', '2')`,
+		`INSERT INTO rules(type, value, policy) VALUES ('domain', 'example.com', 'proxy')`,
+		`INSERT INTO rules(type, value, policy) VALUES ('ip', '8.8.8.8/32', 'direct')`,
+		`INSERT INTO nodes(id, name, grp, type, address, port, uuid, params, active, ping) VALUES (1, 'n1', 'g1', 'Vmess', '1.1.1.1', 443, 'u1', '{}', 1, 10)`,
+		`INSERT INTO nodes(id, name, grp, type, address, port, uuid, params, active, ping) VALUES (2, 'n2', 'g2', 'Vless', '2.2.2.2', 8443, 'u2', '{"flow":"xtls-rprx-vision"}', 1, 20)`,
+		`INSERT INTO lan_acls(type, value, policy, remark) VALUES ('ip', '192.168.20.10', 'direct', 'laptop')`,
+		`INSERT INTO remote_nodes(id, name, type, ssh_host, ssh_port, ssh_user, ssh_auth_type, ssh_credential, ssh_host_key, region, status, remark) VALUES (2, '192.168.20.152', 'vless', '192.168.20.152', 22, 'root', 'password', 'ENC:test', 'SHA256:test', 'lab', 'Online', 'seed')`,
+		`INSERT INTO remote_node_vless(node_id, uuid, reality_priv, reality_pub, short_id, server_name, dest, port, share_link) VALUES (2, 'a64bc5e0-abd8-4015-a904-4ababd2b88ce', 'priv', 'pub', '6c4368e699a21562', 'www.microsoft.com', 'www.microsoft.com:443', 21508, 'vless://a64bc5e0-abd8-4015-a904-4ababd2b88ce@192.168.20.152:21508?security=reality&sni=www.microsoft.com&fp=chrome&pbk=pub&sid=6c4368e699a21562&type=tcp&flow=xtls-rprx-vision&encryption=none#192.168.20.152')`,
+		`INSERT INTO remote_node_history(node_id, type, params) VALUES (2, 'vless', '{"port":21508}')`,
+		`INSERT INTO remote_node_logs(node_id, action, status, log_text) VALUES (2, 'deploy', 'success', 'Deployment successful')`,
+		`INSERT INTO traffic_history(ts, up_bytes, down_bytes) VALUES (datetime('now', '-1 hour'), 100, 200)`,
+		`INSERT INTO traffic_history(ts, up_bytes, down_bytes) VALUES (datetime('now', '-2 hour'), 300, 400)`,
+		`INSERT INTO routes_table(ip, domain, source, first_seen, last_seen, ttl, status, miss_count) VALUES ('8.8.8.8/32', 'google.com', 'seed', datetime('now'), datetime('now'), 300, 'published', 0)`,
+		`INSERT INTO routes_table(ip, domain, source, first_seen, last_seen, ttl, status, miss_count) VALUES ('1.1.1.1/32', 'cloudflare.com', 'seed', datetime('now'), datetime('now'), 300, 'candidate', 0)`,
+	}
+	for _, stmt := range seed {
+		if _, err := tdb.Exec(stmt); err != nil {
+			t.Fatalf("seed failed: %v", err)
+		}
+	}
+
+	sessions.Store("test-token", SessionInfo{ExpiresAt: time.Now().Add(time.Hour)})
+
+	r := gin.New()
+	registerAPIRoutes(r)
+	return r
+}
+
+func clearSyncMap(m *sync.Map) {
+	m.Range(func(key, _ interface{}) bool {
+		m.Delete(key)
+		return true
+	})
+}
+
+func mustMkdirAll(t *testing.T, path string) {
+	t.Helper()
+	if err := os.MkdirAll(path, 0o755); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func mustWriteFile(t *testing.T, path, content string) {
+	t.Helper()
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func authedJSONRequest(method, target, body string) *http.Request {
+	req := httptest.NewRequest(method, target, strings.NewReader(body))
+	req.Header.Set("Authorization", "Bearer test-token")
+	req.Header.Set("Content-Type", "application/json")
+	return req
+}
+
+func authedRequest(method, target string) *http.Request {
+	req := httptest.NewRequest(method, target, nil)
+	req.Header.Set("Authorization", "Bearer test-token")
+	return req
+}
+
+func decodeJSONMap(t *testing.T, body []byte) map[string]interface{} {
+	t.Helper()
+	var v map[string]interface{}
+	if err := json.Unmarshal(body, &v); err != nil {
+		t.Fatal(err)
+	}
+	return v
+}
+
+func decodeJSONArray(t *testing.T, body []byte) []map[string]interface{} {
+	t.Helper()
+	var v []map[string]interface{}
+	if err := json.Unmarshal(body, &v); err != nil {
+		t.Fatal(err)
+	}
+	return v
+}
+
+func TestFeatureSuite_AuthConfigAndSystem(t *testing.T) {
+	r := setupFeatureSuiteRouter(t)
+
+	t.Run("login succeeds and returns token", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodPost, "/api/login", strings.NewReader(`{"Password":"admin"}`))
+		req.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, req)
+		if w.Code != http.StatusOK {
+			t.Fatalf("want 200 got %d", w.Code)
+		}
+		resp := decodeJSONMap(t, w.Body.Bytes())
+		if strings.TrimSpace(resp["token"].(string)) == "" {
+			t.Fatal("expected non-empty token")
+		}
+	})
+
+	t.Run("logout revokes session", func(t *testing.T) {
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, authedRequest(http.MethodPost, "/api/logout"))
+		if w.Code != http.StatusOK {
+			t.Fatalf("want 200 got %d", w.Code)
+		}
+		protected := httptest.NewRecorder()
+		r.ServeHTTP(protected, authedRequest(http.MethodGet, "/api/dns"))
+		if protected.Code != http.StatusUnauthorized {
+			t.Fatalf("want 401 after logout got %d", protected.Code)
+		}
+		sessions.Store("test-token", SessionInfo{ExpiresAt: time.Now().Add(time.Hour)})
+	})
+
+	t.Run("config endpoints return seeded content", func(t *testing.T) {
+		for _, path := range []string{"/api/config/xray", "/api/config/mosdns"} {
+			w := httptest.NewRecorder()
+			r.ServeHTTP(w, authedRequest(http.MethodGet, path))
+			if w.Code != http.StatusOK {
+				t.Fatalf("%s want 200 got %d", path, w.Code)
+			}
+			if strings.TrimSpace(w.Body.String()) == "" {
+				t.Fatalf("%s returned empty body", path)
+			}
+		}
+	})
+
+	t.Run("status endpoint returns mode and service snapshot", func(t *testing.T) {
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, authedRequest(http.MethodGet, "/api/status"))
+		if w.Code != http.StatusOK {
+			t.Fatalf("want 200 got %d", w.Code)
+		}
+		resp := decodeJSONMap(t, w.Body.Bytes())
+		if resp["mode"] != "B" {
+			t.Fatalf("want mode B got %v", resp["mode"])
+		}
+	})
+
+	t.Run("cron can save and read back", func(t *testing.T) {
+		post := httptest.NewRecorder()
+		r.ServeHTTP(post, authedJSONRequest(http.MethodPost, "/api/cron", `{"Enabled":true,"Time":"03:30"}`))
+		if post.Code != http.StatusOK {
+			t.Fatalf("want 200 got %d", post.Code)
+		}
+		get := httptest.NewRecorder()
+		r.ServeHTTP(get, authedRequest(http.MethodGet, "/api/cron"))
+		if get.Code != http.StatusOK {
+			t.Fatalf("want 200 got %d", get.Code)
+		}
+		resp := decodeJSONMap(t, get.Body.Bytes())
+		if resp["enabled"] != true || resp["time"] != "03:30" {
+			t.Fatalf("unexpected cron payload: %v", resp)
+		}
+	})
+
+	t.Run("traffic and ospf summaries reflect seeded rows", func(t *testing.T) {
+		traffic := httptest.NewRecorder()
+		r.ServeHTTP(traffic, authedRequest(http.MethodGet, "/api/traffic"))
+		if traffic.Code != http.StatusOK {
+			t.Fatalf("want 200 got %d", traffic.Code)
+		}
+		trafficResp := decodeJSONMap(t, traffic.Body.Bytes())
+		total24h := trafficResp["total_24h"].(map[string]interface{})
+		if total24h["up"].(float64) != 400 || total24h["down"].(float64) != 600 {
+			t.Fatalf("unexpected traffic totals: %v", trafficResp)
+		}
+
+		ospf := httptest.NewRecorder()
+		r.ServeHTTP(ospf, authedRequest(http.MethodGet, "/api/ospf"))
+		if ospf.Code != http.StatusOK {
+			t.Fatalf("want 200 got %d", ospf.Code)
+		}
+		ospfResp := decodeJSONMap(t, ospf.Body.Bytes())
+		if ospfResp["published"].(float64) != 1 || ospfResp["pending"].(float64) != 1 {
+			t.Fatalf("unexpected ospf payload: %v", ospfResp)
+		}
+	})
+}
+
+func TestFeatureSuite_DNSRulesAndNodes(t *testing.T) {
+	r := setupFeatureSuiteRouter(t)
+
+	t.Run("dns endpoint returns configured defaults", func(t *testing.T) {
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, authedRequest(http.MethodGet, "/api/dns"))
+		if w.Code != http.StatusOK {
+			t.Fatalf("want 200 got %d", w.Code)
+		}
+		resp := decodeJSONMap(t, w.Body.Bytes())
+		if resp["local"] != "223.5.5.5" || resp["remote"] != "8.8.8.8" || resp["mode"] != "smart" {
+			t.Fatalf("unexpected dns payload: %v", resp)
+		}
+	})
+
+	t.Run("dns rejects invalid upstream payload", func(t *testing.T) {
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, authedJSONRequest(http.MethodPost, "/api/dns", `{"Local":"\n","Remote":"8.8.8.8","Lazy":true,"Mode":"smart"}`))
+		if w.Code != http.StatusBadRequest {
+			t.Fatalf("want 400 got %d", w.Code)
+		}
+	})
+
+	t.Run("rules support list create validation and delete", func(t *testing.T) {
+		list := httptest.NewRecorder()
+		r.ServeHTTP(list, authedRequest(http.MethodGet, "/api/rules"))
+		if list.Code != http.StatusOK {
+			t.Fatalf("want 200 got %d", list.Code)
+		}
+		arr := decodeJSONArray(t, list.Body.Bytes())
+		if len(arr) != 2 {
+			t.Fatalf("want 2 rules got %d", len(arr))
+		}
+
+		invalid := httptest.NewRecorder()
+		r.ServeHTTP(invalid, authedJSONRequest(http.MethodPost, "/api/rules", `{"Type":"ip","Value":"not-an-ip","Policy":"direct"}`))
+		if invalid.Code != http.StatusBadRequest {
+			t.Fatalf("want 400 got %d", invalid.Code)
+		}
+
+		create := httptest.NewRecorder()
+		r.ServeHTTP(create, authedJSONRequest(http.MethodPost, "/api/rules", `{"Type":"domain","Value":"google.com","Policy":"proxy"}`))
+		if create.Code != http.StatusOK {
+			t.Fatalf("want 200 got %d", create.Code)
+		}
+		var ruleCount int
+		if err := db.QueryRow("SELECT COUNT(*) FROM rules WHERE value='google.com' AND policy='proxy'").Scan(&ruleCount); err != nil {
+			t.Fatal(err)
+		}
+		if ruleCount != 1 {
+			t.Fatalf("expected inserted rule, count=%d", ruleCount)
+		}
+
+		remove := httptest.NewRecorder()
+		r.ServeHTTP(remove, authedRequest(http.MethodDelete, "/api/rules/1"))
+		if remove.Code != http.StatusOK {
+			t.Fatalf("want 200 got %d", remove.Code)
+		}
+		if err := db.QueryRow("SELECT COUNT(*) FROM rules WHERE id=1").Scan(&ruleCount); err != nil {
+			t.Fatal(err)
+		}
+		if ruleCount != 0 {
+			t.Fatalf("expected rule 1 deleted, count=%d", ruleCount)
+		}
+	})
+
+	t.Run("nodes support list create update toggle default import and delete", func(t *testing.T) {
+		list := httptest.NewRecorder()
+		r.ServeHTTP(list, authedRequest(http.MethodGet, "/api/nodes"))
+		if list.Code != http.StatusOK {
+			t.Fatalf("want 200 got %d", list.Code)
+		}
+		nodes := decodeJSONArray(t, list.Body.Bytes())
+		if len(nodes) != 2 {
+			t.Fatalf("want 2 nodes got %d", len(nodes))
+		}
+		var defaultSeen bool
+		for _, node := range nodes {
+			if int(node["id"].(float64)) == 2 && node["is_default"] == true {
+				defaultSeen = true
+			}
+		}
+		if !defaultSeen {
+			t.Fatal("expected node 2 to be default")
+		}
+
+		create := httptest.NewRecorder()
+		r.ServeHTTP(create, authedJSONRequest(http.MethodPost, "/api/nodes", `{"Name":"n3","Group":"g3","Type":"Vless","Address":"3.3.3.3","Port":443,"UUID":"u3","Params":"{}"}`))
+		if create.Code != http.StatusOK {
+			t.Fatalf("want 200 got %d", create.Code)
+		}
+		var createdCount int
+		if err := db.QueryRow("SELECT COUNT(*) FROM nodes WHERE name='n3' AND address='3.3.3.3'").Scan(&createdCount); err != nil {
+			t.Fatal(err)
+		}
+		if createdCount != 1 {
+			t.Fatalf("expected inserted node, count=%d", createdCount)
+		}
+
+		update := httptest.NewRecorder()
+		r.ServeHTTP(update, authedJSONRequest(http.MethodPut, "/api/nodes/1", `{"Name":"n1-edit","Group":"g9","Type":"Vmess","Address":"9.9.9.9","Port":9443,"UUID":"u9","Params":"{}"}`))
+		if update.Code != http.StatusOK {
+			t.Fatalf("want 200 got %d", update.Code)
+		}
+		var updatedName string
+		var updatedPort int
+		if err := db.QueryRow("SELECT name, port FROM nodes WHERE id=1").Scan(&updatedName, &updatedPort); err != nil {
+			t.Fatal(err)
+		}
+		if updatedName != "n1-edit" || updatedPort != 9443 {
+			t.Fatalf("unexpected updated node: %s %d", updatedName, updatedPort)
+		}
+
+		toggle := httptest.NewRecorder()
+		r.ServeHTTP(toggle, authedRequest(http.MethodPut, "/api/nodes/1/toggle"))
+		if toggle.Code != http.StatusOK {
+			t.Fatalf("want 200 got %d", toggle.Code)
+		}
+		var active bool
+		if err := db.QueryRow("SELECT active FROM nodes WHERE id=1").Scan(&active); err != nil {
+			t.Fatal(err)
+		}
+		if active {
+			t.Fatal("expected node 1 to be toggled inactive")
+		}
+
+		setDefault := httptest.NewRecorder()
+		r.ServeHTTP(setDefault, authedRequest(http.MethodPut, "/api/nodes/1/default"))
+		if setDefault.Code != http.StatusOK {
+			t.Fatalf("want 200 got %d", setDefault.Code)
+		}
+		var defaultNode string
+		if err := db.QueryRow("SELECT value FROM settings WHERE key='default_node_id'").Scan(&defaultNode); err != nil {
+			t.Fatal(err)
+		}
+		if defaultNode != "1" {
+			t.Fatalf("expected default node 1, got %s", defaultNode)
+		}
+
+		shareLink := "vless://123e4567-e89b-12d3-a456-426614174000@hk.example.com:443?security=reality&sni=www.microsoft.com&fp=chrome&pbk=abc123&sid=abcd&type=tcp&flow=xtls-rprx-vision&encryption=none#hk-node"
+		importReq := httptest.NewRecorder()
+		r.ServeHTTP(importReq, authedJSONRequest(http.MethodPost, "/api/nodes/import", `{"Url":"`+shareLink+`"}`))
+		if importReq.Code != http.StatusOK {
+			t.Fatalf("want 200 got %d body=%s", importReq.Code, importReq.Body.String())
+		}
+		var importedCount int
+		if err := db.QueryRow("SELECT COUNT(*) FROM nodes WHERE name='hk-node' AND address='hk.example.com' AND type='Vless'").Scan(&importedCount); err != nil {
+			t.Fatal(err)
+		}
+		if importedCount != 1 {
+			t.Fatalf("expected imported node, count=%d", importedCount)
+		}
+
+		deleteReq := httptest.NewRecorder()
+		r.ServeHTTP(deleteReq, authedRequest(http.MethodDelete, "/api/nodes/2"))
+		if deleteReq.Code != http.StatusOK {
+			t.Fatalf("want 200 got %d", deleteReq.Code)
+		}
+		var deletedCount int
+		if err := db.QueryRow("SELECT COUNT(*) FROM nodes WHERE id=2").Scan(&deletedCount); err != nil {
+			t.Fatal(err)
+		}
+		if deletedCount != 0 {
+			t.Fatalf("expected node 2 deleted, count=%d", deletedCount)
+		}
+	})
+
+	t.Run("lan acl list returns seeded data", func(t *testing.T) {
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, authedRequest(http.MethodGet, "/api/lan_acls"))
+		if w.Code != http.StatusOK {
+			t.Fatalf("want 200 got %d", w.Code)
+		}
+		resp := decodeJSONMap(t, w.Body.Bytes())
+		acls := resp["acls"].([]interface{})
+		if len(acls) != 1 || resp["default_policy"] != "proxy" {
+			t.Fatalf("unexpected lan acl payload: %v", resp)
+		}
+	})
+}
+
+func TestFeatureSuite_RemoteNodeViews(t *testing.T) {
+	r := setupFeatureSuiteRouter(t)
+
+	t.Run("remote nodes list returns seeded node", func(t *testing.T) {
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, authedRequest(http.MethodGet, "/api/remote_nodes"))
+		if w.Code != http.StatusOK {
+			t.Fatalf("want 200 got %d", w.Code)
+		}
+		arr := decodeJSONArray(t, w.Body.Bytes())
+		if len(arr) != 1 || arr[0]["status"] != "Online" {
+			t.Fatalf("unexpected remote node list: %v", arr)
+		}
+	})
+
+	t.Run("remote node details expose generated vless share link", func(t *testing.T) {
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, authedRequest(http.MethodGet, "/api/remote_nodes/2"))
+		if w.Code != http.StatusOK {
+			t.Fatalf("want 200 got %d", w.Code)
+		}
+		resp := decodeJSONMap(t, w.Body.Bytes())
+		vless := resp["vless"].(map[string]interface{})
+		if !strings.Contains(vless["share_link"].(string), "vless://") {
+			t.Fatalf("unexpected remote details payload: %v", resp)
+		}
+	})
+
+	t.Run("remote node history returns stored rollback snapshot", func(t *testing.T) {
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, authedRequest(http.MethodGet, "/api/remote_nodes/2/history"))
+		if w.Code != http.StatusOK {
+			t.Fatalf("want 200 got %d", w.Code)
+		}
+		arr := decodeJSONArray(t, w.Body.Bytes())
+		if len(arr) != 1 {
+			t.Fatalf("want 1 history row got %d", len(arr))
+		}
+	})
+}
+
+func TestFeatureSuite_NodeImportAcceptsRemoteVLESSShareLink(t *testing.T) {
+	r := setupFeatureSuiteRouter(t)
+	shareLink := "vless://a64bc5e0-abd8-4015-a904-4ababd2b88ce@192.168.20.152:21508?security=reality&sni=www.microsoft.com&fp=chrome&pbk=pub&sid=6c4368e699a21562&type=tcp&flow=xtls-rprx-vision&encryption=none#192.168.20.152"
+	encoded := base64.StdEncoding.EncodeToString([]byte(`{"v":"2","ps":"ignored","add":"vm.example.com","port":"443","id":"123e4567-e89b-12d3-a456-426614174999"}`))
+
+	cases := []struct {
+		name string
+		url  string
+	}{
+		{name: "vless share link", url: shareLink},
+		{name: "vmess share link", url: "vmess://" + encoded},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			w := httptest.NewRecorder()
+			r.ServeHTTP(w, authedJSONRequest(http.MethodPost, "/api/nodes/import", `{"Url":"`+tc.url+`"}`))
+			if w.Code != http.StatusOK {
+				t.Fatalf("want 200 got %d body=%s", w.Code, w.Body.String())
+			}
+		})
+	}
+}
