@@ -29,10 +29,24 @@ jobs:
           CGO_ENABLED=1 GOOS=linux GOARCH=amd64 go build -o proxygw-backend-linux-amd64 .
           CGO_ENABLED=1 GOOS=linux GOARCH=arm64 CC=aarch64-linux-gnu-gcc go build -o proxygw-backend-linux-arm64 .
 
+      - name: Extract release notes from changelog
+        shell: bash
+        run: |
+          TAG="${GITHUB_REF_NAME#v}"
+          awk -v ver="$TAG" '
+            $0 ~ /^## \[[^]]+\] - / {
+              if (found) exit
+            }
+            index($0, "## [" ver "] - ") == 1 { found=1 }
+            found { print }
+          ' docs/CHANGELOG.md > /tmp/release_notes.md
+          test -s /tmp/release_notes.md
+
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
+          name: ProxyGW ${{ github.ref_name }} Stable
+          body_path: /tmp/release_notes.md
           files: |
             backend/proxygw-backend-linux-amd64
             backend/proxygw-backend-linux-arm64
-          generate_release_notes: true

@@ -1,5 +1,10 @@
 # ProxyGW Changelog
 
+## [1.5.8] - 2026-04-20
+### 📦 发布 (Release)
+- **稳定版补发**: 补发 `v1.5.8 Stable`，修正 GitHub Release 标题与更新说明，确保 Release 页面与 `docs/CHANGELOG.md` 1:1 对齐。
+- **发布工作流修复**: 修复 `.github/workflows/release.yml`，改为从 `docs/CHANGELOG.md` 自动提取对应版本段落作为 Release Notes，并统一使用 `ProxyGW <VERSION> Stable` 标题发布。
+
 ## [1.5.7] - 2026-04-20
 ### 🐞 修复 (Bug Fixes)
 - **三模式配置纠偏**: 修复 Mode A 误启用 FakeDNS/FakeIP 的错误。现在仅 Mode B 使用 FakeIP/FakeDNS；Mode A 与 Mode C 均恢复为真实远程 DNS 解析，避免 Mode A 下 LAN ACL 旁路设备命中 FakeIP 黑洞。
