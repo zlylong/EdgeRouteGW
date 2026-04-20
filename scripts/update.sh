@@ -13,6 +13,7 @@ git fetch origin
 git reset --hard origin/main
 
 echo "[2/4] Downloading backend from GitHub Releases..."
+systemctl stop proxygw 2>/dev/null || true
 ARCH=$(uname -m)
 # Try to get version from local git first
 if [ -d "$REPO_DIR/.git" ]; then
