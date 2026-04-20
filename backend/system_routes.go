@@ -59,28 +59,32 @@ func currentMode() string {
 	return strings.TrimSpace(mode)
 }
 
+func setModeValue(mode string) error {
+	_, err := db.Exec("INSERT OR REPLACE INTO settings (key, value) VALUES ('mode', ?)", mode)
+	return err
+}
+
 func rollbackModeChange(mode string) {
-	_, _ = db.Exec("UPDATE settings SET value=? WHERE key='mode'", mode)
-	_ = modeSwitchSetServices(mode)
+	_ = setModeValue(mode)
 	_ = modeSwitchSyncFRR()
 	_ = modeSwitchApplyNftables()
 	_ = modeSwitchApplyMosdns()
 	_ = modeSwitchApplyXray()
-	_ = modeSwitchFinalizeRoutes(mode)
+	_ = modeSwitchSetServices(mode)
 }
 
 func applyModeChange(newMode string) error {
 	oldMode := currentMode()
-	if _, err := db.Exec("UPDATE settings SET value=? WHERE key='mode'", newMode); err != nil {
+	if err := setModeValue(newMode); err != nil {
 		return err
 	}
 
 	steps := []func() error{
-		func() error { return modeSwitchSetServices(newMode) },
 		modeSwitchSyncFRR,
 		modeSwitchApplyNftables,
 		modeSwitchApplyMosdns,
 		modeSwitchApplyXray,
+		func() error { return modeSwitchSetServices(newMode) },
 		func() error { return modeSwitchFinalizeRoutes(newMode) },
 	}
 

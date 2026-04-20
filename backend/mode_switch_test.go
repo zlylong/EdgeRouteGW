@@ -141,3 +141,142 @@ func TestModeSwitchFinalizeRoutesAfterSuccess(t *testing.T) {
 		t.Fatalf("unexpected route counts published=%d candidate=%d", published, candidate)
 	}
 }
+
+func TestModeSwitchOrder_AppliesConfigsBeforeServiceState(t *testing.T) {
+	setupFeatureSuiteRouter(t)
+
+	oldSetServices := modeSwitchSetServices
+	oldSyncFRR := modeSwitchSyncFRR
+	oldApplyNftables := modeSwitchApplyNftables
+	oldApplyMosdns := modeSwitchApplyMosdns
+	oldApplyXray := modeSwitchApplyXray
+	oldFinalizeRoutes := modeSwitchFinalizeRoutes
+	defer func() {
+		modeSwitchSetServices = oldSetServices
+		modeSwitchSyncFRR = oldSyncFRR
+		modeSwitchApplyNftables = oldApplyNftables
+		modeSwitchApplyMosdns = oldApplyMosdns
+		modeSwitchApplyXray = oldApplyXray
+		modeSwitchFinalizeRoutes = oldFinalizeRoutes
+	}()
+
+	var calls []string
+	modeSwitchSyncFRR = func() error {
+		calls = append(calls, "sync-frr")
+		return nil
+	}
+	modeSwitchApplyNftables = func() error {
+		calls = append(calls, "apply-nftables")
+		return nil
+	}
+	modeSwitchApplyMosdns = func() error {
+		calls = append(calls, "apply-mosdns")
+		return nil
+	}
+	modeSwitchApplyXray = func() error {
+		calls = append(calls, "apply-xray")
+		return nil
+	}
+	modeSwitchSetServices = func(mode string) error {
+		calls = append(calls, "set-services:"+mode)
+		return nil
+	}
+	modeSwitchFinalizeRoutes = func(mode string) error {
+		calls = append(calls, "finalize:"+mode)
+		return nil
+	}
+
+	if err := applyModeChange("C"); err != nil {
+		t.Fatal(err)
+	}
+
+	got := strings.Join(calls, ",")
+	want := "sync-frr,apply-nftables,apply-mosdns,apply-xray,set-services:C,finalize:C"
+	if got != want {
+		t.Fatalf("unexpected order: got %s want %s", got, want)
+	}
+}
+
+func TestModeSwitchRollbackDoesNotDirtyPublishedRoutes(t *testing.T) {
+	r := setupFeatureSuiteRouter(t)
+
+	oldSetServices := modeSwitchSetServices
+	oldSyncFRR := modeSwitchSyncFRR
+	oldApplyNftables := modeSwitchApplyNftables
+	oldApplyMosdns := modeSwitchApplyMosdns
+	oldApplyXray := modeSwitchApplyXray
+	oldFinalizeRoutes := modeSwitchFinalizeRoutes
+	defer func() {
+		modeSwitchSetServices = oldSetServices
+		modeSwitchSyncFRR = oldSyncFRR
+		modeSwitchApplyNftables = oldApplyNftables
+		modeSwitchApplyMosdns = oldApplyMosdns
+		modeSwitchApplyXray = oldApplyXray
+		modeSwitchFinalizeRoutes = oldFinalizeRoutes
+	}()
+
+	modeSwitchSetServices = func(mode string) error { return nil }
+	modeSwitchSyncFRR = func() error { return nil }
+	modeSwitchApplyNftables = func() error { return nil }
+	modeSwitchApplyMosdns = func() error { return errors.New("mosdns crashed") }
+	modeSwitchApplyXray = func() error { return nil }
+	modeSwitchFinalizeRoutes = oldFinalizeRoutes
+
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, authedJSONRequest(http.MethodPost, "/api/mode", `{"Mode":"A"}`))
+	if w.Code != http.StatusInternalServerError {
+		t.Fatalf("want 500 got %d body=%s", w.Code, w.Body.String())
+	}
+
+	var published, candidate int
+	if err := db.QueryRow("SELECT count(*) FROM routes_table WHERE status='published'").Scan(&published); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.QueryRow("SELECT count(*) FROM routes_table WHERE status='candidate'").Scan(&candidate); err != nil {
+		t.Fatal(err)
+	}
+	if published != 1 || candidate != 1 {
+		t.Fatalf("rollback dirtied route states: published=%d candidate=%d", published, candidate)
+	}
+}
+
+func TestModeSwitchUpsertsModeWhenMissing(t *testing.T) {
+	oldSetServices := modeSwitchSetServices
+	oldSyncFRR := modeSwitchSyncFRR
+	oldApplyNftables := modeSwitchApplyNftables
+	oldApplyMosdns := modeSwitchApplyMosdns
+	oldApplyXray := modeSwitchApplyXray
+	oldFinalizeRoutes := modeSwitchFinalizeRoutes
+	defer func() {
+		modeSwitchSetServices = oldSetServices
+		modeSwitchSyncFRR = oldSyncFRR
+		modeSwitchApplyNftables = oldApplyNftables
+		modeSwitchApplyMosdns = oldApplyMosdns
+		modeSwitchApplyXray = oldApplyXray
+		modeSwitchFinalizeRoutes = oldFinalizeRoutes
+	}()
+
+	setupFeatureSuiteRouter(t)
+	if _, err := db.Exec("DELETE FROM settings WHERE key='mode'"); err != nil {
+		t.Fatal(err)
+	}
+
+	modeSwitchSetServices = func(mode string) error { return nil }
+	modeSwitchSyncFRR = func() error { return nil }
+	modeSwitchApplyNftables = func() error { return nil }
+	modeSwitchApplyMosdns = func() error { return nil }
+	modeSwitchApplyXray = func() error { return nil }
+	modeSwitchFinalizeRoutes = func(mode string) error { return nil }
+
+	if err := applyModeChange("C"); err != nil {
+		t.Fatal(err)
+	}
+
+	var mode string
+	if err := db.QueryRow("SELECT value FROM settings WHERE key='mode'").Scan(&mode); err != nil {
+		t.Fatal(err)
+	}
+	if mode != "C" {
+		t.Fatalf("want mode C got %s", mode)
+	}
+}
