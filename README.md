@@ -70,33 +70,68 @@ ProxyGW 设计了三种物理隔离的网络接管模式，以适应不同级别
 
 ## 📈 全面性能测试（2026-04-21）
 
-针对 `geoip:!cn` 在 OSPF 模式下的展开链路，执行了完整性能测试（基准 + Profile + 全量单测）：
+本轮测试覆盖了 **路由展开性能 + Xray 配置并发生成性能 + 会话并发性能 + 并发安全性**，不再局限于 OSPF 路由下发链路。
 
 ```bash
 cd /root/proxygw/backend
+
+# 0) 并发安全检查（Race）
+go test -race ./...
+
 # 1) 全量单测
 go test ./...
 
-# 2) 基准测试（5轮）
-go test -run '^$' -bench 'BenchmarkExtractGeoIPs' -benchmem -count=5
+# 2) 路由展开链路（geoip / !cn）
+go test -run '^$' -bench 'BenchmarkExtractGeoIPs' -benchmem -count=3
 
-# 3) CPU/内存 Profile
+# 3) Xray 配置并发链路 + 会话并发链路
+#    （含 cpu=1/4/8 多核维度）
+go test -run '^$' -bench 'Benchmark(BuildBaseXrayConfig|BuildAndMarshalXrayConfigParallel|ValidateSessionParallel|CreateSessionParallel)' -benchmem -cpu=1,4,8 -count=3
+
+# 4) Profile（热点定位）
 # go test -run '^$' -bench 'BenchmarkExtractGeoIPsExcludeCNPrivate$' -benchmem -count=1 \
 #   -cpuprofile /tmp/proxygw_geoip_cpu.prof -memprofile /tmp/proxygw_geoip_mem.prof
+# go test -run '^$' -bench 'BenchmarkBuildAndMarshalXrayConfigParallel_ModeB$' -benchmem -count=1 \
+#   -cpuprofile /tmp/proxygw_xray_cpu.prof -memprofile /tmp/proxygw_xray_mem.prof
 ```
 
 测试环境：`Intel i7-6700T / amd64 / Debian / Go test`
 
-| Benchmark | 轮次 | 平均耗时 | Min~Max | 平均内存 | 平均分配次数 | 规模 |
-|---|---:|---:|---:|---:|---:|---:|
-| `BenchmarkExtractGeoIPsCN` | 5 | `236.63 ms/op` | `234.74~241.00 ms` | `102.84 MB/op` | `2,401,761 allocs/op` | - |
-| `BenchmarkExtractGeoIPsExcludeCNPrivate` | 5 | `263.54 ms/op` | `261.51~266.17 ms` | `144.95 MB/op` | `2,401,780 allocs/op` | - |
-| `BenchmarkExtractGeoIPsExcludeCNPrivate_Count` | 5 | `270.03 ms/op` | `262.51~274.01 ms` | `144.95 MB/op` | `2,401,781 allocs/op` | `586,504 cidr/op` |
+### A) 路由展开性能（cpu=4，count=3）
 
-关键结论：
-- `!cn` 展开已稳定产出约 **586,504** 条 CIDR，可用于 B/C 模式静态路由注入。
-- 相比 `geoip:cn`，`!cn` 反向展开平均增加约 **26.91 ms/op（+11.37%）**、**40.15 MiB/op**，开销与返回集合规模一致，属于预期。
-- CPU Profile 热点集中在 `extractGeoIPsExclude`、`net.IP.String`、`fmt.Sprintf`，后续可继续做字符串/格式化路径优化。
+| Benchmark | 平均耗时 | Min~Max | 平均内存 | 平均分配次数 | 规模 |
+|---|---:|---:|---:|---:|---:|
+| `BenchmarkExtractGeoIPsCN-4` | `234.83 ms/op` | `234.02~236.25 ms` | `102.84 MB/op` | `2,401,760 allocs/op` | - |
+| `BenchmarkExtractGeoIPsExcludeCNPrivate-4` | `261.28 ms/op` | `259.26~262.76 ms` | `144.95 MB/op` | `2,401,779 allocs/op` | - |
+| `BenchmarkExtractGeoIPsExcludeCNPrivate_Count-4` | `266.76 ms/op` | `263.45~271.19 ms` | `144.95 MB/op` | `2,401,781 allocs/op` | `586,504 cidr/op` |
+
+### B) Xray 配置并发性能（cpu=4，count=3）
+
+| Benchmark | 平均耗时 | 平均内存 | 平均分配次数 |
+|---|---:|---:|---:|
+| `BenchmarkBuildBaseXrayConfig_ModeB-4` | `7.04 µs/op` | `9,984 B/op` | `82 allocs/op` |
+| `BenchmarkBuildBaseXrayConfigParallel_ModeB-4` | `4.85 µs/op` | `9,984 B/op` | `82 allocs/op` |
+| `BenchmarkBuildAndMarshalXrayConfigParallel_ModeB-4` | `11.73 µs/op` | `16,281 B/op` | `243 allocs/op` |
+
+并发收益（cpu=4）：
+- `buildBaseXrayConfig(ModeB)` 从串行 `7.04 µs/op` 到并发 `4.85 µs/op`，约 **31.0% 提升**。
+
+### C) 认证会话并发性能（cpu=4，count=3）
+
+| Benchmark | 平均耗时 | 平均内存 | 平均分配次数 |
+|---|---:|---:|---:|
+| `BenchmarkValidateSessionParallel-4` | `374.9 ns/op` | `88 B/op` | `3 allocs/op` |
+| `BenchmarkCreateSessionParallel-4` | `501.6 ns/op` | `122 B/op` | `4 allocs/op` |
+
+### D) 并发安全性
+
+- `go test -race ./...`：**PASS**
+
+### E) Profile 热点结论
+
+- `geoip:!cn` 展开热点：`extractGeoIPsExclude`、`net.IP.String`、`fmt.Sprintf`。
+- Xray 配置并发生成热点：`buildBaseXrayConfig` 与 `encoding/json.Marshal` / `encoding/json.mapEncoder.encode`。
+- 说明当前瓶颈主要在 **对象分配与 JSON 编码**，后续优化方向应聚焦结构化对象复用与编码路径降分配。
 
 ## 📚 文档指南
 - [ROS 新手配置指南](./docs/ROS_SETUP.md) - MikroTik RouterOS OSPF/DNS 等配套设置新手教程
