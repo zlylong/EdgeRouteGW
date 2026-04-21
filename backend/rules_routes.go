@@ -16,9 +16,22 @@ func registerRuleRoutes(api *gin.RouterGroup) {
 		if len(cachedGeoip) == 0 {
 			cachedGeoip = parseDatFile(getPath("core", "mosdns/geoip.dat"))
 		}
-		resGeosite := cachedGeosite
-		resGeoip := cachedGeoip
+		resGeosite := append([]string(nil), cachedGeosite...)
+		resGeoip := append([]string(nil), cachedGeoip...)
 		cacheMutex.Unlock()
+
+		// Virtual geoip tags supported by Xray but not present in geoip.dat tag list
+		hasNotCN := false
+		for _, tag := range resGeoip {
+			if tag == "!cn" {
+				hasNotCN = true
+				break
+			}
+		}
+		if !hasNotCN {
+			resGeoip = append([]string{"!cn"}, resGeoip...)
+		}
+
 		c.JSON(http.StatusOK, gin.H{"geosite": resGeosite, "geoip": resGeoip})
 	})
 
