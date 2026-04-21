@@ -89,6 +89,8 @@ func setupFeatureSuiteRouter(t *testing.T) *gin.Engine {
 		`CREATE TABLE remote_node_logs (id INTEGER PRIMARY KEY AUTOINCREMENT, node_id INTEGER, action TEXT, status TEXT, log_text TEXT, created_at DATETIME DEFAULT CURRENT_TIMESTAMP);`,
 		`CREATE TABLE traffic_history (ts DATETIME, up_bytes INTEGER, down_bytes INTEGER);`,
 		`CREATE TABLE routes_table (ip TEXT PRIMARY KEY, domain TEXT, source TEXT, first_seen DATETIME, last_seen DATETIME, ttl INTEGER, status TEXT, miss_count INTEGER DEFAULT 0);`,
+		`CREATE TABLE geosite_expand_cache (tag TEXT NOT NULL, geodata_ver TEXT NOT NULL, domains_json TEXT NOT NULL, skipped_count INTEGER NOT NULL DEFAULT 0, updated_at DATETIME DEFAULT CURRENT_TIMESTAMP, PRIMARY KEY (tag, geodata_ver));`,
+		`CREATE TABLE domain_resolve_cache (domain TEXT PRIMARY KEY, ips_json TEXT NOT NULL, dns_ttl INTEGER NOT NULL DEFAULT 300, resolved_at DATETIME NOT NULL, expire_at DATETIME NOT NULL, last_error TEXT NOT NULL DEFAULT '', fail_count INTEGER NOT NULL DEFAULT 0, geodata_ver TEXT NOT NULL DEFAULT '');`,
 	}
 	for _, stmt := range stmts {
 		if _, err := tdb.Exec(stmt); err != nil {

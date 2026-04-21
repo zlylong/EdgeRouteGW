@@ -209,6 +209,24 @@ func initDB() {
 			id INTEGER PRIMARY KEY AUTOINCREMENT, type TEXT, value TEXT, policy TEXT
 		);`,
 		`CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT);`,
+		`CREATE TABLE IF NOT EXISTS geosite_expand_cache (
+			tag TEXT NOT NULL,
+			geodata_ver TEXT NOT NULL,
+			domains_json TEXT NOT NULL,
+			skipped_count INTEGER NOT NULL DEFAULT 0,
+			updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			PRIMARY KEY (tag, geodata_ver)
+		);`,
+		`CREATE TABLE IF NOT EXISTS domain_resolve_cache (
+			domain TEXT PRIMARY KEY,
+			ips_json TEXT NOT NULL,
+			dns_ttl INTEGER NOT NULL DEFAULT 300,
+			resolved_at DATETIME NOT NULL,
+			expire_at DATETIME NOT NULL,
+			last_error TEXT NOT NULL DEFAULT '',
+			fail_count INTEGER NOT NULL DEFAULT 0,
+			geodata_ver TEXT NOT NULL DEFAULT ''
+		);`,
 	}
 	for _, t := range tables {
 		if _, err := db.Exec(t); err != nil {
@@ -971,17 +989,35 @@ route-map OSPF-EXPORT permit 10
 }
 
 func syncStaticRoutesToOSPF(mode string) {
-	var staticIPs []string
-	staticIPsMap := make(map[string]bool)
+	type routeState struct {
+		ttl    int
+		domain string
+	}
+
+	ensureRouteCacheTables()
+	staticRoutes := make(map[string]routeState)
 	geoipPath := getPath("core", "mosdns", "geoip.dat")
-	geositePath := getPath("core", "mosdns", "geosite.dat")
+
+	addRoute := func(ip string, ttl int, domain string) {
+		ip = strings.TrimSpace(ip)
+		if ip == "" {
+			return
+		}
+		if ttl <= 0 {
+			ttl = 999999999
+		}
+		cur, ok := staticRoutes[ip]
+		if !ok || ttl > cur.ttl {
+			staticRoutes[ip] = routeState{ttl: ttl, domain: domain}
+		}
+	}
+
 	staticRows, err := db.Query("SELECT value FROM rules WHERE type='ip' AND policy LIKE 'proxy%'")
 	if err == nil {
 		for staticRows.Next() {
 			var ip string
 			if err := staticRows.Scan(&ip); err == nil {
-				staticIPs = append(staticIPs, ip)
-				staticIPsMap[ip] = true
+				addRoute(ip, 999999999, "static_rule")
 			}
 		}
 		staticRows.Close()
@@ -1001,11 +1037,7 @@ func syncStaticRoutesToOSPF(mode string) {
 					ips = extractGeoIPs(geoipPath, tag)
 				}
 				for _, ip := range ips {
-					if staticIPsMap[ip] {
-						continue
-					}
-					staticIPs = append(staticIPs, ip)
-					staticIPsMap[ip] = true
+					addRoute(ip, 999999999, "static_rule")
 				}
 			}
 		}
@@ -1017,12 +1049,20 @@ func syncStaticRoutesToOSPF(mode string) {
 		if err != nil {
 			log.Printf("[OSPF] geosite rule query failed: %v", err)
 		} else {
+			var geositeTags []string
 			for geositeRows.Next() {
 				var tag string
 				if err := geositeRows.Scan(&tag); err != nil {
 					log.Printf("[OSPF] geosite row scan failed: %v", err)
 					continue
 				}
+				geositeTags = append(geositeTags, tag)
+			}
+			if err := geositeRows.Err(); err != nil {
+				log.Printf("[OSPF] geosite row iteration failed: %v", err)
+			}
+			geositeRows.Close()
+			for _, tag := range geositeTags {
 				tag = strings.ToLower(strings.TrimSpace(tag))
 				if tag == "" {
 					continue
@@ -1030,62 +1070,53 @@ func syncStaticRoutesToOSPF(mode string) {
 				if hasGeoIPTag(geoipPath, tag) {
 					ips := extractGeoIPs(geoipPath, tag)
 					for _, ip := range ips {
-						if staticIPsMap[ip] {
-							continue
-						}
-						staticIPs = append(staticIPs, ip)
-						staticIPsMap[ip] = true
+						addRoute(ip, 999999999, "static_rule")
 					}
 					log.Printf("[OSPF] geosite %q matched geoip tag and expanded to %d CIDRs", tag, len(ips))
 					continue
 				}
 
-				domains, skipped, err := extractGeoSiteResolvableDomains(geositePath, tag)
+				domains, skipped, err := getOrRefreshGeositeDomainCache(tag)
 				if err != nil {
-					log.Printf("[OSPF] geosite %q parse failed: %v", tag, err)
+					log.Printf("[OSPF] geosite %q cache failed: %v", tag, err)
 					continue
 				}
 				resolvedIPs := 0
 				for _, domain := range domains {
-					ips, err := geoQueryLookupIP(domain)
+					ips, ttl, _, err := getOrRefreshDomainCache(domain)
 					if err != nil {
 						log.Printf("[OSPF] geosite %q resolve %q failed: %v", tag, domain, err)
 						continue
 					}
 					for _, ip := range ips {
-						if staticIPsMap[ip] {
-							continue
-						}
-						staticIPs = append(staticIPs, ip)
-						staticIPsMap[ip] = true
+						addRoute(ip, ttl, domain)
 						resolvedIPs++
 					}
 				}
 				log.Printf("[OSPF] geosite %q resolved %d domains into %d IPv4 routes (skipped_non_domain=%d)", tag, len(domains), resolvedIPs, skipped)
 			}
-			if err := geositeRows.Err(); err != nil {
-				log.Printf("[OSPF] geosite row iteration failed: %v", err)
-			}
-			geositeRows.Close()
 		}
 
 		domainRows, err := db.Query("SELECT value FROM rules WHERE type='domain' AND policy LIKE 'proxy%'")
 		if err == nil {
+			var domains []string
 			for domainRows.Next() {
 				var domain string
 				if err := domainRows.Scan(&domain); err == nil {
-					ips, err := geoQueryLookupIP(domain)
-					if err == nil {
-						for _, ip := range ips {
-							if !staticIPsMap[ip] {
-								staticIPs = append(staticIPs, ip)
-								staticIPsMap[ip] = true
-							}
-						}
-					}
+					domains = append(domains, domain)
 				}
 			}
 			domainRows.Close()
+			for _, domain := range domains {
+				ips, ttl, _, err := getOrRefreshDomainCache(domain)
+				if err != nil {
+					log.Printf("[OSPF] domain %q resolve failed: %v", domain, err)
+					continue
+				}
+				for _, ip := range ips {
+					addRoute(ip, ttl, domain)
+				}
+			}
 		}
 	}
 
@@ -1095,7 +1126,7 @@ func syncStaticRoutesToOSPF(mode string) {
 		for oldRows.Next() {
 			var ip string
 			if err := oldRows.Scan(&ip); err == nil {
-				if !staticIPsMap[ip] {
+				if _, ok := staticRoutes[ip]; !ok {
 					toDelete = append(toDelete, ip)
 				}
 			}
@@ -1108,9 +1139,12 @@ func syncStaticRoutesToOSPF(mode string) {
 		txSync.Exec("UPDATE routes_table SET miss_count=99, ttl=0, last_seen=datetime('now', '-1 hour') WHERE ip=?", ipStr)
 	}
 
-	for _, ipStr := range staticIPs {
-		// Optimized ON CONFLICT to avoid resetting status='candidate' if it's already published
-		txSync.Exec("INSERT INTO routes_table (ip, domain, source, first_seen, last_seen, ttl, status, miss_count) VALUES (?, 'static_rule', 'static', datetime('now', '-61 seconds'), datetime('now'), 999999999, 'candidate', 0) ON CONFLICT(ip) DO UPDATE SET source='static', ttl=999999999, miss_count=0, last_seen=datetime('now')", ipStr)
+	for ipStr, state := range staticRoutes {
+		domain := state.domain
+		if domain == "" {
+			domain = "static_rule"
+		}
+		txSync.Exec("INSERT INTO routes_table (ip, domain, source, first_seen, last_seen, ttl, status, miss_count) VALUES (?, ?, 'static', datetime('now', '-61 seconds'), datetime('now'), ?, 'candidate', 0) ON CONFLICT(ip) DO UPDATE SET domain=excluded.domain, source='static', ttl=excluded.ttl, miss_count=0, last_seen=datetime('now')", ipStr, domain, state.ttl)
 	}
 	txSync.Commit()
 }
