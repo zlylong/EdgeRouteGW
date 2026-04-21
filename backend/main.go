@@ -761,6 +761,40 @@ func applyXrayConfig() error {
 		}
 		routing["balancers"] = balancers
 	}
+
+	validOutbounds := map[string]struct{}{}
+	for _, ob := range config["outbounds"].([]map[string]interface{}) {
+		if tag, ok := ob["tag"].(string); ok && tag != "" {
+			validOutbounds[tag] = struct{}{}
+		}
+	}
+	validBalancers := map[string]struct{}{}
+	if routing, ok := config["routing"].(map[string]interface{}); ok {
+		if balancers, ok := routing["balancers"].([]map[string]interface{}); ok {
+			for _, b := range balancers {
+				if tag, ok := b["tag"].(string); ok && tag != "" {
+					validBalancers[tag] = struct{}{}
+				}
+			}
+		}
+	}
+	for _, r := range rules {
+		if ot, ok := r["outboundTag"].(string); ok {
+			if strings.HasPrefix(ot, "proxy-") || ot == "proxy" {
+				if _, exists := validOutbounds[ot]; !exists {
+					delete(r, "balancerTag")
+					r["outboundTag"] = "direct"
+				}
+			}
+		}
+		if bt, ok := r["balancerTag"].(string); ok {
+			if _, exists := validBalancers[bt]; !exists {
+				delete(r, "balancerTag")
+				r["outboundTag"] = "direct"
+			}
+		}
+	}
+
 	config["routing"].(map[string]interface{})["rules"] = rules
 
 	syncStaticRoutesToOSPF(mode)

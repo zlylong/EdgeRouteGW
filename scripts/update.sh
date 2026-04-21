@@ -16,8 +16,8 @@ git fetch origin
 git reset --hard origin/main
 
 echo "[2/4] Downloading backend from GitHub Releases..."
-systemctl stop proxygw 2>/dev/null || true
 ARCH=$(uname -m)
+TMP_BACKEND="$REPO_DIR/backend/proxygw-backend.new"
 # Try to get version from local git first
 if [ -d "$REPO_DIR/.git" ]; then
     PROXYGW_LATEST=$(cd "$REPO_DIR" && git describe --tags --abbrev=0 2>/dev/null || true)
@@ -36,11 +36,12 @@ if [ -z "$PROXYGW_LATEST" ]; then
     PROXYGW_LATEST="v1.5.8"
 fi
 if [ "$ARCH" = "x86_64" ]; then
-    wget -q -4 -O "$REPO_DIR/backend/proxygw-backend" "https://github.com/zlylong/proxygw/releases/download/${PROXYGW_LATEST}/proxygw-backend-linux-amd64"
+    wget -q -4 -O "$TMP_BACKEND" "https://github.com/zlylong/proxygw/releases/download/${PROXYGW_LATEST}/proxygw-backend-linux-amd64"
 elif [ "$ARCH" = "aarch64" ]; then
-    wget -q -4 -O "$REPO_DIR/backend/proxygw-backend" "https://github.com/zlylong/proxygw/releases/download/${PROXYGW_LATEST}/proxygw-backend-linux-arm64"
+    wget -q -4 -O "$TMP_BACKEND" "https://github.com/zlylong/proxygw/releases/download/${PROXYGW_LATEST}/proxygw-backend-linux-arm64"
 fi
-chmod +x "$REPO_DIR/backend/proxygw-backend"
+chmod +x "$TMP_BACKEND"
+mv "$TMP_BACKEND" "$REPO_DIR/backend/proxygw-backend"
 
 echo "[3/4] Updating Systemd services (if changed)..."
 
