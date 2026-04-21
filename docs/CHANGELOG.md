@@ -1,5 +1,14 @@
 # ProxyGW Changelog
 
+## [1.5.17] - 2026-04-21
+### 🐞 修复 (Bug Fixes)
+- **开发机 Web 服务启动阻塞修复**: 将 OSPF 静态路由同步从 `applyXrayConfig()` 启动链路中解耦，改为异步调度并合并 pending 请求，避免 `geosite` 大规模展开/DNS 刷新在进程启动时阻塞 Gin 监听端口，恢复开发机 Web 面板可访问性。
+- **真实 DNS TTL 采集补强**: `domain` 缓存解析优先通过系统 `host -t A -v` 提取 `ANSWER SECTION` 中 A 记录的最小 TTL，并继续应用 `300~3600s` clamp；当 `host` 不可用或输出异常时自动回退到内置解析链路，保证服务不中断。
+- **解析器健壮性增强**: `host` 输出解析器只消费 `ANSWER SECTION`，忽略 `ADDITIONAL SECTION` 等无关记录，避免把额外 A 记录误写入 OSPF 路由缓存。
+
+### 📦 发布 (Release)
+- **稳定版发布**: 发布 `v1.5.17 Stable`，同步更新前端版本号与安装/更新脚本 fallback 版本，确保 UI、脚本与 GitHub Release 对齐。
+
 ## [1.5.16] - 2026-04-21
 ### ✨ 新特性 (Features)
 - **OSPF 增量推送控制上屏**: OSPF 页面新增 FRR `vtysh` 增量推送控制横条，可直接调节“每批最多推送条目”和“推送最短间隔（秒）”，保存后即时写入后端设置并参与控制器节流。
