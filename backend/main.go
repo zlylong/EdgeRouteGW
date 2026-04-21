@@ -30,6 +30,13 @@ var (
 )
 var ospfLogs []string
 var ospfLogsMu sync.RWMutex
+var syncStaticRoutesToOSPFFunc = syncStaticRoutesToOSPF
+
+var (
+	staticRouteSyncMu      sync.Mutex
+	staticRouteSyncRunning bool
+	staticRouteSyncPending bool
+)
 
 const (
 	defaultOspfPushBatchLimit      = 500
@@ -881,7 +888,7 @@ func applyXrayConfig() error {
 
 	config["routing"].(map[string]interface{})["rules"] = rules
 
-	syncStaticRoutesToOSPF(mode)
+	scheduleStaticRouteSync(mode)
 
 	configData, _ := json.MarshalIndent(config, "", "  ")
 
@@ -986,6 +993,47 @@ route-map OSPF-EXPORT permit 10
 		exec.Command("systemctl", "restart", "frr").Run()
 		db.Exec("UPDATE routes_table SET status='candidate' WHERE status='published'")
 	}
+}
+
+func scheduleStaticRouteSync(mode string) {
+	if mode != "B" && mode != "C" {
+		return
+	}
+	staticRouteSyncMu.Lock()
+	staticRouteSyncPending = true
+	if staticRouteSyncRunning {
+		staticRouteSyncMu.Unlock()
+		return
+	}
+	staticRouteSyncRunning = true
+	staticRouteSyncMu.Unlock()
+
+	go func() {
+		for {
+			staticRouteSyncMu.Lock()
+			staticRouteSyncPending = false
+			staticRouteSyncMu.Unlock()
+
+			currentMode := mode
+			if db != nil {
+				var dbMode string
+				if err := db.QueryRow("SELECT value FROM settings WHERE key='mode'").Scan(&dbMode); err == nil && dbMode != "" {
+					currentMode = dbMode
+				}
+			}
+			if currentMode == "B" || currentMode == "C" {
+				syncStaticRoutesToOSPFFunc(currentMode)
+			}
+
+			staticRouteSyncMu.Lock()
+			if !staticRouteSyncPending {
+				staticRouteSyncRunning = false
+				staticRouteSyncMu.Unlock()
+				return
+			}
+			staticRouteSyncMu.Unlock()
+		}
+	}()
 }
 
 func syncStaticRoutesToOSPF(mode string) {
