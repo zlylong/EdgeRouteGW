@@ -182,9 +182,13 @@ func matchGeoSiteDomain(domain string, entry geoSiteDomainEntry) bool {
 }
 
 func scanGeoSiteEntries(filename string, fn func(tag string, entries []geoSiteDomainEntry)) {
+	_ = scanGeoSiteEntriesE(filename, fn)
+}
+
+func scanGeoSiteEntriesE(filename string, fn func(tag string, entries []geoSiteDomainEntry)) error {
 	data, err := os.ReadFile(filename)
 	if err != nil {
-		return
+		return err
 	}
 	idx := 0
 	for idx < len(data) {
@@ -264,6 +268,7 @@ func scanGeoSiteEntries(filename string, fn func(tag string, entries []geoSiteDo
 		}
 		idx = endIdx
 	}
+	return nil
 }
 
 func queryGeoSiteTagsByDomain(filename, input string) []string {
@@ -296,6 +301,41 @@ func extractGeoSiteValues(filename, targetTag string) []string {
 		}
 	})
 	return values
+}
+
+func extractGeoSiteResolvableDomains(filename, targetTag string) ([]string, int, error) {
+	targetTag = strings.ToLower(strings.TrimSpace(targetTag))
+	if targetTag == "" {
+		return nil, 0, nil
+	}
+	seen := make(map[string]struct{})
+	domains := make([]string, 0)
+	skipped := 0
+	if err := scanGeoSiteEntriesE(filename, func(tag string, entries []geoSiteDomainEntry) {
+		if tag != targetTag {
+			return
+		}
+		for _, entry := range entries {
+			switch entry.Type {
+			case "domain", "full":
+				domain := strings.TrimSuffix(strings.ToLower(strings.TrimSpace(entry.Value)), ".")
+				if domain == "" {
+					continue
+				}
+				if _, ok := seen[domain]; ok {
+					continue
+				}
+				seen[domain] = struct{}{}
+				domains = append(domains, domain)
+			default:
+				skipped++
+			}
+		}
+	}); err != nil {
+		return nil, 0, err
+	}
+	sort.Strings(domains)
+	return domains, skipped, nil
 }
 
 func hasGeoSiteTag(filename, targetTag string) bool {

@@ -96,6 +96,7 @@ func writeTestGeoData(t *testing.T) {
 	})
 	geosite := buildTestGeoSiteDat([]testGeoSiteEntry{
 		{Tag: "gfw", Domains: []testGeoSiteDomain{{Type: 2, Value: "google.com"}, {Type: 3, Value: "youtube.com"}}},
+		{Tag: "google", Domains: []testGeoSiteDomain{{Type: 2, Value: "google.com"}}},
 		{Tag: "cn", Domains: []testGeoSiteDomain{{Type: 2, Value: "baidu.com"}}},
 	})
 	if err := os.WriteFile(getPath("core", "mosdns", "geoip.dat"), geoip, 0o644); err != nil {
@@ -135,7 +136,7 @@ func TestGeoQueryLookupAndExpand(t *testing.T) {
 			t.Fatalf("unexpected response: %v", resp)
 		}
 		matches := resp["geosite_matches"].([]interface{})
-		if len(matches) != 1 || matches[0].(string) != "gfw" {
+		if len(matches) != 2 || matches[0].(string) != "gfw" || matches[1].(string) != "google" {
 			t.Fatalf("unexpected geosite matches: %v", resp)
 		}
 		resolved := resp["resolved_ips"].([]interface{})

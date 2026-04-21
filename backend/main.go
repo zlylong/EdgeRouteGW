@@ -973,6 +973,8 @@ route-map OSPF-EXPORT permit 10
 func syncStaticRoutesToOSPF(mode string) {
 	var staticIPs []string
 	staticIPsMap := make(map[string]bool)
+	geoipPath := getPath("core", "mosdns", "geoip.dat")
+	geositePath := getPath("core", "mosdns", "geosite.dat")
 	staticRows, err := db.Query("SELECT value FROM rules WHERE type='ip' AND policy LIKE 'proxy%'")
 	if err == nil {
 		for staticRows.Next() {
@@ -993,12 +995,15 @@ func syncStaticRoutesToOSPF(mode string) {
 				var ips []string
 				if strings.HasPrefix(tag, "!") {
 					excludeTag := strings.TrimSpace(strings.TrimPrefix(tag, "!"))
-					ips = extractGeoIPsExclude(getPath("core", "mosdns", "geoip.dat"), excludeTag, "private")
+					ips = extractGeoIPsExclude(geoipPath, excludeTag, "private")
 					log.Printf("[OSPF] expanded inverted geoip tag %q to %d CIDRs (excluding %q and private)", tag, len(ips), excludeTag)
 				} else {
-					ips = extractGeoIPs(getPath("core", "mosdns", "geoip.dat"), tag)
+					ips = extractGeoIPs(geoipPath, tag)
 				}
 				for _, ip := range ips {
+					if staticIPsMap[ip] {
+						continue
+					}
 					staticIPs = append(staticIPs, ip)
 					staticIPsMap[ip] = true
 				}
@@ -1008,20 +1013,73 @@ func syncStaticRoutesToOSPF(mode string) {
 	}
 
 	if mode == "B" || mode == "C" {
+		geositeRows, err := db.Query("SELECT value FROM rules WHERE type='geosite' AND policy LIKE 'proxy%'")
+		if err != nil {
+			log.Printf("[OSPF] geosite rule query failed: %v", err)
+		} else {
+			for geositeRows.Next() {
+				var tag string
+				if err := geositeRows.Scan(&tag); err != nil {
+					log.Printf("[OSPF] geosite row scan failed: %v", err)
+					continue
+				}
+				tag = strings.ToLower(strings.TrimSpace(tag))
+				if tag == "" {
+					continue
+				}
+				if hasGeoIPTag(geoipPath, tag) {
+					ips := extractGeoIPs(geoipPath, tag)
+					for _, ip := range ips {
+						if staticIPsMap[ip] {
+							continue
+						}
+						staticIPs = append(staticIPs, ip)
+						staticIPsMap[ip] = true
+					}
+					log.Printf("[OSPF] geosite %q matched geoip tag and expanded to %d CIDRs", tag, len(ips))
+					continue
+				}
+
+				domains, skipped, err := extractGeoSiteResolvableDomains(geositePath, tag)
+				if err != nil {
+					log.Printf("[OSPF] geosite %q parse failed: %v", tag, err)
+					continue
+				}
+				resolvedIPs := 0
+				for _, domain := range domains {
+					ips, err := geoQueryLookupIP(domain)
+					if err != nil {
+						log.Printf("[OSPF] geosite %q resolve %q failed: %v", tag, domain, err)
+						continue
+					}
+					for _, ip := range ips {
+						if staticIPsMap[ip] {
+							continue
+						}
+						staticIPs = append(staticIPs, ip)
+						staticIPsMap[ip] = true
+						resolvedIPs++
+					}
+				}
+				log.Printf("[OSPF] geosite %q resolved %d domains into %d IPv4 routes (skipped_non_domain=%d)", tag, len(domains), resolvedIPs, skipped)
+			}
+			if err := geositeRows.Err(); err != nil {
+				log.Printf("[OSPF] geosite row iteration failed: %v", err)
+			}
+			geositeRows.Close()
+		}
+
 		domainRows, err := db.Query("SELECT value FROM rules WHERE type='domain' AND policy LIKE 'proxy%'")
 		if err == nil {
 			for domainRows.Next() {
 				var domain string
 				if err := domainRows.Scan(&domain); err == nil {
-					ips, err := net.LookupIP(domain)
+					ips, err := geoQueryLookupIP(domain)
 					if err == nil {
 						for _, ip := range ips {
-							if ipv4 := ip.To4(); ipv4 != nil {
-								ipStr := ipv4.String()
-								if !staticIPsMap[ipStr] {
-									staticIPs = append(staticIPs, ipStr)
-									staticIPsMap[ipStr] = true
-								}
+							if !staticIPsMap[ip] {
+								staticIPs = append(staticIPs, ip)
+								staticIPsMap[ip] = true
 							}
 						}
 					}
