@@ -942,11 +942,15 @@ func syncStaticRoutesToOSPF(mode string) {
 		staticRows.Close()
 	}
 
-	geoipRows, err := db.Query("SELECT value FROM rules WHERE (type='geoip' OR type='geosite') AND policy LIKE 'proxy%'")
+	geoipRows, err := db.Query("SELECT value FROM rules WHERE type='geoip' AND policy LIKE 'proxy%'")
 	if err == nil {
 		for geoipRows.Next() {
 			var tag string
 			if err := geoipRows.Scan(&tag); err == nil {
+				if strings.HasPrefix(tag, "!") {
+					log.Printf("[OSPF] skip inverted geoip tag %q: unsupported for static route expansion", tag)
+					continue
+				}
 				ips := extractGeoIPs(getPath("core", "mosdns", "geoip.dat"), tag)
 				for _, ip := range ips {
 					staticIPs = append(staticIPs, ip)

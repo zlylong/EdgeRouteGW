@@ -89,6 +89,16 @@ func registerRuleRoutes(api *gin.RouterGroup) {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid ip/cidr rule value"})
 			return
 		}
+		if r.Type == "geoip" && strings.HasPrefix(r.Value, "!") {
+			var mode string
+			if err := db.QueryRow("SELECT value FROM settings WHERE key='mode'").Scan(&mode); err != nil {
+				mode = "A"
+			}
+			if mode == "B" || mode == "C" {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "geoip 反向标签（如 !cn）在 OSPF 模式(B/C)无法展开为静态路由；请改用显式 geoip 标签/IP 规则，或切换到 Mode A"})
+				return
+			}
+		}
 		if r.Policy != "direct" && r.Policy != "block" && !strings.HasPrefix(r.Policy, "proxy") {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid policy"})
 			return
