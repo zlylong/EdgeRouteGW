@@ -12,29 +12,28 @@ apt-get install -y jq >/dev/null 2>&1 || true
 
 echo "=== ProxyGW Update ==="
 echo "[1/4] Pulling latest changes..."
-git fetch origin
+git fetch origin --tags
 git reset --hard origin/main
 
 echo "[2/4] Downloading backend from GitHub Releases..."
 ARCH=$(uname -m)
 TMP_BACKEND="$REPO_DIR/backend/proxygw-backend.new"
-# Try to get version from local git first
-if [ -d "$REPO_DIR/.git" ]; then
-    PROXYGW_LATEST=$(cd "$REPO_DIR" && git describe --tags --abbrev=0 2>/dev/null || true)
-else
-    PROXYGW_LATEST=""
+
+# Prefer latest published release tag from GitHub API
+PROXYGW_LATEST=$(curl --retry 3 --connect-timeout 5 --fail -s -4 https://api.github.com/repos/zlylong/proxygw/releases/latest | jq -r '.tag_name // empty' || true)
+
+# Fallback to local tag list (requires --tags fetch above)
+if [ -z "$PROXYGW_LATEST" ] && [ -d "$REPO_DIR/.git" ]; then
+    PROXYGW_LATEST=$(cd "$REPO_DIR" && git tag --sort=-v:refname | head -n1 || true)
 fi
 
-# Fallback to GitHub API if git fails
+# Ultimate fallback if both API and tags fail
 if [ -z "$PROXYGW_LATEST" ]; then
-    PROXYGW_LATEST=$(curl --retry 3 --connect-timeout 5 --fail -s -4 https://api.github.com/repos/zlylong/proxygw/releases/latest | jq -r '.tag_name // empty' || true)
+    echo "Warning: release tag detect failed. Using fallback version v1.5.10..."
+    PROXYGW_LATEST="v1.5.10"
 fi
 
-# Ultimate fallback if both git and API fail (GFW block / no IPv4)
-if [ -z "$PROXYGW_LATEST" ]; then
-    echo "Warning: API blocked. Using fallback version v1.5.8..."
-    PROXYGW_LATEST="v1.5.8"
-fi
+echo "Using release tag: $PROXYGW_LATEST"
 if [ "$ARCH" = "x86_64" ]; then
     wget -q -4 -O "$TMP_BACKEND" "https://github.com/zlylong/proxygw/releases/download/${PROXYGW_LATEST}/proxygw-backend-linux-amd64"
 elif [ "$ARCH" = "aarch64" ]; then
