@@ -94,3 +94,54 @@ func TestGetOrRefreshDomainCache_RefreshAfterExpireAndKeepStaleOnFailure(t *test
 		t.Fatalf("unexpected resolver calls: %d", calls)
 	}
 }
+
+func TestParseHostLookupOutput(t *testing.T) {
+	output := `Trying "www.google.com"
+;; ->>HEADER<<- opcode: QUERY, status: NOERROR, id: 8537
+;; ANSWER SECTION:
+www.google.com.		300	IN	A	142.251.150.119
+www.google.com.		120	IN	A	142.251.150.120
+
+;; ADDITIONAL SECTION:
+ns.example.		60	IN	A	203.0.113.10
+Received 64 bytes from 127.0.0.53#53 in 10 ms`
+
+	ips, ttl, err := parseHostLookupOutput(output)
+	if err != nil {
+		t.Fatalf("parseHostLookupOutput error: %v", err)
+	}
+	if ttl != 120 {
+		t.Fatalf("unexpected ttl: %d", ttl)
+	}
+	if len(ips) != 2 || ips[0] != "142.251.150.119" || ips[1] != "142.251.150.120" {
+		t.Fatalf("unexpected ips: %v", ips)
+	}
+}
+
+func TestResolveDomainIPv4WithTTLFallsBackWhenHostUnavailable(t *testing.T) {
+	oldRunner := hostLookupCommand
+	hostLookupCommand = func(domain string) (string, error) {
+		return "", errTestDNSFailure
+	}
+	defer func() { hostLookupCommand = oldRunner }()
+
+	oldLookup := geoQueryLookupIP
+	geoQueryLookupIP = func(host string) ([]string, error) {
+		if host != "www.google.com" {
+			t.Fatalf("unexpected host: %s", host)
+		}
+		return []string{"142.251.150.119"}, nil
+	}
+	defer func() { geoQueryLookupIP = oldLookup }()
+
+	ips, ttl, err := resolveDomainIPv4WithTTL("www.google.com")
+	if err != nil {
+		t.Fatalf("resolveDomainIPv4WithTTL fallback error: %v", err)
+	}
+	if ttl != 300 {
+		t.Fatalf("unexpected fallback ttl: %d", ttl)
+	}
+	if len(ips) != 1 || ips[0] != "142.251.150.119" {
+		t.Fatalf("unexpected fallback ips: %v", ips)
+	}
+}

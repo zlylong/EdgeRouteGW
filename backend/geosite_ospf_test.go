@@ -21,18 +21,18 @@ func TestSyncStaticRoutesToOSPF_GeositeFallsBackToGeoIPAndDomainResolution(t *te
 		t.Fatal(err)
 	}
 
-	oldLookup := geoQueryLookupIP
-	geoQueryLookupIP = func(host string) ([]string, error) {
-		switch host {
+	oldResolve := resolveDomainIPv4WithTTL
+	resolveDomainIPv4WithTTL = func(domain string) ([]string, int, error) {
+		switch domain {
 		case "google.com":
-			return []string{"8.8.8.8"}, nil
+			return []string{"8.8.8.8"}, 300, nil
 		case "youtube.com":
-			return []string{"9.9.9.9", "8.8.8.8"}, nil
+			return []string{"9.9.9.9", "8.8.8.8"}, 300, nil
 		default:
-			return nil, nil
+			return nil, 0, nil
 		}
 	}
-	defer func() { geoQueryLookupIP = oldLookup }()
+	defer func() { resolveDomainIPv4WithTTL = oldResolve }()
 
 	syncStaticRoutesToOSPF("C")
 

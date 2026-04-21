@@ -5,7 +5,10 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"os/exec"
+	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -19,10 +22,73 @@ const (
 
 var nowFunc = time.Now
 
-var resolveDomainIPv4WithTTL = func(domain string) ([]string, int, error) {
-	ips, err := geoQueryLookupIP(domain)
+var hostLookupCommand = func(domain string) (string, error) {
+	out, err := exec.Command("host", "-t", "A", "-v", domain).CombinedOutput()
 	if err != nil {
-		return nil, 0, err
+		return string(out), err
+	}
+	return string(out), nil
+}
+
+var answerSectionARecordPattern = regexp.MustCompile(`^\S+\.\s+(\d+)\s+IN\s+A\s+((?:\d{1,3}\.){3}\d{1,3})\s*$`)
+
+func parseHostLookupOutput(output string) ([]string, int, error) {
+	lines := strings.Split(output, "\n")
+	inAnswer := false
+	ips := make([]string, 0)
+	minTTL := 0
+	for _, rawLine := range lines {
+		line := strings.TrimSpace(rawLine)
+		if line == "" {
+			continue
+		}
+		if strings.HasPrefix(line, ";; ANSWER SECTION:") {
+			inAnswer = true
+			continue
+		}
+		if !inAnswer {
+			continue
+		}
+		if strings.HasPrefix(line, ";;") || strings.HasPrefix(line, "Received ") {
+			break
+		}
+		match := answerSectionARecordPattern.FindStringSubmatch(line)
+		if len(match) == 0 {
+			continue
+		}
+		ttl, err := strconv.Atoi(match[1])
+		if err != nil {
+			return nil, 0, fmt.Errorf("invalid ttl in host output: %w", err)
+		}
+		if minTTL == 0 || ttl < minTTL {
+			minTTL = ttl
+		}
+		ips = append(ips, match[2])
+	}
+	ips = normalizeIPList(ips)
+	if len(ips) == 0 {
+		return nil, 0, fmt.Errorf("no A records in host output")
+	}
+	return ips, minTTL, nil
+}
+
+var resolveDomainIPv4WithTTL = func(domain string) ([]string, int, error) {
+	output, err := hostLookupCommand(domain)
+	if err == nil {
+		ips, ttl, parseErr := parseHostLookupOutput(output)
+		if parseErr == nil {
+			return ips, clampDomainCacheTTL(ttl), nil
+		}
+		log.Printf("[WARN] host output parse failed for %q: %v", domain, parseErr)
+	} else {
+		log.Printf("[WARN] host lookup failed for %q: %v", domain, err)
+	}
+	ips, lookupErr := geoQueryLookupIP(domain)
+	if lookupErr != nil {
+		if err != nil {
+			return nil, 0, fmt.Errorf("host lookup failed: %w; fallback lookup failed: %v", err, lookupErr)
+		}
+		return nil, 0, lookupErr
 	}
 	return ips, minDomainCacheTTLSeconds, nil
 }
