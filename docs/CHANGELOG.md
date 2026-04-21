@@ -1,5 +1,10 @@
 # ProxyGW Changelog
 
+## [1.5.11] - 2026-04-21
+### 🐞 修复 (Bug Fixes)
+- **OSPF 模式下 `geoip:!cn` 规则防误用**: 修复在 Mode B/C 中添加 `!cn` 后“规则存在但路由不下发”的静默失败问题。后端现对该组合直接拒绝并返回明确错误提示。
+- **静态路由同步逻辑纠偏**: `syncStaticRoutesToOSPF` 仅处理 `geoip` 规则，不再错误混入 `geosite`；对反向 geoip 标签输出显式日志，便于排障。
+
 ## [1.5.10] - 2026-04-21
 ### 🐞 修复 (Bug Fixes)
 - **GeoIP 新增 `!cn` 规则支持（前端可见）**: 修复规则分类接口未暴露虚拟 GeoIP 标签的问题，`/api/rules/categories` 现在会返回 `!cn`，可在 UI 中直接选择并下发 `geoip:!cn` 分流规则。
