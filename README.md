@@ -68,6 +68,36 @@ ProxyGW 设计了三种物理隔离的网络接管模式，以适应不同级别
 *(👉 ROS v7 示例：新建一个 `bypass_proxy` 路由表指向公网 WAN 口，然后执行 `/routing rule add src-address=<ProxyGW_IP>/32 action=lookup-only-in-table table=bypass_proxy`，详见[运维文档](./docs/OPERATIONS.md))*
 
 
+## 📈 全面性能测试（2026-04-21）
+
+针对 `geoip:!cn` 在 OSPF 模式下的展开链路，执行了完整性能测试（基准 + Profile + 全量单测）：
+
+```bash
+cd /root/proxygw/backend
+# 1) 全量单测
+go test ./...
+
+# 2) 基准测试（5轮）
+go test -run '^$' -bench 'BenchmarkExtractGeoIPs' -benchmem -count=5
+
+# 3) CPU/内存 Profile
+# go test -run '^$' -bench 'BenchmarkExtractGeoIPsExcludeCNPrivate$' -benchmem -count=1 \
+#   -cpuprofile /tmp/proxygw_geoip_cpu.prof -memprofile /tmp/proxygw_geoip_mem.prof
+```
+
+测试环境：`Intel i7-6700T / amd64 / Debian / Go test`
+
+| Benchmark | 轮次 | 平均耗时 | Min~Max | 平均内存 | 平均分配次数 | 规模 |
+|---|---:|---:|---:|---:|---:|---:|
+| `BenchmarkExtractGeoIPsCN` | 5 | `236.63 ms/op` | `234.74~241.00 ms` | `102.84 MB/op` | `2,401,761 allocs/op` | - |
+| `BenchmarkExtractGeoIPsExcludeCNPrivate` | 5 | `263.54 ms/op` | `261.51~266.17 ms` | `144.95 MB/op` | `2,401,780 allocs/op` | - |
+| `BenchmarkExtractGeoIPsExcludeCNPrivate_Count` | 5 | `270.03 ms/op` | `262.51~274.01 ms` | `144.95 MB/op` | `2,401,781 allocs/op` | `586,504 cidr/op` |
+
+关键结论：
+- `!cn` 展开已稳定产出约 **586,504** 条 CIDR，可用于 B/C 模式静态路由注入。
+- 相比 `geoip:cn`，`!cn` 反向展开平均增加约 **26.91 ms/op（+11.37%）**、**40.15 MiB/op**，开销与返回集合规模一致，属于预期。
+- CPU Profile 热点集中在 `extractGeoIPsExclude`、`net.IP.String`、`fmt.Sprintf`，后续可继续做字符串/格式化路径优化。
+
 ## 📚 文档指南
 - [ROS 新手配置指南](./docs/ROS_SETUP.md) - MikroTik RouterOS OSPF/DNS 等配套设置新手教程
 - [OpenWrt 新手配置指南](./docs/OPENWRT_SETUP.md) - OpenWrt OSPF/DNS/旁路等配套设置新手教程
