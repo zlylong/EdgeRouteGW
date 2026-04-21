@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/url"
 	"proxygw/remote_deploy"
+	"regexp"
 	"strings"
 )
 
@@ -132,6 +133,39 @@ func logAction(nodeId int64, action, status, logText string) {
 	db.Exec("INSERT INTO remote_node_logs (node_id, action, status, log_text) VALUES (?, ?, ?, ?)", nodeId, action, status, logText)
 }
 
+var hostKeyFingerprintRe = regexp.MustCompile(`SHA256:[A-Za-z0-9+/=_-]+`)
+
+func extractFingerprintFromSSHError(err error) string {
+	if err == nil {
+		return ""
+	}
+	return hostKeyFingerprintRe.FindString(err.Error())
+}
+
+func connectWithAutoHostKey(id int64, req *RemoteNodeReq) (remoteSSHClient, error) {
+	sshClient, err := remoteConnect(req.SSHHost, req.SSHPort, req.SSHUser, req.SSHAuthType, req.SSHCredential, req.SSHHostKey)
+	if err == nil {
+		return sshClient, nil
+	}
+
+	fp := extractFingerprintFromSSHError(err)
+	if fp == "" || fp == req.SSHHostKey {
+		return nil, err
+	}
+
+	if _, uerr := db.Exec("UPDATE remote_nodes SET ssh_host_key = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?", fp, id); uerr != nil {
+		return nil, fmt.Errorf("%v; auto-update host key failed: %v", err, uerr)
+	}
+	logAction(id, "deploy", "running", fmt.Sprintf("Auto-updated SSH host fingerprint to %s and retrying deployment", fp))
+	req.SSHHostKey = fp
+
+	sshClient, err = remoteConnect(req.SSHHost, req.SSHPort, req.SSHUser, req.SSHAuthType, req.SSHCredential, req.SSHHostKey)
+	if err != nil {
+		return nil, err
+	}
+	return sshClient, nil
+}
+
 var deploySemaphore = make(chan struct{}, 3)
 
 func doDeployRoutineWrapper(id int64, req RemoteNodeReq, isUpdate bool, params map[string]interface{}) {
@@ -143,7 +177,7 @@ func doDeployRoutineWrapper(id int64, req RemoteNodeReq, isUpdate bool, params m
 func doDeployRoutine(id int64, req RemoteNodeReq, isUpdate bool, params map[string]interface{}) {
 	logAction(id, "deploy", "running", "Connecting via SSH...")
 
-	sshClient, err := remoteConnect(req.SSHHost, req.SSHPort, req.SSHUser, req.SSHAuthType, req.SSHCredential, req.SSHHostKey)
+	sshClient, err := connectWithAutoHostKey(id, &req)
 	if err != nil {
 		db.Exec("UPDATE remote_nodes SET status = 'Failed' WHERE id = ?", id)
 		logAction(id, "deploy", "failed", err.Error())
