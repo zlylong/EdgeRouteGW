@@ -1,5 +1,10 @@
 # ProxyGW Changelog
 
+## [1.5.9] - 2026-04-21
+### 🐞 修复 (Bug Fixes)
+- **新部署机器 FRR 配置页 404 修复**: 统一发布与部署编译方式为 `go build -o proxygw-backend .`（编译整个 backend 包），避免误用单文件编译导致路由注册缺失/接口不可用，确保 `/api/config/frr` 在新机器可正常访问。
+- **运维文档与发布链路对齐**: 明确 systemd 二进制路径与编译产物名称一致性检查，降低“重启成功但仍跑旧二进制”的误判风险。
+
 ## [1.5.8] - 2026-04-20
 ### 📦 发布 (Release)
 - **稳定版补发**: 补发 `v1.5.8 Stable`，修正 GitHub Release 标题与更新说明，确保 Release 页面与 `docs/CHANGELOG.md` 1:1 对齐。
