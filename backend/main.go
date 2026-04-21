@@ -928,7 +928,7 @@ func syncStaticRoutesToOSPF(mode string) {
 		geoipRows.Close()
 	}
 
-	if mode == "C" {
+	if mode == "B" || mode == "C" {
 		domainRows, err := db.Query("SELECT value FROM rules WHERE type='domain' AND policy LIKE 'proxy%'")
 		if err == nil {
 			for domainRows.Next() {
@@ -985,7 +985,7 @@ func domainIPUpdater() {
 		if err := db.QueryRow("SELECT value FROM settings WHERE key='mode'").Scan(&mode); err != nil {
 			mode = "A"
 		}
-		if mode == "C" {
+		if mode == "B" || mode == "C" {
 			// Periodically sync to catch DNS/CDN IP changes
 			syncStaticRoutesToOSPF(mode)
 		}
