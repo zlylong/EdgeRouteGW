@@ -837,6 +837,42 @@ func getPrimarySubnet(ipStr string) string {
 	return ""
 }
 
+func getPrimaryLANIPAndSubnet() (string, string) {
+	ifaces, err := net.Interfaces()
+	if err != nil {
+		return "", ""
+	}
+
+	isPrivateIPv4 := func(ip net.IP) bool {
+		return ip.IsPrivate() && ip.To4() != nil
+	}
+
+	for _, iface := range ifaces {
+		if iface.Flags&net.FlagUp == 0 || iface.Flags&net.FlagLoopback != 0 {
+			continue
+		}
+		addrs, err := iface.Addrs()
+		if err != nil {
+			continue
+		}
+		for _, addr := range addrs {
+			ipnet, ok := addr.(*net.IPNet)
+			if !ok {
+				continue
+			}
+			ip := ipnet.IP.To4()
+			if ip == nil || !isPrivateIPv4(ip) {
+				continue
+			}
+			network := ip.Mask(ipnet.Mask)
+			maskSize, _ := ipnet.Mask.Size()
+			return ip.String(), fmt.Sprintf("%s/%d", network.String(), maskSize)
+		}
+	}
+
+	return "", ""
+}
+
 func syncFRRConfig() {
 	var mode string
 	if db != nil {
@@ -849,15 +885,8 @@ func syncFRRConfig() {
 		return
 	}
 
-	conn, err := net.Dial("udp", "8.8.8.8:80")
-	if err != nil {
-		return
-	}
-	ip := conn.LocalAddr().(*net.UDPAddr).IP.String()
-	conn.Close()
-
-	subnet := getPrimarySubnet(ip)
-	if subnet == "" {
+	ip, subnet := getPrimaryLANIPAndSubnet()
+	if ip == "" || subnet == "" {
 		return
 	}
 
