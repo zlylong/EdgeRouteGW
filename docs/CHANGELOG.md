@@ -1,5 +1,10 @@
 # ProxyGW Changelog
 
+## [1.5.14] - 2026-04-21
+### 📦 发布 (Release)
+- **性能测试数据文档化**: 新增 `geoip:!cn` OSPF 展开基准测试，结果已写入 `docs/DEVELOPER.md`（含 `ns/op`、`B/op`、`allocs/op` 与 `cidr/op`）。
+- **基准测试补充**: 新增 `backend/helpers_benchmark_test.go`，用于持续验证 `extractGeoIPs` / `extractGeoIPsExclude` 性能与展开规模。
+
 ## [1.5.13] - 2026-04-21
 ### 📦 发布 (Release)
 - **稳定版发布**: 发布 `v1.5.13 Stable`，包含 `geoip:!cn` 在 OSPF 模式下的可添加与可展开下发修复。

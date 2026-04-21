@@ -52,3 +52,25 @@ ProxyGW 是一个高度整合的网络系统。开发者坚信 **原生至上 (N
 - 开启 BBR 拥塞控制与 fq 队列调度 (`net.ipv4.tcp_congestion_control = bbr`)。
 - 放开 `nf_conntrack` 连接跟踪数上限至 104 万，防止大量并发请求导致内核丢包。
 - 开启 TCP Fast Open 及 TCP Tw Reuse 优化短连接性能。
+
+## 📊 `geoip:!cn` OSPF 展开性能测试（v1.5.14）
+
+测试环境：`Intel i7-6700T / amd64 / Debian / Go test benchmark`  
+测试命令：
+
+```bash
+cd /root/proxygw/backend
+go test -run '^$' -bench 'BenchmarkExtractGeoIPs' -benchmem -count=3
+```
+
+结果摘要（均值近似）：
+
+| Benchmark | ns/op | B/op | allocs/op | 额外指标 |
+|---|---:|---:|---:|---:|
+| `BenchmarkExtractGeoIPsCN` | ~242ms | ~102.8MB | ~2,401,760 | - |
+| `BenchmarkExtractGeoIPsExcludeCNPrivate` | ~264ms | ~144.9MB | ~2,401,779 | - |
+| `BenchmarkExtractGeoIPsExcludeCNPrivate_Count` | ~262ms | ~144.9MB | ~2,401,780 | `586,504 cidr/op` |
+
+结论：
+- `!cn`（排除 `cn` 与 `private`）在当前实现下可稳定展开为约 **58.6 万** 条 CIDR，用于 B/C 模式静态路由同步。
+- 相较 `geoip:cn`，反向展开额外开销约 `+20ms/op` 与 `+42MB/op`，属于预期（返回集更大）。
