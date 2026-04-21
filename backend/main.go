@@ -31,14 +31,12 @@ var (
 var ospfLogs []string
 var ospfLogsMu sync.RWMutex
 
-const ospfLogKeep = 50
-
 func addOspfLog(msg string) {
 	ospfLogsMu.Lock()
 	defer ospfLogsMu.Unlock()
 	ospfLogs = append([]string{time.Now().Format("15:04:05") + " " + msg}, ospfLogs...)
-	if len(ospfLogs) > ospfLogKeep {
-		ospfLogs = ospfLogs[:ospfLogKeep]
+	if len(ospfLogs) > 50 {
+		ospfLogs = ospfLogs[:50]
 	}
 }
 
@@ -48,74 +46,6 @@ func getOspfLogsSnapshot() []string {
 	out := make([]string, len(ospfLogs))
 	copy(out, ospfLogs)
 	return out
-}
-
-func normalizeOspfRoute(ip string) string {
-	if strings.Contains(ip, "/") {
-		return ip
-	}
-	return ip + "/32"
-}
-
-func adaptiveOspfLogSampleSize(total int) int {
-	switch {
-	case total <= 8:
-		return total
-	case total <= 32:
-		return 4
-	case total <= 128:
-		return 3
-	default:
-		return 2
-	}
-}
-
-func addAdaptiveOspfBatchLogs(action string, ips []string, detail string) {
-	total := len(ips)
-	if total == 0 {
-		return
-	}
-
-	samples := adaptiveOspfLogSampleSize(total)
-	if samples >= total {
-		for _, ip := range ips {
-			if detail == "" {
-				addOspfLog(fmt.Sprintf("[%s] %s", action, ip))
-				continue
-			}
-			addOspfLog(fmt.Sprintf("[%s] %s %s", action, ip, detail))
-		}
-		return
-	}
-
-	head := strings.Join(ips[:samples], ", ")
-	tail := strings.Join(ips[total-samples:], ", ")
-	msg := fmt.Sprintf("[%s] batch=%d sample_head=[%s] sample_tail=[%s] suppressed=%d", action, total, head, tail, total-(samples*2))
-	if detail != "" {
-		msg += " " + detail
-	}
-	addOspfLog(msg)
-}
-
-func applyVtyshBatch(action, tmpFile string, buf *bytes.Buffer, routeCount int) error {
-	if err := os.WriteFile(tmpFile, buf.Bytes(), 0600); err != nil {
-		addOspfLog(fmt.Sprintf("[FRR] %s batch=%d write_failed: %v", action, routeCount, err))
-		return err
-	}
-	defer os.Remove(tmpFile)
-
-	out, err := exec.Command("vtysh", "-f", tmpFile).CombinedOutput()
-	if err != nil {
-		trimmed := strings.TrimSpace(string(out))
-		if trimmed == "" {
-			trimmed = "<empty>"
-		}
-		addOspfLog(fmt.Sprintf("[FRR] %s batch=%d apply_failed: %v output=%s", action, routeCount, err, trimmed))
-		return err
-	}
-
-	addOspfLog(fmt.Sprintf("[FRR] %s batch=%d applied via vtysh", action, routeCount))
-	return nil
 }
 
 func parseDatFile(filename string) []string {
@@ -371,21 +301,25 @@ func ospfController() {
 
 		log.Printf("[DEBUG] toDel len = %d", len(toDel))
 		if len(toDel) > 0 {
-			addAdaptiveOspfBatchLogs("DEL", toDel, "(Miss count >= 3)")
 			var buf bytes.Buffer
 			buf.WriteString("conf t\n")
 			tx, _ := db.Begin()
 			for _, ip := range toDel {
-				routeStr := normalizeOspfRoute(ip)
+				addOspfLog("[DEL] " + ip + " (Miss count >= 3)")
+				routeStr := ip
+				if !strings.Contains(ip, "/") {
+					routeStr += "/32"
+				}
 				buf.WriteString(fmt.Sprintf("no ip route %s 127.0.0.1 tag 100\n", routeStr))
 				tx.Exec("DELETE FROM routes_table WHERE ip=?", ip)
 			}
 			tx.Commit()
 
 			tmpFile := "/tmp/proxygw_vtysh_del.conf"
-			if err := applyVtyshBatch("DEL", tmpFile, &buf, len(toDel)); err == nil {
-				updated = true
-			}
+			os.WriteFile(tmpFile, buf.Bytes(), 0600)
+			exec.Command("vtysh", "-f", tmpFile).Run()
+			os.Remove(tmpFile)
+			updated = true
 		}
 
 		var toAdd []string
@@ -406,21 +340,25 @@ func ospfController() {
 		}
 
 		if len(toAdd) > 0 {
-			addAdaptiveOspfBatchLogs("ADD", toAdd, "to published_set")
 			var buf bytes.Buffer
 			buf.WriteString("conf t\n")
 			tx, _ := db.Begin()
 			for _, ip := range toAdd {
-				routeStr := normalizeOspfRoute(ip)
+				addOspfLog("[ADD] " + ip + " to published_set")
+				routeStr := ip
+				if !strings.Contains(ip, "/") {
+					routeStr += "/32"
+				}
 				buf.WriteString(fmt.Sprintf("ip route %s 127.0.0.1 tag 100\n", routeStr))
 				tx.Exec("UPDATE routes_table SET status='published', last_seen=datetime('now'), miss_count=0 WHERE ip=?", ip)
 			}
 			tx.Commit()
 
 			tmpFile := "/tmp/proxygw_vtysh_add.conf"
-			if err := applyVtyshBatch("ADD", tmpFile, &buf, len(toAdd)); err == nil {
-				updated = true
-			}
+			os.WriteFile(tmpFile, buf.Bytes(), 0600)
+			exec.Command("vtysh", "-f", tmpFile).Run()
+			os.Remove(tmpFile)
+			updated = true
 		}
 
 		if updated {
