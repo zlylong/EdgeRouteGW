@@ -752,12 +752,12 @@ PersistentKeepalive = 25
                     <div v-else-if="activeTab === 'geo_query'" key="geo_query" class="space-y-6">
                         <div class="bg-white p-6 rounded-lg shadow space-y-4">
                             <div class="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_auto] gap-4 items-end">
-                                <div class="flex-1">
+                                <div class="flex-1 relative">
                                     <label class="block text-sm font-medium text-gray-700 mb-1">Geo 查询输入</label>
-                                    <input v-model="geoQuery.input" list="geoQuerySuggestions" type="text" class="border border-gray-300 rounded px-3 py-2 w-full h-[42px]" placeholder="输入域名/IP，或 geoip:cn / geosite:gfw">
-                                    <datalist id="geoQuerySuggestions">
-                                        <option v-for="item in geoQuerySuggestions" :key="item" :value="item">{{ item }}</option>
-                                    </datalist>
+                                    <input v-model="geoQuery.input" @focus="showGeoSuggestions = true" @input="showGeoSuggestions = true" @keydown.enter="showGeoSuggestions = false; runGeoQuery()" type="text" class="border border-gray-300 rounded px-3 py-2 w-full h-[42px]" placeholder="输入域名/IP，或 geoip:cn / geosite:gfw">
+                                    <div v-if="showGeoSuggestions && filteredGeoSuggestions.length" class="absolute z-20 mt-1 w-full bg-white border border-gray-200 rounded-lg shadow-lg max-h-64 overflow-y-auto">
+                                        <button type="button" v-for="item in filteredGeoSuggestions" :key="item" @mousedown.prevent="applyGeoSuggestion(item)" class="w-full text-left px-3 py-2 text-sm font-mono hover:bg-blue-50 text-gray-700">{{ item }}</button>
+                                    </div>
                                 </div>
                                 <button @click="runGeoQuery" :disabled="geoQuery.loading" class="bg-blue-600 text-white px-4 py-2 rounded shadow hover:bg-blue-700 disabled:opacity-50 h-[42px] whitespace-nowrap">
                                     <i v-if="geoQuery.loading" class="fas fa-spinner fa-spin mr-2"></i><i v-else class="fa-solid fa-magnifying-glass mr-2"></i>开始查询
@@ -1401,24 +1401,35 @@ window.onerror = function(msg, url, line, col, error) { alert("JS Error: " + msg
                 const rules = ref([]);
                 const categories = ref({ geosite: [], geoip: [] });
                 const geoQuery = ref({ input: '', loading: false, result: null });
-                const geoQuerySuggestions = computed(() => {
+                const showGeoSuggestions = ref(false);
+                const filteredGeoSuggestions = computed(() => {
                     const input = (geoQuery.value.input || '').trim().toLowerCase();
                     if (input.startsWith('geosite:')) {
-                        return (categories.value.geosite || []).map(tag => 'geosite:' + tag).slice(0, 500);
+                        const keyword = input.slice('geosite:'.length);
+                        return (categories.value.geosite || []).filter(tag => tag.includes(keyword)).slice(0, 50).map(tag => 'geosite:' + tag);
                     }
                     if (input.startsWith('geoip:')) {
-                        return (categories.value.geoip || []).map(tag => 'geoip:' + tag).slice(0, 500);
+                        const keyword = input.slice('geoip:'.length);
+                        return (categories.value.geoip || []).filter(tag => tag.includes(keyword)).slice(0, 50).map(tag => 'geoip:' + tag);
                     }
-                    const geoip = (categories.value.geoip || []).slice(0, 80).map(tag => 'geoip:' + tag);
-                    const geosite = (categories.value.geosite || []).slice(0, 80).map(tag => 'geosite:' + tag);
-                    return [...new Set([...geosite, ...geoip])];
+                    if (input === '') {
+                        const geoip = (categories.value.geoip || []).slice(0, 20).map(tag => 'geoip:' + tag);
+                        const geosite = (categories.value.geosite || []).slice(0, 20).map(tag => 'geosite:' + tag);
+                        return [...new Set([...geosite, ...geoip])];
+                    }
+                    return [];
                 });
+                const applyGeoSuggestion = (item) => {
+                    geoQuery.value.input = item;
+                    showGeoSuggestions.value = false;
+                };
                 const runGeoQuery = async () => {
                     const input = (geoQuery.value.input || '').trim();
                     if (!input) {
                         showToast('请输入域名/IP 或 geoip:cn / geosite:gfw', 'error');
                         return;
                     }
+                    showGeoSuggestions.value = false;
                     geoQuery.value.loading = true;
                     try {
                         const res = await apiFetch('/api/geo/query?input=' + encodeURIComponent(input));
@@ -1846,7 +1857,7 @@ Mode C: 纯OSPF (恢复真实IP宣告)`)) {
                     showAclModal, aclForm, openAddAcl, saveAcl, deleteAcl, updateLanDefault,
                     currentConfigTab,
                     loadData,
-                    isSubmitting, isLoading, vlessParams, cron, saveCron, showPwdModal, pwdForm, logout, changePwd, toastMsg, toastType, confirmData, doConfirm, isUpdating, token, password, login, categories, geoQuery, geoQuerySuggestions, runGeoQuery, xrayConfigStr, mosdnsConfigStr, nftablesConfigStr, frrConfigStr, loadConfigs, newRule, addRule, activeTab, tabs, currentTabLabel, nodes, rules, dns, dnsLogs, ospf, ospfController, ospfControllerDirty, saveOspfController, sysStatus, applyConfig, toggleMode, changeMode, importNodeUrl, pingNodes, openAddNode, editNode, saveNode, showNodeModal, editingNode, deleteNode, toggleNode, deleteRule, saveDns, updateComp, showMosdnsRollbackModal, mosdnsVersions, selectedMosdnsRollbackVersion, openMosdnsRollbackModal, confirmMosdnsRollback, showRollbackModal, xrayVersions, selectedRollbackVersion, openRollbackModal, confirmRollback, remoteNodes, showRemoteNodeModal, showRemoteDetailsModal, selectedRemoteNode, remoteNodeForm, loadRemoteNodes, openAddRemoteNode, submitRemoteNode, viewRemoteNode, checkRemoteNode, confirmDeleteRemoteNode, copyText, importToLocal, isDeploying, showBatchModal, batchText, submitBatchNodes, showHistoryModal, nodeHistory, setDefaultNode, regenerateNode, loadNodeHistory, rollbackNode }
+                    isSubmitting, isLoading, vlessParams, cron, saveCron, showPwdModal, pwdForm, logout, changePwd, toastMsg, toastType, confirmData, doConfirm, isUpdating, token, password, login, categories, geoQuery, showGeoSuggestions, filteredGeoSuggestions, applyGeoSuggestion, runGeoQuery, xrayConfigStr, mosdnsConfigStr, nftablesConfigStr, frrConfigStr, loadConfigs, newRule, addRule, activeTab, tabs, currentTabLabel, nodes, rules, dns, dnsLogs, ospf, ospfController, ospfControllerDirty, saveOspfController, sysStatus, applyConfig, toggleMode, changeMode, importNodeUrl, pingNodes, openAddNode, editNode, saveNode, showNodeModal, editingNode, deleteNode, toggleNode, deleteRule, saveDns, updateComp, showMosdnsRollbackModal, mosdnsVersions, selectedMosdnsRollbackVersion, openMosdnsRollbackModal, confirmMosdnsRollback, showRollbackModal, xrayVersions, selectedRollbackVersion, openRollbackModal, confirmRollback, remoteNodes, showRemoteNodeModal, showRemoteDetailsModal, selectedRemoteNode, remoteNodeForm, loadRemoteNodes, openAddRemoteNode, submitRemoteNode, viewRemoteNode, checkRemoteNode, confirmDeleteRemoteNode, copyText, importToLocal, isDeploying, showBatchModal, batchText, submitBatchNodes, showHistoryModal, nodeHistory, setDefaultNode, regenerateNode, loadNodeHistory, rollbackNode }
             }
         }).mount('#app');
     </script>
