@@ -3,6 +3,7 @@ package main
 import (
 	"net"
 	"net/http"
+	"sort"
 	"strings"
 
 	"github.com/gin-gonic/gin"
@@ -69,11 +70,25 @@ func registerRuleRoutes(api *gin.RouterGroup) {
 
 		if ip := net.ParseIP(input); ip != nil {
 			matches := queryGeoIPTagsByIP(geoipPath, ip.String())
-			c.JSON(http.StatusOK, gin.H{"mode": "lookup", "query_type": "ip", "input": ip.String(), "geoip_matches": matches, "geosite_matches": []string{}})
+			c.JSON(http.StatusOK, gin.H{"mode": "lookup", "query_type": "ip", "input": ip.String(), "resolved_ips": []string{ip.String()}, "geoip_matches": matches, "geosite_matches": []string{}})
 			return
 		}
 
-		c.JSON(http.StatusOK, gin.H{"mode": "lookup", "query_type": "domain", "input": input, "geoip_matches": []string{}, "geosite_matches": queryGeoSiteTagsByDomain(geositePath, input)})
+		resolvedIPs, _ := geoQueryLookupIP(input)
+		sort.Strings(resolvedIPs)
+		geoipMatches := make(map[string]struct{})
+		for _, resolvedIP := range resolvedIPs {
+			for _, tag := range queryGeoIPTagsByIP(geoipPath, resolvedIP) {
+				geoipMatches[tag] = struct{}{}
+			}
+		}
+		mergedGeoipMatches := make([]string, 0, len(geoipMatches))
+		for tag := range geoipMatches {
+			mergedGeoipMatches = append(mergedGeoipMatches, tag)
+		}
+		sort.Strings(mergedGeoipMatches)
+
+		c.JSON(http.StatusOK, gin.H{"mode": "lookup", "query_type": "domain", "input": input, "resolved_ips": resolvedIPs, "geoip_matches": mergedGeoipMatches, "geosite_matches": queryGeoSiteTagsByDomain(geositePath, input)})
 	})
 
 	api.GET("/rules", func(c *gin.Context) {

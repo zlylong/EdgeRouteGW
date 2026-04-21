@@ -114,7 +114,16 @@ func TestGeoQueryLookupAndExpand(t *testing.T) {
 	r := setupFeatureSuiteRouter(t)
 	writeTestGeoData(t)
 
-	t.Run("domain lookup returns matching geosite tags", func(t *testing.T) {
+	t.Run("domain lookup returns matching geosite tags and resolved geoip tags", func(t *testing.T) {
+		oldLookup := geoQueryLookupIP
+		geoQueryLookupIP = func(host string) ([]string, error) {
+			if host != "www.google.com" {
+				t.Fatalf("unexpected host lookup: %s", host)
+			}
+			return []string{"8.8.8.8", "1.1.1.1"}, nil
+		}
+		defer func() { geoQueryLookupIP = oldLookup }()
+
 		w := httptest.NewRecorder()
 		req := authedRequest(http.MethodGet, "/api/geo/query?input=www.google.com")
 		r.ServeHTTP(w, req)
@@ -128,6 +137,14 @@ func TestGeoQueryLookupAndExpand(t *testing.T) {
 		matches := resp["geosite_matches"].([]interface{})
 		if len(matches) != 1 || matches[0].(string) != "gfw" {
 			t.Fatalf("unexpected geosite matches: %v", resp)
+		}
+		resolved := resp["resolved_ips"].([]interface{})
+		if len(resolved) != 2 || resolved[0].(string) != "1.1.1.1" || resolved[1].(string) != "8.8.8.8" {
+			t.Fatalf("unexpected resolved ips: %v", resp)
+		}
+		geoipMatches := resp["geoip_matches"].([]interface{})
+		if len(geoipMatches) != 2 || geoipMatches[0].(string) != "cn" || geoipMatches[1].(string) != "google" {
+			t.Fatalf("unexpected geoip matches from dns lookup: %v", resp)
 		}
 	})
 

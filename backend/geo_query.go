@@ -1,13 +1,40 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"net"
 	"os"
 	"regexp"
 	"sort"
 	"strings"
+	"time"
 )
+
+var geoQueryLookupIP = func(host string) ([]string, error) {
+	resolver := net.Resolver{}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	ips, err := resolver.LookupIPAddr(ctx, host)
+	if err != nil {
+		return nil, err
+	}
+	seen := make(map[string]struct{}, len(ips))
+	out := make([]string, 0, len(ips))
+	for _, ip := range ips {
+		if ip.IP == nil || strings.Contains(ip.IP.String(), ":") {
+			continue
+		}
+		s := ip.IP.String()
+		if _, ok := seen[s]; ok {
+			continue
+		}
+		seen[s] = struct{}{}
+		out = append(out, s)
+	}
+	sort.Strings(out)
+	return out, nil
+}
 
 type geoSiteDomainEntry struct {
 	Type  string
