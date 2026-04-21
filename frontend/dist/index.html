@@ -749,6 +749,62 @@ PersistentKeepalive = 25
                         </div>
                     </div>
 
+                    <div v-else-if="activeTab === 'geo_query'" key="geo_query" class="space-y-6">
+                        <div class="bg-white p-6 rounded-lg shadow space-y-4">
+                            <div class="flex flex-col lg:flex-row gap-4 lg:items-end">
+                                <div class="flex-1">
+                                    <label class="block text-sm font-medium text-gray-700 mb-1">Geo 查询输入</label>
+                                    <input v-model="geoQuery.input" list="geoQuerySuggestions" type="text" class="border border-gray-300 rounded px-3 py-2 w-full" placeholder="输入域名/IP，或 geoip:cn / geosite:gfw">
+                                    <datalist id="geoQuerySuggestions">
+                                        <option v-for="item in geoQuerySuggestions" :key="item" :value="item">{{ item }}</option>
+                                    </datalist>
+                                    <div class="text-xs text-gray-500 mt-2">域名/IP：查询命中 Geo 规则；Geo 规则：提取包含的域名/IP，用于验证规则是否正确。</div>
+                                </div>
+                                <button @click="runGeoQuery" :disabled="geoQuery.loading" class="bg-blue-600 text-white px-4 py-2 rounded shadow hover:bg-blue-700 disabled:opacity-50 h-[42px]">
+                                    <i v-if="geoQuery.loading" class="fas fa-spinner fa-spin mr-2"></i><i v-else class="fa-solid fa-magnifying-glass mr-2"></i>开始查询
+                                </button>
+                            </div>
+                        </div>
+
+                        <div class="bg-white p-6 rounded-lg shadow" v-if="geoQuery.result">
+                            <div class="flex flex-col gap-2 border-b pb-3 mb-4">
+                                <div class="text-lg font-medium text-gray-800">查询结果</div>
+                                <div class="text-sm text-gray-500 font-mono">{{ geoQuery.result.input }}</div>
+                            </div>
+
+                            <div v-if="geoQuery.result.mode === 'lookup'" class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                                <div class="border rounded-lg p-4 bg-gray-50">
+                                    <div class="text-sm font-medium text-gray-700 mb-3">GeoIP 命中</div>
+                                    <div class="flex flex-wrap gap-2" v-if="(geoQuery.result.geoip_matches || []).length">
+                                        <span v-for="item in geoQuery.result.geoip_matches" :key="'geoip-' + item" class="px-2 py-1 rounded bg-blue-100 text-blue-800 text-xs font-mono">geoip:{{ item }}</span>
+                                    </div>
+                                    <div v-else class="text-sm text-gray-400">无匹配</div>
+                                </div>
+                                <div class="border rounded-lg p-4 bg-gray-50">
+                                    <div class="text-sm font-medium text-gray-700 mb-3">Geosite 命中</div>
+                                    <div class="flex flex-wrap gap-2" v-if="(geoQuery.result.geosite_matches || []).length">
+                                        <span v-for="item in geoQuery.result.geosite_matches" :key="'geosite-' + item" class="px-2 py-1 rounded bg-green-100 text-green-800 text-xs font-mono">geosite:{{ item }}</span>
+                                    </div>
+                                    <div v-else class="text-sm text-gray-400">无匹配</div>
+                                </div>
+                            </div>
+
+                            <div v-else class="space-y-4">
+                                <div class="flex flex-wrap gap-3 text-sm">
+                                    <span class="px-2 py-1 rounded bg-gray-100 text-gray-700 font-mono">{{ geoQuery.result.rule }}</span>
+                                    <span class="px-2 py-1 rounded text-xs font-bold" :class="geoQuery.result.exists ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'">{{ geoQuery.result.exists ? '规则有效' : '规则不存在' }}</span>
+                                    <span class="px-2 py-1 rounded bg-blue-50 text-blue-700 text-xs">共 {{ geoQuery.result.count || 0 }} 条</span>
+                                </div>
+                                <div class="border rounded-lg bg-[#1e1e1e] text-[#d1fae5] font-mono text-xs p-4 overflow-y-auto" style="min-height: 16rem; max-height: 40rem; white-space: pre-wrap;">
+                                    <template v-if="(geoQuery.result.values || []).length">
+                                        <div v-for="(item, idx) in geoQuery.result.values" :key="idx">{{ item }}</div>
+                                    </template>
+                                    <div v-else class="text-gray-400">无内容。若该规则应存在但结果为空，可据此判断输入的 Geo 规则有问题。</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
                     <!-- DNS -->
                     <div v-else-if="activeTab === 'dns'" key="dns" class="space-y-6">
                         <div class="grid grid-cols-1 gap-6 max-w-3xl mx-auto">
@@ -1307,6 +1363,7 @@ window.onerror = function(msg, url, line, col, error) { alert("JS Error: " + msg
                     { id: 'nodes', icon: 'fa-server', label: '节点管理' },
                     { id: 'remote_nodes', icon: 'fa-cloud-arrow-up', label: '节点自动部署' },
                     { id: 'rules', icon: 'fa-route', label: '路由分流规则' },
+                    { id: 'geo_query', icon: 'fa-magnifying-glass-location', label: 'Geo 查询验证' },
                     { id: 'lan_acls', icon: 'fa-laptop-house', label: '设备分流规则', hideModeBC: true },
                     { id: 'dns', icon: 'fa-globe', label: 'DNS 设置' },
                     { id: 'ospf', icon: 'fa-project-diagram', label: 'OSPF 状态', hideModeA: true },
@@ -1334,6 +1391,33 @@ window.onerror = function(msg, url, line, col, error) { alert("JS Error: " + msg
 
                 const rules = ref([]);
                 const categories = ref({ geosite: [], geoip: [] });
+                const geoQuery = ref({ input: '', loading: false, result: null });
+                const geoQuerySuggestions = computed(() => {
+                    const geoip = (categories.value.geoip || []).map(tag => 'geoip:' + tag);
+                    const geosite = (categories.value.geosite || []).map(tag => 'geosite:' + tag);
+                    return [...new Set([...geoip, ...geosite])].slice(0, 500);
+                });
+                const runGeoQuery = async () => {
+                    const input = (geoQuery.value.input || '').trim();
+                    if (!input) {
+                        showToast('请输入域名/IP 或 geoip:cn / geosite:gfw', 'error');
+                        return;
+                    }
+                    geoQuery.value.loading = true;
+                    try {
+                        const res = await apiFetch('/api/geo/query?input=' + encodeURIComponent(input));
+                        if (!res.ok) {
+                            const data = await res.json().catch(() => ({}));
+                            showToast(data.error || 'Geo 查询失败', 'error');
+                            return;
+                        }
+                        geoQuery.value.result = await res.json();
+                    } catch (e) {
+                        showToast('Geo 查询失败', 'error');
+                    } finally {
+                        geoQuery.value.loading = false;
+                    }
+                };
                 const dns = ref({ local: '', remote: '', lazy: true, mode: 'smart' });
                 const dnsLogs = ref([]);
                 const ospf = ref({ neighbors: 0, published: 0, pending: 0, logs: [] });
@@ -1639,7 +1723,7 @@ window.onerror = function(msg, url, line, col, error) { alert("JS Error: " + msg
                     if(token.value && activeTab.value === 'lan_acls') apiFetch('/api/lan_acls').then(r=>r.json()).then(d => { lanAcls.value = d.acls || []; defaultLanPolicy.value = d.default_policy || 'proxy'; });
                     if(token.value && activeTab.value === 'nodes') apiFetch('/api/nodes').then(r=>r.json()).then(d => nodes.value = d);
                     if(token.value && activeTab.value === 'remote_nodes') loadRemoteNodes();
-                    if(token.value && activeTab.value === 'rules') { apiFetch('/api/rules').then(r=>r.json()).then(d => rules.value = d); if(categories.value.geosite.length===0) apiFetch('/api/rules/categories').then(r=>r.json()).then(d => categories.value = d); }
+                    if(token.value && (activeTab.value === 'rules' || activeTab.value === 'geo_query')) { if(activeTab.value === 'rules') apiFetch('/api/rules').then(r=>r.json()).then(d => rules.value = d); if(categories.value.geosite.length===0) apiFetch('/api/rules/categories').then(r=>r.json()).then(d => categories.value = d); }
                     if(token.value && activeTab.value === 'ospf') apiFetch('/api/ospf').then(r=>r.json()).then(d => applyOspfPayload(d));
                     if(token.value && activeTab.value === 'configs') loadConfigs();
  
@@ -1746,7 +1830,7 @@ Mode C: 纯OSPF (恢复真实IP宣告)`)) {
                     showAclModal, aclForm, openAddAcl, saveAcl, deleteAcl, updateLanDefault,
                     currentConfigTab,
                     loadData,
-                    isSubmitting, isLoading, vlessParams, cron, saveCron, showPwdModal, pwdForm, logout, changePwd, toastMsg, toastType, confirmData, doConfirm, isUpdating, token, password, login, categories, xrayConfigStr, mosdnsConfigStr, nftablesConfigStr, frrConfigStr, loadConfigs, newRule, addRule, activeTab, tabs, currentTabLabel, nodes, rules, dns, dnsLogs, ospf, ospfController, ospfControllerDirty, saveOspfController, sysStatus, applyConfig, toggleMode, changeMode, importNodeUrl, pingNodes, openAddNode, editNode, saveNode, showNodeModal, editingNode, deleteNode, toggleNode, deleteRule, saveDns, updateComp, showMosdnsRollbackModal, mosdnsVersions, selectedMosdnsRollbackVersion, openMosdnsRollbackModal, confirmMosdnsRollback, showRollbackModal, xrayVersions, selectedRollbackVersion, openRollbackModal, confirmRollback, remoteNodes, showRemoteNodeModal, showRemoteDetailsModal, selectedRemoteNode, remoteNodeForm, loadRemoteNodes, openAddRemoteNode, submitRemoteNode, viewRemoteNode, checkRemoteNode, confirmDeleteRemoteNode, copyText, importToLocal, isDeploying, showBatchModal, batchText, submitBatchNodes, showHistoryModal, nodeHistory, setDefaultNode, regenerateNode, loadNodeHistory, rollbackNode }
+                    isSubmitting, isLoading, vlessParams, cron, saveCron, showPwdModal, pwdForm, logout, changePwd, toastMsg, toastType, confirmData, doConfirm, isUpdating, token, password, login, categories, geoQuery, geoQuerySuggestions, runGeoQuery, xrayConfigStr, mosdnsConfigStr, nftablesConfigStr, frrConfigStr, loadConfigs, newRule, addRule, activeTab, tabs, currentTabLabel, nodes, rules, dns, dnsLogs, ospf, ospfController, ospfControllerDirty, saveOspfController, sysStatus, applyConfig, toggleMode, changeMode, importNodeUrl, pingNodes, openAddNode, editNode, saveNode, showNodeModal, editingNode, deleteNode, toggleNode, deleteRule, saveDns, updateComp, showMosdnsRollbackModal, mosdnsVersions, selectedMosdnsRollbackVersion, openMosdnsRollbackModal, confirmMosdnsRollback, showRollbackModal, xrayVersions, selectedRollbackVersion, openRollbackModal, confirmRollback, remoteNodes, showRemoteNodeModal, showRemoteDetailsModal, selectedRemoteNode, remoteNodeForm, loadRemoteNodes, openAddRemoteNode, submitRemoteNode, viewRemoteNode, checkRemoteNode, confirmDeleteRemoteNode, copyText, importToLocal, isDeploying, showBatchModal, batchText, submitBatchNodes, showHistoryModal, nodeHistory, setDefaultNode, regenerateNode, loadNodeHistory, rollbackNode }
             }
         }).mount('#app');
     </script>

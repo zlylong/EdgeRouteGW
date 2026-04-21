@@ -1,6 +1,7 @@
 package main
 
 import (
+	"net"
 	"net/http"
 	"strings"
 
@@ -33,6 +34,46 @@ func registerRuleRoutes(api *gin.RouterGroup) {
 		}
 
 		c.JSON(http.StatusOK, gin.H{"geosite": resGeosite, "geoip": resGeoip})
+	})
+
+	api.GET("/geo/query", func(c *gin.Context) {
+		input := strings.TrimSpace(c.Query("input"))
+		if input == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "input required"})
+			return
+		}
+
+		geoipPath := getPath("core", "mosdns", "geoip.dat")
+		geositePath := getPath("core", "mosdns", "geosite.dat")
+		if kind, tag, ok := parseGeoRuleInput(input); ok {
+			if kind == "geoip" {
+				values := []string{}
+				exists := false
+				if strings.HasPrefix(tag, "!") {
+					exists = hasGeoIPTag(geoipPath, tag)
+					if exists {
+						values = extractGeoIPsExclude(geoipPath, tag, "private")
+					}
+				} else {
+					values = extractGeoIPs(geoipPath, tag)
+					exists = hasGeoIPTag(geoipPath, tag)
+				}
+				c.JSON(http.StatusOK, gin.H{"mode": "expand", "query_type": "geoip", "input": input, "rule": "geoip:" + tag, "exists": exists, "count": len(values), "values": values})
+				return
+			}
+
+			values := extractGeoSiteValues(geositePath, tag)
+			c.JSON(http.StatusOK, gin.H{"mode": "expand", "query_type": "geosite", "input": input, "rule": "geosite:" + tag, "exists": hasGeoSiteTag(geositePath, tag), "count": len(values), "values": values})
+			return
+		}
+
+		if ip := net.ParseIP(input); ip != nil {
+			matches := queryGeoIPTagsByIP(geoipPath, ip.String())
+			c.JSON(http.StatusOK, gin.H{"mode": "lookup", "query_type": "ip", "input": ip.String(), "geoip_matches": matches, "geosite_matches": []string{}})
+			return
+		}
+
+		c.JSON(http.StatusOK, gin.H{"mode": "lookup", "query_type": "domain", "input": input, "geoip_matches": []string{}, "geosite_matches": queryGeoSiteTagsByDomain(geositePath, input)})
 	})
 
 	api.GET("/rules", func(c *gin.Context) {
