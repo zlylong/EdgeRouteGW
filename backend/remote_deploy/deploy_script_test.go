@@ -12,6 +12,8 @@ func TestGenerateVlessRealityInstallScript_UsesRetryablePackageAndDownloadSteps(
 		"retry_cmd()",
 		"retry_cmd apt-get update",
 		"retry_cmd apt-get install -y curl unzip coreutils",
+		"sysctl net.ipv4.tcp_available_congestion_control | grep -qw bbr",
+		"net.ipv4.tcp_congestion_control=bbr",
 		"curl -4 --fail --location",
 		"--retry 5",
 	}
@@ -29,6 +31,8 @@ func TestGenerateWGInstallScript_UsesRetryablePackageInstall(t *testing.T) {
 		"retry_cmd()",
 		"retry_cmd apt-get update",
 		"retry_cmd apt-get install -y wireguard iptables iproute2 curl",
+		"sysctl net.ipv4.tcp_available_congestion_control | grep -qw bbr",
+		"net.ipv4.tcp_congestion_control=bbr",
 		"mkdir -p /etc/wireguard",
 	}
 	for _, want := range checks {

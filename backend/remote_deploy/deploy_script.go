@@ -46,6 +46,20 @@ retry_cmd apt-get install -y wireguard iptables iproute2 curl
 mkdir -p /etc/wireguard
 echo net.ipv4.ip_forward=1 > /etc/sysctl.d/99-wireguard-forward.conf
 sysctl -p /etc/sysctl.d/99-wireguard-forward.conf
+if ! sysctl net.ipv4.tcp_available_congestion_control | grep -qw bbr; then
+  if command -v modprobe >/dev/null 2>&1; then
+    modprobe tcp_bbr 2>/dev/null || true
+  fi
+fi
+if sysctl net.ipv4.tcp_available_congestion_control | grep -qw bbr; then
+  cat << 'BBRCONF' > /etc/sysctl.d/99-proxygw-bbr.conf
+net.core.default_qdisc=fq
+net.ipv4.tcp_congestion_control=bbr
+BBRCONF
+  sysctl -p /etc/sysctl.d/99-proxygw-bbr.conf
+else
+  echo "BBR is not available on this kernel, skipped." >&2
+fi
 echo "%s" | base64 -d > /etc/wireguard/wg0.conf
 systemctl enable wg-quick@wg0
 systemctl restart wg-quick@wg0
@@ -113,6 +127,20 @@ retry_cmd() {
 }
 retry_cmd apt-get update
 retry_cmd apt-get install -y curl unzip coreutils
+if ! sysctl net.ipv4.tcp_available_congestion_control | grep -qw bbr; then
+  if command -v modprobe >/dev/null 2>&1; then
+    modprobe tcp_bbr 2>/dev/null || true
+  fi
+fi
+if sysctl net.ipv4.tcp_available_congestion_control | grep -qw bbr; then
+  cat << 'BBRCONF' > /etc/sysctl.d/99-proxygw-bbr.conf
+net.core.default_qdisc=fq
+net.ipv4.tcp_congestion_control=bbr
+BBRCONF
+  sysctl -p /etc/sysctl.d/99-proxygw-bbr.conf
+else
+  echo "BBR is not available on this kernel, skipped." >&2
+fi
 mkdir -p /usr/local/etc/xray
 mkdir -p /usr/local/share/xray
 retry_cmd curl -4 --fail --location --retry 5 --retry-delay 2 --retry-all-errors -H "Cache-Control: no-cache" -o xray.zip https://github.com/XTLS/Xray-core/releases/latest/download/Xray-linux-64.zip
