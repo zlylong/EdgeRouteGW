@@ -259,3 +259,19 @@ func TestDoDeployRoutine_AutoUpdatesFingerprintAndRetries(t *testing.T) {
 		t.Fatal("expected auto-update fingerprint log entry")
 	}
 }
+
+func TestWrapRemoteCommandWithSudo_NonRootUsesSudo(t *testing.T) {
+	req := RemoteNodeReq{SSHUser: "ubuntu"}
+	got := wrapRemoteCommandWithSudo(req, "systemctl is-active xray", false)
+	if !strings.HasPrefix(got, "sudo -n bash -lc ") {
+		t.Fatalf("expected sudo wrapper, got: %s", got)
+	}
+}
+
+func TestWrapRemoteCommandWithSudo_RootNoWrap(t *testing.T) {
+	req := RemoteNodeReq{SSHUser: "root"}
+	got := wrapRemoteCommandWithSudo(req, "systemctl is-active xray", false)
+	if got != "systemctl is-active xray" {
+		t.Fatalf("expected raw command, got: %s", got)
+	}
+}

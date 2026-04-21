@@ -37,6 +37,36 @@ var startDeployRoutine = func(id int64, req RemoteNodeReq, isUpdate bool, params
 	go doDeployRoutineWrapper(id, req, isUpdate, params)
 }
 
+func shellSingleQuote(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", "'\"'\"'") + "'"
+}
+
+func wrapRemoteCommandWithSudo(req RemoteNodeReq, cmd string, withPassword bool) string {
+	if strings.EqualFold(strings.TrimSpace(req.SSHUser), "root") || strings.TrimSpace(req.SSHUser) == "" {
+		return cmd
+	}
+	quotedCmd := shellSingleQuote(cmd)
+	if withPassword && req.SSHAuthType == "password" && strings.TrimSpace(req.SSHCredential) != "" {
+		quotedPassword := shellSingleQuote(req.SSHCredential)
+		return fmt.Sprintf("printf '%s\\n' %s | sudo -S -p '' bash -lc %s", "%s", quotedPassword, quotedCmd)
+	}
+	return fmt.Sprintf("sudo -n bash -lc %s", quotedCmd)
+}
+
+func runRemoteCommand(sshClient remoteSSHClient, req RemoteNodeReq, cmd string) (string, string, error) {
+	primary := wrapRemoteCommandWithSudo(req, cmd, false)
+	stdout, stderr, err := sshClient.RunCommand(primary)
+	if err == nil || strings.EqualFold(strings.TrimSpace(req.SSHUser), "root") || req.SSHAuthType != "password" || strings.TrimSpace(req.SSHCredential) == "" {
+		return stdout, stderr, err
+	}
+	joined := strings.ToLower(stdout + "\n" + stderr + "\n" + err.Error())
+	if !strings.Contains(joined, "password is required") && !strings.Contains(joined, "a terminal is required") && !strings.Contains(joined, "no tty present") {
+		return stdout, stderr, err
+	}
+	fallback := wrapRemoteCommandWithSudo(req, cmd, true)
+	return sshClient.RunCommand(fallback)
+}
+
 func registerRemoteNodeRoutes(authed *gin.RouterGroup) {
 	db.Exec("CREATE TABLE IF NOT EXISTS remote_node_history (id INTEGER PRIMARY KEY AUTOINCREMENT, node_id INTEGER, type TEXT, params TEXT, created_at DATETIME DEFAULT CURRENT_TIMESTAMP, FOREIGN KEY(node_id) REFERENCES remote_nodes(id) ON DELETE CASCADE);")
 
@@ -302,7 +332,7 @@ func doDeployRoutine(id int64, req RemoteNodeReq, isUpdate bool, params map[stri
 	}
 
 	logAction(id, "deploy", "running", "Executing installation script on remote host...")
-	stdout, stderr, err := sshClient.RunCommand(script)
+	stdout, stderr, err := runRemoteCommand(sshClient, req, script)
 
 	if err != nil {
 		db.Exec("UPDATE remote_nodes SET status = 'Failed' WHERE id = ?", id)
@@ -367,9 +397,9 @@ func deleteRemoteNode(c *gin.Context) {
 			if err == nil {
 				defer client.Close()
 				if req.Type == "wg" {
-					client.RunCommand("systemctl stop wg-quick@wg0; systemctl disable wg-quick@wg0; rm -f /etc/wireguard/wg0.conf")
+					runRemoteCommand(client, req, "systemctl stop wg-quick@wg0; systemctl disable wg-quick@wg0; rm -f /etc/wireguard/wg0.conf")
 				} else if req.Type == "vless" {
-					client.RunCommand("systemctl stop xray; systemctl disable xray; rm -f /etc/systemd/system/xray.service; rm -rf /usr/local/etc/xray; rm -f /usr/local/bin/xray")
+					runRemoteCommand(client, req, "systemctl stop xray; systemctl disable xray; rm -f /etc/systemd/system/xray.service; rm -rf /usr/local/etc/xray; rm -f /usr/local/bin/xray")
 				}
 			}
 		}(req)
@@ -414,7 +444,8 @@ func checkRemoteNode(c *gin.Context) {
 		cmd = "systemctl is-active wg-quick@wg0"
 	}
 
-	out, _, err := client.RunCommand(cmd)
+	checkReq := RemoteNodeReq{SSHUser: user, SSHAuthType: authType, SSHCredential: credential}
+	out, _, err := runRemoteCommand(client, checkReq, cmd)
 	status := "Online"
 	if err != nil || out == "" {
 		status = "Offline"
