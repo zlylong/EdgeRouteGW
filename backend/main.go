@@ -947,11 +947,14 @@ func syncStaticRoutesToOSPF(mode string) {
 		for geoipRows.Next() {
 			var tag string
 			if err := geoipRows.Scan(&tag); err == nil {
+				var ips []string
 				if strings.HasPrefix(tag, "!") {
-					log.Printf("[OSPF] skip inverted geoip tag %q: unsupported for static route expansion", tag)
-					continue
+					excludeTag := strings.TrimSpace(strings.TrimPrefix(tag, "!"))
+					ips = extractGeoIPsExclude(getPath("core", "mosdns", "geoip.dat"), excludeTag, "private")
+					log.Printf("[OSPF] expanded inverted geoip tag %q to %d CIDRs (excluding %q and private)", tag, len(ips), excludeTag)
+				} else {
+					ips = extractGeoIPs(getPath("core", "mosdns", "geoip.dat"), tag)
 				}
-				ips := extractGeoIPs(getPath("core", "mosdns", "geoip.dat"), tag)
 				for _, ip := range ips {
 					staticIPs = append(staticIPs, ip)
 					staticIPsMap[ip] = true
