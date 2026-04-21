@@ -814,29 +814,6 @@ func applyXrayConfig() error {
 	return exec.Command("systemctl", "restart", "xray").Run()
 }
 
-func getPrimarySubnet(ipStr string) string {
-	ifaces, err := net.Interfaces()
-	if err != nil {
-		return ""
-	}
-	for _, i := range ifaces {
-		addrs, err := i.Addrs()
-		if err != nil {
-			continue
-		}
-		for _, a := range addrs {
-			if ipnet, ok := a.(*net.IPNet); ok {
-				if ipnet.IP.String() == ipStr {
-					network := ipnet.IP.Mask(ipnet.Mask)
-					maskSize, _ := ipnet.Mask.Size()
-					return fmt.Sprintf("%s/%d", network.String(), maskSize)
-				}
-			}
-		}
-	}
-	return ""
-}
-
 func getPrimaryLANIPAndSubnet() (string, string) {
 	ifaces, err := net.Interfaces()
 	if err != nil {
