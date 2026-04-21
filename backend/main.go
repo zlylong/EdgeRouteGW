@@ -62,8 +62,8 @@ func clampOspfPushBatchLimit(v int) int {
 	switch {
 	case v < 1:
 		return 1
-	case v > 2000:
-		return 2000
+	case v > 100000:
+		return 100000
 	default:
 		return v
 	}

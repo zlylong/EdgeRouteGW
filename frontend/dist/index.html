@@ -798,30 +798,27 @@ PersistentKeepalive = 25
                                 <div class="mt-2 text-3xl font-bold text-gray-900">{{ ospf.pending }} <span class="text-sm text-gray-500 font-normal">等待老化/重试</span></div>
                             </div>
                         </div>
-                        <div class="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_22rem] gap-6 items-start">
-                            <div class="bg-white p-6 rounded-lg shadow">
-                                <h3 class="text-lg font-medium border-b pb-2 mb-4 flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
-                                    <span>OSPF 增量控制器日志 (FRR vtysh)</span>
-                                    <span class="text-xs text-gray-500">每批 {{ ospfController.push_batch_limit }} 条 / 最短间隔 {{ ospfController.push_interval_seconds }} 秒</span>
-                                </h3>
-                                <div class="terminal overflow-y-auto" style="min-height: 16rem; height: clamp(16rem, 42vh, 34rem);">
-                                    <div v-for="(log, i) in ospf.logs" :key="i" :class="log.includes('[ADD]') ? 'text-green-400' : (log.includes('[DEL]') ? 'text-red-400' : 'text-blue-300')">{{ log }}</div>
+                        <div class="bg-white p-6 rounded-lg shadow space-y-4">
+                            <div class="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between border-b pb-4">
+                                <div>
+                                    <h3 class="text-lg font-medium">OSPF 增量控制器日志 (FRR vtysh)</h3>
+                                    <div class="text-xs text-gray-500 mt-1">日志窗口高度按屏幕自适应；控制项作用于 FRR vtysh 增量推送批次和节流时间。</div>
                                 </div>
-                            </div>
-                            <div class="bg-white p-6 rounded-lg shadow">
-                                <h3 class="text-lg font-medium border-b pb-2 mb-4">增量推送控制</h3>
-                                <div class="space-y-4">
-                                    <label class="block">
+                                <div class="flex flex-col gap-3 xl:flex-row xl:items-end xl:flex-wrap">
+                                    <label class="block min-w-[12rem]">
                                         <span class="text-sm text-gray-600">每批最多推送条目</span>
-                                        <input type="number" min="1" max="2000" v-model.number="ospfController.push_batch_limit" @input="ospfControllerDirty = true" class="mt-1 w-full border rounded px-3 py-2 text-sm focus:outline-blue-500">
+                                        <input type="number" min="1" max="100000" v-model.number="ospfController.push_batch_limit" @input="ospfControllerDirty = true" class="mt-1 w-full border rounded px-3 py-2 text-sm focus:outline-blue-500">
                                     </label>
-                                    <label class="block">
+                                    <label class="block min-w-[12rem]">
                                         <span class="text-sm text-gray-600">推送最短间隔（秒）</span>
                                         <input type="number" min="1" max="3600" v-model.number="ospfController.push_interval_seconds" @input="ospfControllerDirty = true" class="mt-1 w-full border rounded px-3 py-2 text-sm focus:outline-blue-500">
                                     </label>
-                                    <div class="text-xs text-gray-500 leading-5">日志窗口高度按屏幕自适应；控制项作用于 FRR vtysh 增量推送批次和节流时间。</div>
-                                    <button @click="saveOspfController" :disabled="!ospfControllerDirty" class="w-full bg-blue-600 text-white px-4 py-2 rounded text-sm hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed">保存推送控制</button>
+                                    <div class="text-xs text-gray-500 xl:pb-2">当前：每批 {{ ospfController.push_batch_limit }} 条 / 最短间隔 {{ ospfController.push_interval_seconds }} 秒</div>
+                                    <button @click="saveOspfController" :disabled="!ospfControllerDirty" class="bg-blue-600 text-white px-4 py-2 rounded text-sm hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed xl:mb-[1px]">保存推送控制</button>
                                 </div>
+                            </div>
+                            <div class="terminal overflow-y-auto" style="min-height: 16rem; height: clamp(16rem, 42vh, 34rem);">
+                                <div v-for="(log, i) in ospf.logs" :key="i" :class="log.includes('[ADD]') ? 'text-green-400' : (log.includes('[DEL]') ? 'text-red-400' : 'text-blue-300')">{{ log }}</div>
                             </div>
                         </div>
                     </div>
