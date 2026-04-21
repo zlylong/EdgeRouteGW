@@ -31,6 +31,11 @@ var (
 var ospfLogs []string
 var ospfLogsMu sync.RWMutex
 
+const (
+	defaultOspfPushBatchLimit      = 500
+	defaultOspfPushIntervalSeconds = 10
+)
+
 func addOspfLog(msg string) {
 	ospfLogsMu.Lock()
 	defer ospfLogsMu.Unlock()
@@ -46,6 +51,61 @@ func getOspfLogsSnapshot() []string {
 	out := make([]string, len(ospfLogs))
 	copy(out, ospfLogs)
 	return out
+}
+
+type ospfControllerSettings struct {
+	PushBatchLimit      int
+	PushIntervalSeconds int
+}
+
+func clampOspfPushBatchLimit(v int) int {
+	switch {
+	case v < 1:
+		return 1
+	case v > 2000:
+		return 2000
+	default:
+		return v
+	}
+}
+
+func clampOspfPushIntervalSeconds(v int) int {
+	switch {
+	case v < 1:
+		return 1
+	case v > 3600:
+		return 3600
+	default:
+		return v
+	}
+}
+
+func readIntSettingWithDefault(key string, fallback int, clamp func(int) int) int {
+	value := fallback
+	var raw string
+	err := db.QueryRow("SELECT value FROM settings WHERE key=?", key).Scan(&raw)
+	switch {
+	case err == nil:
+		if parsed, parseErr := strconv.Atoi(strings.TrimSpace(raw)); parseErr == nil {
+			value = parsed
+		}
+	case err != sql.ErrNoRows:
+		log.Printf("[WARN] SELECT value FROM settings WHERE key=%q err: %v", key, err)
+	}
+	if clamp != nil {
+		value = clamp(value)
+	}
+	if _, err := db.Exec("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)", key, strconv.Itoa(value)); err != nil {
+		log.Printf("[WARN] persist default setting %s failed: %v", key, err)
+	}
+	return value
+}
+
+func getOspfControllerSettings() ospfControllerSettings {
+	return ospfControllerSettings{
+		PushBatchLimit:      readIntSettingWithDefault("ospf_push_batch_limit", defaultOspfPushBatchLimit, clampOspfPushBatchLimit),
+		PushIntervalSeconds: readIntSettingWithDefault("ospf_push_interval_seconds", defaultOspfPushIntervalSeconds, clampOspfPushIntervalSeconds),
+	}
 }
 
 func parseDatFile(filename string) []string {
@@ -191,6 +251,12 @@ func initDB() {
 	if _, err := db.Exec("INSERT OR IGNORE INTO settings (key, value) VALUES ('cron_time', '04:00')"); err != nil {
 		log.Printf("[WARN] default data insert failed: %v", err)
 	}
+	if _, err := db.Exec("INSERT OR IGNORE INTO settings (key, value) VALUES ('ospf_push_batch_limit', '500')"); err != nil {
+		log.Printf("[WARN] default data insert failed: %v", err)
+	}
+	if _, err := db.Exec("INSERT OR IGNORE INTO settings (key, value) VALUES ('ospf_push_interval_seconds', '10')"); err != nil {
+		log.Printf("[WARN] default data insert failed: %v", err)
+	}
 
 	var count int
 	if err := db.QueryRow("SELECT count(*) FROM rules").Scan(&count); err != nil && err != sql.ErrNoRows {
@@ -259,11 +325,11 @@ func ensurePasswordInitialized() {
 
 func ospfController() {
 	var lastUpdate time.Time
-	const CoolingTime = 10 * time.Second
-	const MaxBatch = 500
 
 	for {
 		time.Sleep(2 * time.Second)
+		settings := getOspfControllerSettings()
+		coolingTime := time.Duration(settings.PushIntervalSeconds) * time.Second
 		var mode string
 		if err := db.QueryRow("SELECT value FROM settings WHERE key='mode'").Scan(&mode); err != nil && err != sql.ErrNoRows {
 			log.Printf("[WARN] SELECT value FROM settings WHERE key='mode' err: %v", err)
@@ -275,7 +341,7 @@ func ospfController() {
 			continue
 		}
 
-		if time.Since(lastUpdate) < CoolingTime {
+		if time.Since(lastUpdate) < coolingTime {
 			continue
 		}
 		updated := false
@@ -283,7 +349,7 @@ func ospfController() {
 		db.Exec("UPDATE routes_table SET miss_count = miss_count + 1 WHERE status='published' AND datetime(last_seen, '+' || ttl || ' seconds') < datetime('now')")
 
 		var toDel []string
-		rowsDel, err := db.Query("SELECT ip FROM routes_table WHERE status='published' AND miss_count >= 3 LIMIT ?", MaxBatch)
+		rowsDel, err := db.Query("SELECT ip FROM routes_table WHERE status='published' AND miss_count >= 3 LIMIT ?", settings.PushBatchLimit)
 		if err == nil {
 			for rowsDel.Next() {
 				var ip string
@@ -323,7 +389,7 @@ func ospfController() {
 		}
 
 		var toAdd []string
-		rowsAdd, err := db.Query("SELECT ip FROM routes_table WHERE status='candidate' AND first_seen <= datetime('now', '-60 seconds') LIMIT ?", MaxBatch)
+		rowsAdd, err := db.Query("SELECT ip FROM routes_table WHERE status='candidate' AND first_seen <= datetime('now', '-60 seconds') LIMIT ?", settings.PushBatchLimit)
 		if err == nil {
 			for rowsAdd.Next() {
 				var ip string

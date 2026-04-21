@@ -280,6 +280,25 @@ func TestFeatureSuite_AuthConfigAndSystem(t *testing.T) {
 		if ospfResp["published"].(float64) != 1 || ospfResp["pending"].(float64) != 1 {
 			t.Fatalf("unexpected ospf payload: %v", ospfResp)
 		}
+		if ospfResp["push_batch_limit"].(float64) != 500 || ospfResp["push_interval_seconds"].(float64) != 10 {
+			t.Fatalf("unexpected ospf controller defaults: %v", ospfResp)
+		}
+
+		update := httptest.NewRecorder()
+		r.ServeHTTP(update, authedJSONRequest(http.MethodPost, "/api/ospf/settings", `{"push_batch_limit":77,"push_interval_seconds":13}`))
+		if update.Code != http.StatusOK {
+			t.Fatalf("want 200 got %d body=%s", update.Code, update.Body.String())
+		}
+
+		ospfReload := httptest.NewRecorder()
+		r.ServeHTTP(ospfReload, authedRequest(http.MethodGet, "/api/ospf"))
+		if ospfReload.Code != http.StatusOK {
+			t.Fatalf("want 200 got %d", ospfReload.Code)
+		}
+		ospfReloadResp := decodeJSONMap(t, ospfReload.Body.Bytes())
+		if ospfReloadResp["push_batch_limit"].(float64) != 77 || ospfReloadResp["push_interval_seconds"].(float64) != 13 {
+			t.Fatalf("unexpected ospf controller payload after update: %v", ospfReloadResp)
+		}
 	})
 }
 

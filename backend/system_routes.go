@@ -307,6 +307,7 @@ func registerSystemRoutes(api *gin.RouterGroup) {
 	})
 
 	api.GET("/ospf", func(c *gin.Context) {
+		settings := getOspfControllerSettings()
 		var pub, cand int
 		if err := db.QueryRow("SELECT count(*) FROM routes_table WHERE status='published'").Scan(&pub); err != nil && err != sql.ErrNoRows {
 			log.Printf("[WARN] SELECT count(*) FROM routes_table WHERE status='published' err: %v", err)
@@ -321,6 +322,42 @@ func registerSystemRoutes(api *gin.RouterGroup) {
 			neighborsCount = 1
 		}
 
-		c.JSON(http.StatusOK, gin.H{"neighbors": neighborsCount, "published": pub, "pending": cand, "logs": getOspfLogsSnapshot()})
+		c.JSON(http.StatusOK, gin.H{
+			"neighbors":             neighborsCount,
+			"published":             pub,
+			"pending":               cand,
+			"logs":                  getOspfLogsSnapshot(),
+			"push_batch_limit":      settings.PushBatchLimit,
+			"push_interval_seconds": settings.PushIntervalSeconds,
+		})
+	})
+
+	api.POST("/ospf/settings", func(c *gin.Context) {
+		var req struct {
+			PushBatchLimit     int `json:"push_batch_limit"`
+			PushIntervalSecond int `json:"push_interval_seconds"`
+		}
+		if c.BindJSON(&req) != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "bad ospf settings payload"})
+			return
+		}
+
+		batchLimit := clampOspfPushBatchLimit(req.PushBatchLimit)
+		intervalSeconds := clampOspfPushIntervalSeconds(req.PushIntervalSecond)
+
+		if _, err := db.Exec("INSERT OR REPLACE INTO settings (key, value) VALUES ('ospf_push_batch_limit', ?)", strconv.Itoa(batchLimit)); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		if _, err := db.Exec("INSERT OR REPLACE INTO settings (key, value) VALUES ('ospf_push_interval_seconds', ?)", strconv.Itoa(intervalSeconds)); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+
+		c.JSON(http.StatusOK, gin.H{
+			"success":               true,
+			"push_batch_limit":      batchLimit,
+			"push_interval_seconds": intervalSeconds,
+		})
 	})
 }
