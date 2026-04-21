@@ -1,5 +1,13 @@
 # ProxyGW Changelog
 
+## [1.5.15] - 2026-04-21
+### ✨ 新特性 (Features)
+- **远程节点部署自动 BBR 优化**: 在 WG/VLESS 远程部署脚本中新增 BBR 检测与启用流程。内核支持时自动写入 `net.core.default_qdisc=fq` 与 `net.ipv4.tcp_congestion_control=bbr` 并持久化；不支持时自动跳过且不中断部署。
+- **远程部署增加 sudo 支持**: `ssh_user` 非 root 时，部署/健康检查/卸载命令自动通过 `sudo` 执行，兼容无密码 sudo 与密码 sudo 回退。
+
+### 📦 发布 (Release)
+- **系统级性能基准补齐**: 新增后端系统级 benchmark（Xray 配置并发构建、序列化开销、会话并发 create/validate），并同步更新首页 README 的全面性能测试章节。
+
 ## [1.5.14] - 2026-04-21
 ### 📦 发布 (Release)
 - **性能测试数据文档化**: 新增 `geoip:!cn` OSPF 展开基准测试，结果已写入 `docs/DEVELOPER.md`（含 `ns/op`、`B/op`、`allocs/op` 与 `cidr/op`）。
