@@ -391,14 +391,20 @@ func registerSystemRoutes(api *gin.RouterGroup) {
 			"push_batch_limit":      settings.PushBatchLimit,
 			"push_interval_seconds": settings.PushIntervalSeconds,
 			"resolve_workers":       settings.ResolveWorkers,
+			"allow_slash32":         settings.AllowSlash32,
+			"max_specific_prefix":   settings.MaxSpecificPrefix,
+			"lru_max_routes":        settings.LRUMaxRoutes,
 		})
 	})
 
 	api.POST("/ospf/settings", func(c *gin.Context) {
 		var req struct {
-			PushBatchLimit     int `json:"push_batch_limit"`
-			PushIntervalSecond int `json:"push_interval_seconds"`
-			ResolveWorkers     int `json:"resolve_workers"`
+			PushBatchLimit     int   `json:"push_batch_limit"`
+			PushIntervalSecond int   `json:"push_interval_seconds"`
+			ResolveWorkers     int   `json:"resolve_workers"`
+			AllowSlash32       *bool `json:"allow_slash32"`
+			MaxSpecificPrefix  *int  `json:"max_specific_prefix"`
+			LRUMaxRoutes       *int  `json:"lru_max_routes"`
 		}
 		if c.BindJSON(&req) != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "bad ospf settings payload"})
@@ -408,6 +414,19 @@ func registerSystemRoutes(api *gin.RouterGroup) {
 		batchLimit := clampOspfPushBatchLimit(req.PushBatchLimit)
 		intervalSeconds := clampOspfPushIntervalSeconds(req.PushIntervalSecond)
 		resolveWorkers := clampOspfResolveWorkers(req.ResolveWorkers)
+
+		allowSlash32 := defaultOspfAllowSlash32
+		if req.AllowSlash32 != nil {
+			allowSlash32 = *req.AllowSlash32
+		}
+		maxSpecificPrefix := defaultOspfMaxSpecificPrefix
+		if req.MaxSpecificPrefix != nil {
+			maxSpecificPrefix = clampOspfMaxSpecificPrefix(*req.MaxSpecificPrefix)
+		}
+		lruMaxRoutes := defaultOspfLRUMaxRoutes
+		if req.LRUMaxRoutes != nil {
+			lruMaxRoutes = clampOspfLRUMaxRoutes(*req.LRUMaxRoutes)
+		}
 
 		if _, err := db.Exec("INSERT OR REPLACE INTO settings (key, value) VALUES ('ospf_push_batch_limit', ?)", strconv.Itoa(batchLimit)); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
@@ -421,12 +440,31 @@ func registerSystemRoutes(api *gin.RouterGroup) {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
+		allowSlash32Value := "false"
+		if allowSlash32 {
+			allowSlash32Value = "true"
+		}
+		if _, err := db.Exec("INSERT OR REPLACE INTO settings (key, value) VALUES ('ospf_allow_slash32', ?)", allowSlash32Value); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		if _, err := db.Exec("INSERT OR REPLACE INTO settings (key, value) VALUES ('ospf_max_specific_prefix', ?)", strconv.Itoa(maxSpecificPrefix)); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		if _, err := db.Exec("INSERT OR REPLACE INTO settings (key, value) VALUES ('ospf_lru_max_routes', ?)", strconv.Itoa(lruMaxRoutes)); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
 
 		c.JSON(http.StatusOK, gin.H{
 			"success":               true,
 			"push_batch_limit":      batchLimit,
 			"push_interval_seconds": intervalSeconds,
 			"resolve_workers":       resolveWorkers,
+			"allow_slash32":         allowSlash32,
+			"max_specific_prefix":   maxSpecificPrefix,
+			"lru_max_routes":        lruMaxRoutes,
 		})
 	})
 }

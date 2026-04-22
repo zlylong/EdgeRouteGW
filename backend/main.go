@@ -48,6 +48,9 @@ const (
 	defaultOspfPushBatchLimit      = 500
 	defaultOspfPushIntervalSeconds = 10
 	defaultOspfResolveWorkers      = 16
+	defaultOspfAllowSlash32        = true
+	defaultOspfMaxSpecificPrefix   = 32
+	defaultOspfLRUMaxRoutes        = 0
 	domainGeoIPMatchCacheTTL       = 10 * time.Minute
 	domainGeoIPMatchCacheMax       = 200000
 )
@@ -83,6 +86,9 @@ type ospfControllerSettings struct {
 	PushBatchLimit      int
 	PushIntervalSeconds int
 	ResolveWorkers      int
+	AllowSlash32        bool
+	MaxSpecificPrefix   int
+	LRUMaxRoutes        int
 }
 
 func clampOspfPushBatchLimit(v int) int {
@@ -118,6 +124,28 @@ func clampOspfResolveWorkers(v int) int {
 	}
 }
 
+func clampOspfMaxSpecificPrefix(v int) int {
+	switch {
+	case v < 0:
+		return 0
+	case v > 32:
+		return 32
+	default:
+		return v
+	}
+}
+
+func clampOspfLRUMaxRoutes(v int) int {
+	switch {
+	case v < 0:
+		return 0
+	case v > 1000000:
+		return 1000000
+	default:
+		return v
+	}
+}
+
 func readIntSettingWithDefault(key string, fallback int, clamp func(int) int) int {
 	value := fallback
 	var raw string
@@ -139,11 +167,39 @@ func readIntSettingWithDefault(key string, fallback int, clamp func(int) int) in
 	return value
 }
 
+func readBoolSettingWithDefault(key string, fallback bool) bool {
+	value := fallback
+	var raw string
+	err := db.QueryRow("SELECT value FROM settings WHERE key=?", key).Scan(&raw)
+	switch {
+	case err == nil:
+		switch strings.ToLower(strings.TrimSpace(raw)) {
+		case "1", "true", "yes", "on":
+			value = true
+		case "0", "false", "no", "off":
+			value = false
+		}
+	case err != sql.ErrNoRows:
+		log.Printf("[WARN] SELECT value FROM settings WHERE key=%q err: %v", key, err)
+	}
+	persisted := "false"
+	if value {
+		persisted = "true"
+	}
+	if _, err := db.Exec("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)", key, persisted); err != nil {
+		log.Printf("[WARN] persist default setting %s failed: %v", key, err)
+	}
+	return value
+}
+
 func getOspfControllerSettings() ospfControllerSettings {
 	return ospfControllerSettings{
 		PushBatchLimit:      readIntSettingWithDefault("ospf_push_batch_limit", defaultOspfPushBatchLimit, clampOspfPushBatchLimit),
 		PushIntervalSeconds: readIntSettingWithDefault("ospf_push_interval_seconds", defaultOspfPushIntervalSeconds, clampOspfPushIntervalSeconds),
 		ResolveWorkers:      readIntSettingWithDefault("ospf_resolve_workers", defaultOspfResolveWorkers, clampOspfResolveWorkers),
+		AllowSlash32:        readBoolSettingWithDefault("ospf_allow_slash32", defaultOspfAllowSlash32),
+		MaxSpecificPrefix:   readIntSettingWithDefault("ospf_max_specific_prefix", defaultOspfMaxSpecificPrefix, clampOspfMaxSpecificPrefix),
+		LRUMaxRoutes:        readIntSettingWithDefault("ospf_lru_max_routes", defaultOspfLRUMaxRoutes, clampOspfLRUMaxRoutes),
 	}
 }
 
@@ -803,6 +859,97 @@ func pruneStaticRoutesPreferBroad(staticRoutes map[string]routeState) (map[strin
 		result[item.key] = item.state
 	}
 	return result, removed
+}
+
+func filterStaticRoutesByPrefixPolicy(staticRoutes map[string]routeState, allowSlash32 bool, maxSpecificPrefix int) (map[string]routeState, int) {
+	maxSpecificPrefix = clampOspfMaxSpecificPrefix(maxSpecificPrefix)
+	result := make(map[string]routeState, len(staticRoutes))
+	removed := 0
+	for key, state := range staticRoutes {
+		_, ipNet, err := net.ParseCIDR(key)
+		if err != nil || ipNet == nil {
+			result[key] = state
+			continue
+		}
+		prefix, bits := ipNet.Mask.Size()
+		if bits != 32 || prefix < 0 || prefix > 32 {
+			result[key] = state
+			continue
+		}
+		if !allowSlash32 && prefix == 32 {
+			removed++
+			continue
+		}
+		if prefix > maxSpecificPrefix {
+			removed++
+			continue
+		}
+		result[key] = state
+	}
+	return result, removed
+}
+
+func pruneStaticRoutesByLRU(staticRoutes map[string]routeState, maxRoutes int) (map[string]routeState, int) {
+	maxRoutes = clampOspfLRUMaxRoutes(maxRoutes)
+	if maxRoutes <= 0 || len(staticRoutes) <= maxRoutes {
+		return staticRoutes, 0
+	}
+
+	type routeRecency struct {
+		key      string
+		state    routeState
+		lastSeen int64
+		prefix   int
+	}
+
+	lastSeenMap := make(map[string]int64, len(staticRoutes))
+	rows, err := db.Query("SELECT ip, CAST(strftime('%s', last_seen) AS INTEGER) FROM routes_table WHERE source='static'")
+	if err == nil {
+		defer rows.Close()
+		for rows.Next() {
+			var ip string
+			var ts sql.NullInt64
+			if rows.Scan(&ip, &ts) != nil {
+				continue
+			}
+			if ts.Valid {
+				lastSeenMap[ip] = ts.Int64
+			}
+		}
+	}
+
+	nowTs := time.Now().Unix()
+	items := make([]routeRecency, 0, len(staticRoutes))
+	for key, state := range staticRoutes {
+		_, ipNet, parseErr := net.ParseCIDR(key)
+		prefix := 32
+		if parseErr == nil && ipNet != nil {
+			if p, bits := ipNet.Mask.Size(); bits == 32 {
+				prefix = p
+			}
+		}
+		ts, ok := lastSeenMap[key]
+		if !ok {
+			ts = nowTs
+		}
+		items = append(items, routeRecency{key: key, state: state, lastSeen: ts, prefix: prefix})
+	}
+
+	sort.Slice(items, func(i, j int) bool {
+		if items[i].lastSeen != items[j].lastSeen {
+			return items[i].lastSeen > items[j].lastSeen
+		}
+		if items[i].prefix != items[j].prefix {
+			return items[i].prefix < items[j].prefix
+		}
+		return items[i].key < items[j].key
+	})
+
+	result := make(map[string]routeState, maxRoutes)
+	for i := 0; i < maxRoutes && i < len(items); i++ {
+		result[items[i].key] = items[i].state
+	}
+	return result, len(staticRoutes) - len(result)
 }
 
 func detectModeSwitchProtectedConflicts(mode string) []string {
@@ -2152,11 +2299,20 @@ func scheduleStaticRouteSync(mode string) {
 }
 
 func syncStaticRoutesToOSPF(mode string) {
+	settings := getOspfControllerSettings()
 	protected := collectProtectedRouteKeys()
 	staticRoutes, conflicts := collectStaticRoutesForMode(mode, protected)
 	staticRoutes, pruned := pruneStaticRoutesPreferBroad(staticRoutes)
 	if pruned > 0 {
 		log.Printf("[OSPF] pruned %d narrower routes covered by broader prefixes", pruned)
+	}
+	staticRoutes, filteredByPrefix := filterStaticRoutesByPrefixPolicy(staticRoutes, settings.AllowSlash32, settings.MaxSpecificPrefix)
+	if filteredByPrefix > 0 {
+		log.Printf("[OSPF] filtered %d routes by prefix policy (allow_slash32=%t, max_specific_prefix=/%d)", filteredByPrefix, settings.AllowSlash32, settings.MaxSpecificPrefix)
+	}
+	staticRoutes, prunedByLRU := pruneStaticRoutesByLRU(staticRoutes, settings.LRUMaxRoutes)
+	if prunedByLRU > 0 {
+		log.Printf("[OSPF] pruned %d routes by LRU cap (max_routes=%d)", prunedByLRU, settings.LRUMaxRoutes)
 	}
 	if len(conflicts) > 0 {
 		log.Printf("[OSPF] skipped %d protected endpoint routes to avoid loop, samples=%s", len(conflicts), sampleRouteKeys(conflicts, 10))
