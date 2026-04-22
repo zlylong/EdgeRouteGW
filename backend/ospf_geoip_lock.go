@@ -35,14 +35,25 @@ func loadDomainGeoIPLockedTags(domain, resolverGroup, geodataVer string) []strin
 	}
 	defer rows.Close()
 	set := map[string]struct{}{}
+	invalid := make([]string, 0)
 	for rows.Next() {
 		var tag string
-		if rows.Scan(&tag) == nil {
-			tag = strings.ToLower(strings.TrimSpace(tag))
-			if tag != "" {
-				set[tag] = struct{}{}
-			}
+		if rows.Scan(&tag) != nil {
+			continue
 		}
+		tag = strings.ToLower(strings.TrimSpace(tag))
+		if tag == "" {
+			continue
+		}
+		routeKey, ok := normalizeRouteKey(tag)
+		if !ok || !strings.Contains(routeKey, "/") {
+			invalid = append(invalid, tag)
+			continue
+		}
+		set[routeKey] = struct{}{}
+	}
+	for _, bad := range invalid {
+		_, _ = db.Exec("DELETE FROM domain_geoip_lock WHERE domain=? AND resolver_group=? AND geodata_ver=? AND geoip_tag=?", domain, resolverGroup, geodataVer, bad)
 	}
 	if len(set) == 0 {
 		return nil
