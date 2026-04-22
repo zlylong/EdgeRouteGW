@@ -1,5 +1,18 @@
 # ProxyGW Changelog
 
+## [1.5.19] - 2026-04-22
+### 🐞 修复 (Bug Fixes)
+- **OSPF 脏路由硬过滤**: 路由归一化入口 `normalizeRouteKey()` 增加脏路由判定，拒绝 `0.0.0.0` / `0.0.0.0/32` / `0.0.0.0/0`、`127.0.0.0/8`、`169.254.0.0/16`、`224.0.0.0/4+` 等无效前缀，避免黑洞与无意义 OSPF 发布。
+- **规则校验与下发链路统一**: `/api/rules` 的 `type=ip` 校验改为复用同一归一化逻辑，确保“可保存”与“可下发”口径一致，防止脏数据进入 `routes_table`。
+- **历史脏数据启动自愈**: 新增启动阶段 `purgeDirtyRoutesTable()`，自动扫描并事务删除脏路由，升级后无需手工逐条清理。
+
+### 📝 文档 (Docs)
+- **开发文档补齐**: `docs/DEVELOPER.md` 新增“OSPF 脏路由过滤与清理机制”，明确判定规则、双层防护与启动清理流程。
+- **运维文档补齐**: `docs/OPERATIONS.md` 新增异常前缀排障章节，提供日志核查、SQL 检查与一键重启清理指引。
+
+### ✅ 测试 (Tests)
+- 补充 `normalizeRouteKey` 与 `isValidIPOrCIDR` 的脏路由用例覆盖（`0.0.0.0`、`/0`、loopback、link-local、multicast 等）。
+
 ## [1.5.18] - 2026-04-22
 ### 🐞 修复 (Bug Fixes)
 - **OSPF 发布状态一致性修复**: OSPF 控制器改为“`vtysh` 成功后再更新数据库状态”。`ADD` 失败不再误标 `published`，`DEL` 失败不再提前删库，彻底消除 DB 已发布但 FRR/ROS 未生效的状态漂移。

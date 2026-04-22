@@ -32,6 +32,40 @@ ProxyGW 是一个高度整合的网络系统。开发者坚信 **原生至上 (N
 后端会自动用相同的标签名称去 `geoip.dat` 中执行 Protobuf 解码提取。如果提取到了匹配的真实 CIDR 网段，将其交由 `ospfController` 静态注入 FRR 进程。
 这一机制通过“以静态库掩盖动态解析”的方式，在物理网络层尽最大可能对齐了用户的直觉逻辑，避免高频 DNS 动态污染路由器 OSPF LSA 导致路由风暴。由于 CDN 特性，存在小概率漏网可能，此乃 Mode C 物理限制。
 
+## 🧹 OSPF 脏路由过滤与清理机制（v1.5.19）
+
+为避免将无效前缀注入 FRR/OSPF（引发黑洞、回环或无意义路由），后端对 `routes_table` 与静态路由同步链路实施了统一过滤策略。
+
+### 1) 统一归一化入口
+
+系统统一通过 `normalizeRouteKey()` 做路由键归一化与合法性判定：
+- 单 IP 自动标准化为 `/32`（例如 `8.8.8.8 -> 8.8.8.8/32`）
+- CIDR 统一转为标准网络地址（例如 `8.8.8.9/24 -> 8.8.8.0/24`）
+- 非 IPv4、格式错误、非法掩码直接拒绝
+
+### 2) 脏路由判定规则（isDirtyRouteIPv4）
+
+以下前缀被定义为脏路由，禁止入库与下发：
+- `0.0.0.0/32` 与裸 `0.0.0.0`
+- `0.0.0.0/0`（默认路由，不允许通过 OSPF 静态注入链路发布）
+- `127.0.0.0/8`（Loopback）
+- `169.254.0.0/16`（Link-local）
+- `224.0.0.0/4` 及以上（Multicast / Reserved / Broadcast）
+
+### 3) 两层防护
+
+- **写入前防护**：`/api/rules` 中 `type=ip` 的值改为复用 `normalizeRouteKey()` 校验，脏路由在 API 层直接拒绝。
+- **下发前防护**：`syncStaticRoutesToOSPF()` 调用 `addRoute()` 时统一走 `normalizeRouteKey()`，防止历史数据或其他来源绕过 API 进入下发链路。
+
+### 4) 启动自愈清理
+
+启动时执行 `purgeDirtyRoutesTable()`：
+- 扫描 `routes_table.ip`
+- 对无法通过 `normalizeRouteKey()` 的记录做事务性删除
+- 记录清理日志：`[OSPF] purged <N> dirty routes from routes_table`
+
+这保证升级后即使存在历史脏数据，也会在服务启动阶段被自动剔除，不再反复参与 OSPF 同步。
+
 ## 🛡️ 系统安全沙箱 (Systemd Hardening)
 
 所有关键组件（ProxyGW Backend, Xray, Mosdns）的守护进程均运行在受限的 Systemd 权限沙箱中，防范 Shell 注入与越权攻击：

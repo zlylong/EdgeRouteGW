@@ -96,3 +96,36 @@ sqlite3 /root/proxygw/config/proxygw.db "UPDATE users SET password_hash = '' WHE
 /routing rule add src-address=192.168.20.155/32 action=lookup-only-in-table table=bypass_proxy
 ```
 *注：如果是 ROS v6 系统，在第1步无需 `fib` 参数，在 IP -> Routes -> Rules 菜单中配置对应的 Src Address 和 Table 即可。*
+
+### 5. OSPF 出现异常前缀（如 `0.0.0.0/32`）如何处理
+
+自 `v1.5.19` 起，后端默认启用脏路由过滤与启动自愈清理：
+- API 层拒绝无效 IP/CIDR
+- OSPF 同步前再次过滤
+- 服务启动时自动清理历史脏数据
+
+#### 脏路由判定范围
+- `0.0.0.0` / `0.0.0.0/32`
+- `0.0.0.0/0`
+- `127.0.0.0/8`
+- `169.254.0.0/16`
+- `224.0.0.0/4` 及以上（含保留/广播）
+
+#### 运维核查命令
+
+1) 先看启动后是否有自动清理日志：
+```bash
+journalctl -u proxygw -n 200 --no-pager | grep -E "purged [0-9]+ dirty routes|OSPF"
+```
+
+2) 手动检查数据库中是否还存在典型脏路由：
+```bash
+sqlite3 /root/proxygw/config/proxygw.db "SELECT ip,source,status FROM routes_table WHERE ip IN ('0.0.0.0','0.0.0.0/32','0.0.0.0/0') OR ip LIKE '127.%' OR ip LIKE '169.254.%' OR ip LIKE '224.%' OR ip LIKE '225.%' OR ip LIKE '226.%' OR ip LIKE '227.%' OR ip LIKE '228.%' OR ip LIKE '229.%' OR ip LIKE '23_.%' OR ip LIKE '24_.%' OR ip LIKE '25_.%';"
+```
+
+3) 如需立即触发清理流程（建议）：
+```bash
+systemctl restart proxygw
+```
+
+若重启后仍持续出现脏路由，优先检查是否有外部脚本直接写库绕过 API，或存在旧版二进制未替换成功。
