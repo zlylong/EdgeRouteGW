@@ -71,14 +71,43 @@ func saveDomainGeoIPLockTags(domain, resolverGroup, geodataVer string, tags []st
 	domain = strings.ToLower(strings.TrimSpace(domain))
 	resolverGroup = normalizeResolverGroup(resolverGroup)
 	geodataVer = strings.TrimSpace(geodataVer)
-	if domain == "" || geodataVer == "" || len(tags) == 0 {
+	if domain == "" || geodataVer == "" {
 		return
 	}
+
+	normalized := make([]string, 0, len(tags))
+	seen := make(map[string]struct{}, len(tags))
 	for _, t := range tags {
 		tag := strings.ToLower(strings.TrimSpace(t))
 		if tag == "" {
 			continue
 		}
-		_, _ = db.Exec("INSERT INTO domain_geoip_lock(domain, resolver_group, geoip_tag, geodata_ver, updated_at) VALUES (?, ?, ?, ?, datetime('now')) ON CONFLICT(domain, resolver_group, geoip_tag, geodata_ver) DO UPDATE SET updated_at=datetime('now')", domain, resolverGroup, tag, geodataVer)
+		routeKey, ok := normalizeRouteKey(tag)
+		if !ok || !strings.Contains(routeKey, "/") {
+			continue
+		}
+		if _, exists := seen[routeKey]; exists {
+			continue
+		}
+		seen[routeKey] = struct{}{}
+		normalized = append(normalized, routeKey)
+	}
+
+	tx, err := db.Begin()
+	if err != nil {
+		return
+	}
+	if _, err := tx.Exec("DELETE FROM domain_geoip_lock WHERE domain=? AND resolver_group=? AND geodata_ver=?", domain, resolverGroup, geodataVer); err != nil {
+		_ = tx.Rollback()
+		return
+	}
+	for _, tag := range normalized {
+		if _, err := tx.Exec("INSERT INTO domain_geoip_lock(domain, resolver_group, geoip_tag, geodata_ver, updated_at) VALUES (?, ?, ?, ?, datetime('now'))", domain, resolverGroup, tag, geodataVer); err != nil {
+			_ = tx.Rollback()
+			return
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		_ = tx.Rollback()
 	}
 }

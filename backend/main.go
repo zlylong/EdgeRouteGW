@@ -1352,6 +1352,7 @@ func ensurePasswordInitialized() {
 func ospfController() {
 	var lastUpdate time.Time
 	var lastReconcile time.Time
+	modeDemotedForNonBC := false
 
 	for {
 		time.Sleep(2 * time.Second)
@@ -1362,11 +1363,15 @@ func ospfController() {
 			log.Printf("[WARN] SELECT value FROM settings WHERE key='mode' err: %v", err)
 		}
 		if mode != "C" && mode != "B" {
-			db.Exec("UPDATE routes_table SET status='candidate' WHERE status='published'")
-		}
-		if mode != "C" && mode != "B" {
+			if !modeDemotedForNonBC {
+				if _, err := db.Exec("UPDATE routes_table SET status='candidate' WHERE status='published'"); err != nil {
+					log.Printf("[WARN] demote published routes to candidate failed: %v", err)
+				}
+				modeDemotedForNonBC = true
+			}
 			continue
 		}
+		modeDemotedForNonBC = false
 		if lastReconcile.IsZero() || time.Since(lastReconcile) >= 15*time.Second {
 			reconcilePublishedRoutesWithFRR()
 			lastReconcile = time.Now()
@@ -2171,9 +2176,17 @@ func syncStaticRoutesToOSPF(mode string) {
 		oldRows.Close()
 	}
 
-	txSync, _ := db.Begin()
+	txSync, err := db.Begin()
+	if err != nil {
+		log.Printf("[WARN] syncStaticRoutesToOSPF begin tx failed: %v", err)
+		return
+	}
 	for _, ipStr := range toDelete {
-		txSync.Exec("UPDATE routes_table SET miss_count=99, ttl=0, last_seen=datetime('now', '-1 hour') WHERE ip=?", ipStr)
+		if _, err := txSync.Exec("UPDATE routes_table SET miss_count=99, ttl=0, last_seen=datetime('now', '-1 hour') WHERE ip=?", ipStr); err != nil {
+			_ = txSync.Rollback()
+			log.Printf("[WARN] syncStaticRoutesToOSPF mark stale route failed: ip=%s err=%v", ipStr, err)
+			return
+		}
 	}
 
 	for ipStr, state := range staticRoutes {
@@ -2181,9 +2194,17 @@ func syncStaticRoutesToOSPF(mode string) {
 		if domain == "" {
 			domain = "static_rule"
 		}
-		txSync.Exec("INSERT INTO routes_table (ip, domain, source, first_seen, last_seen, ttl, status, miss_count) VALUES (?, ?, 'static', datetime('now', '-61 seconds'), datetime('now'), ?, 'candidate', 0) ON CONFLICT(ip) DO UPDATE SET domain=excluded.domain, source='static', ttl=excluded.ttl, miss_count=0, last_seen=datetime('now')", ipStr, domain, state.ttl)
+		if _, err := txSync.Exec("INSERT INTO routes_table (ip, domain, source, first_seen, last_seen, ttl, status, miss_count) VALUES (?, ?, 'static', datetime('now', '-61 seconds'), datetime('now'), ?, 'candidate', 0) ON CONFLICT(ip) DO UPDATE SET domain=excluded.domain, source='static', ttl=excluded.ttl, miss_count=0, last_seen=datetime('now')", ipStr, domain, state.ttl); err != nil {
+			_ = txSync.Rollback()
+			log.Printf("[WARN] syncStaticRoutesToOSPF upsert route failed: ip=%s err=%v", ipStr, err)
+			return
+		}
 	}
-	txSync.Commit()
+	if err := txSync.Commit(); err != nil {
+		_ = txSync.Rollback()
+		log.Printf("[WARN] syncStaticRoutesToOSPF commit failed: %v", err)
+		return
+	}
 }
 
 func domainIPUpdater() {
@@ -2195,7 +2216,7 @@ func domainIPUpdater() {
 		}
 		if mode == "B" || mode == "C" {
 			// Periodically sync to catch DNS/CDN IP changes
-			syncStaticRoutesToOSPF(mode)
+			scheduleStaticRouteSync(mode)
 		}
 	}
 }
