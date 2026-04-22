@@ -82,7 +82,9 @@ sqlite3 /root/proxygw/config/proxygw.db "UPDATE users SET password_hash = '' WHE
 
 ### 4. MikroTik ROS 防环路 PBR 配置示例 (Mode C 必备)
 在 Mode C 下，ProxyGW 会通过 OSPF 将大量的真实代理 IP 网段发给 ROS，这会覆盖 ROS 的默认路由。当 ProxyGW 自身向代理节点发起出站连接时，如果节点的 IP 刚好命中这些 OSPF 路由，流量又会被 ROS 踢回给 ProxyGW，造成死循环。
-您必须在 ROS 中强制让 ProxyGW 发出的流量直连公网：
+您必须在 ROS 中强制让 ProxyGW 发出的流量直连公网。
+
+> 完整新手配置与图形界面路径请同时参考：`docs/ROS_SETUP.md`（第 5 章 Mode C 防环路 PBR）。
 
 **ROS v7 配置命令参考：**
 ```routeros
@@ -145,11 +147,17 @@ systemctl restart proxygw
 #### 仍建议保留的网络侧兜底
 在主路由保留源地址旁路（PBR）：
 
-**MikroTik ROS：**
+**MikroTik ROS（v7）：**
 ```routeros
 /routing table add name=bypass_proxy fib
 /ip route add dst-address=0.0.0.0/0 gateway=pppoe-out1 routing-table=bypass_proxy
 /routing rule add src-address=192.168.20.155/32 action=lookup-only-in-table table=bypass_proxy
+```
+
+**MikroTik ROS（v6 等价）：**
+```routeros
+/ip route add dst-address=0.0.0.0/0 gateway=pppoe-out1 routing-mark=bypass_proxy
+/ip firewall mangle add chain=prerouting src-address=192.168.20.155 action=mark-routing new-routing-mark=bypass_proxy passthrough=no
 ```
 
 **OpenWrt（临时生效，立即止血）：**
