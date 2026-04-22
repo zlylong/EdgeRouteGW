@@ -1,6 +1,7 @@
 package main
 
 import (
+	"log"
 	"net"
 	"net/http"
 	"sort"
@@ -154,7 +155,11 @@ func registerRuleRoutes(api *gin.RouterGroup) {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "db error"})
 			return
 		}
-		scheduleApplyWithMosdns(r.Type == "domain")
+		needMosdns := r.Type == "domain"
+		if err := applyRuleChangeDynamically(needMosdns); err != nil {
+			log.Printf("[WARN] dynamic rule apply failed, fallback to scheduled apply: %v", err)
+			scheduleApplyWithMosdns(needMosdns)
+		}
 		c.JSON(http.StatusOK, gin.H{"success": true})
 	})
 
@@ -168,7 +173,11 @@ func registerRuleRoutes(api *gin.RouterGroup) {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "db error"})
 			return
 		}
-		scheduleApplyWithMosdns(strings.EqualFold(strings.TrimSpace(ruleType), "domain"))
+		needMosdns := strings.EqualFold(strings.TrimSpace(ruleType), "domain")
+		if err := applyRuleChangeDynamically(needMosdns); err != nil {
+			log.Printf("[WARN] dynamic rule delete apply failed, fallback to scheduled apply: %v", err)
+			scheduleApplyWithMosdns(needMosdns)
+		}
 		c.JSON(http.StatusOK, gin.H{"success": true})
 	})
 }

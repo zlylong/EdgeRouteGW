@@ -1,0 +1,103 @@
+package main
+
+import (
+	"encoding/json"
+	"fmt"
+	"os"
+	"os/exec"
+)
+
+func applyRuleChangeDynamically(needMosdns bool) error {
+	if needMosdns {
+		if err := applyMosdnsConfig(); err != nil {
+			return fmt.Errorf("apply mosdns failed: %w", err)
+		}
+	}
+	if err := syncXrayRoutingRulesDynamically(); err != nil {
+		return err
+	}
+	if err := writeXrayConfigOnly(); err != nil {
+		return fmt.Errorf("persist xray config failed: %w", err)
+	}
+	return nil
+}
+
+func syncXrayRoutingRulesDynamically() error {
+	var mode string
+	if err := db.QueryRow("SELECT value FROM settings WHERE key='mode'").Scan(&mode); err != nil {
+		mode = "A"
+	}
+	cfg := map[string]interface{}{
+		"routing": map[string]interface{}{
+			"domainStrategy": "IPIfNonMatch",
+			"rules":          []map[string]interface{}{{"inboundTag": []string{"api_inbound"}, "outboundTag": "api", "type": "field"}},
+		},
+	}
+	if mode == "B" {
+		cfg["routing"].(map[string]interface{})["rules"] = append(
+			cfg["routing"].(map[string]interface{})["rules"].([]map[string]interface{}),
+			map[string]interface{}{"inboundTag": []string{"dns-in"}, "outboundTag": "dns-out", "type": "field"},
+		)
+	}
+
+	rRows, err := db.Query("SELECT id, type, value, policy FROM rules")
+	if err != nil {
+		return fmt.Errorf("query rules failed: %w", err)
+	}
+	defer rRows.Close()
+	rules := cfg["routing"].(map[string]interface{})["rules"].([]map[string]interface{})
+	for rRows.Next() {
+		var id int
+		var rtype, value, policy string
+		if err := rRows.Scan(&id, &rtype, &value, &policy); err != nil {
+			continue
+		}
+		rule := map[string]interface{}{"type": "field", "ruleTag": fmt.Sprintf("db-rule-%d", id)}
+		switch {
+		case policy == "direct" || policy == "block":
+			rule["outboundTag"] = policy
+		case policy == "proxy":
+			rule["balancerTag"] = "proxy-balancer"
+		case len(policy) > 6 && policy[:6] == "proxy-":
+			rule["outboundTag"] = policy + "-out"
+		case len(policy) > 3 && policy[:3] == "ha-":
+			rule["balancerTag"] = "bal-" + policy
+		default:
+			rule["outboundTag"] = policy
+		}
+
+		switch rtype {
+		case "domain", "geosite":
+			rule["domain"] = []string{rtype + ":" + value}
+		case "ip":
+			rule["ip"] = []string{value}
+		case "geoip", "geolocation":
+			if value == "private" || value == "PRIVATE" {
+				rule["ip"] = []string{"10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "127.0.0.0/8", "169.254.0.0/16", "100.64.0.0/10"}
+			} else {
+				rule["ip"] = []string{"geoip:" + value}
+			}
+		default:
+			continue
+		}
+		rules = append(rules, rule)
+	}
+	if err := rRows.Err(); err != nil {
+		return fmt.Errorf("iterate rules failed: %w", err)
+	}
+	cfg["routing"].(map[string]interface{})["rules"] = rules
+
+	payload, err := json.Marshal(cfg)
+	if err != nil {
+		return fmt.Errorf("marshal routing payload failed: %w", err)
+	}
+	tmp := "/tmp/proxygw_xray_routing_rules.json"
+	if err := os.WriteFile(tmp, payload, 0644); err != nil {
+		return fmt.Errorf("write routing payload failed: %w", err)
+	}
+	cmd := exec.Command(getPath("core", "xray", "xray"), "api", "adrules", "-s", "127.0.0.1:10085", tmp)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("xray api adrules failed: %v, output: %s", err, string(out))
+	}
+	return nil
+}

@@ -1125,9 +1125,21 @@ func applyMosdnsConfig() error {
 }
 
 func applyXrayConfig() error {
+	return applyXrayConfigInternal(true)
+}
+
+func writeXrayConfigOnly() error {
+	return applyXrayConfigInternal(false)
+}
+
+func applyXrayConfigInternal(restart bool) error {
 	applyMutex.Lock()
 	defer applyMutex.Unlock()
-	log.Println("[AUDIT] Applying Xray Config")
+	if restart {
+		log.Println("[AUDIT] Applying Xray Config")
+	} else {
+		log.Println("[AUDIT] Updating Xray Config File (no restart)")
+	}
 
 	var mode string
 	db.QueryRow("SELECT value FROM settings WHERE key='mode'").Scan(&mode)
@@ -1246,7 +1258,7 @@ func applyXrayConfig() error {
 		}
 	}
 
-	rRows, err := db.Query("SELECT type, value, policy FROM rules")
+	rRows, err := db.Query("SELECT id, type, value, policy FROM rules")
 	if err != nil {
 		log.Printf("[WARN] routing rules query err: %v", err)
 		return err
@@ -1254,11 +1266,12 @@ func applyXrayConfig() error {
 	defer rRows.Close()
 	rules := config["routing"].(map[string]interface{})["rules"].([]map[string]interface{})
 	for rRows.Next() {
+		var id int
 		var rtype, value, policy string
-		if err := rRows.Scan(&rtype, &value, &policy); err != nil {
+		if err := rRows.Scan(&id, &rtype, &value, &policy); err != nil {
 			continue
 		}
-		rule := map[string]interface{}{"type": "field"}
+		rule := map[string]interface{}{"type": "field", "ruleTag": fmt.Sprintf("db-rule-%d", id)}
 
 		if policy == "direct" || policy == "block" {
 			rule["outboundTag"] = policy
@@ -1420,6 +1433,9 @@ func applyXrayConfig() error {
 
 	if err := os.WriteFile(getPath("core", "xray", "config.json"), configData, 0644); err != nil {
 		return fmt.Errorf("failed to write xray config.json: %v", err)
+	}
+	if !restart {
+		return nil
 	}
 	return exec.Command("systemctl", "restart", "xray").Run()
 }
