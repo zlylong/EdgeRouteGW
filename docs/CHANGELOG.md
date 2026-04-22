@@ -1,5 +1,10 @@
 # ProxyGW Changelog
 
+## [1.5.21] - 2026-04-22
+### 📝 文档 (Docs)
+- **OpenWrt 防环路手册补齐**: `docs/OPENWRT_SETUP.md` 新增 Mode C 防环路 PBR 章节，提供“临时止血 + 热插拔持久化”两套配置，并给出验证命令。
+- **运维文档扩展 OpenWrt 操作**: `docs/OPERATIONS.md` 的回弹环路章节增加 OpenWrt PBR 实操模板，覆盖 `ip rule` / `table 100` / `hotplug` 触发方式，便于跨网络环境复用。
+
 ## [1.5.20] - 2026-04-22
 ### 🐞 修复 (Bug Fixes)
 - **OSPF 节点回弹环路防护**: 新增“受保护节点地址排除”机制，自动收集并排除 `nodes.address`、`remote_nodes.ssh_host`、`remote_node_wg.endpoint`、`remote_node_vless.dest`（含域名解析 IP），避免将上游节点地址反向宣告到 OSPF 形成闭环。
