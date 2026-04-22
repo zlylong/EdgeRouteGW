@@ -334,7 +334,7 @@ func buildGeoIPMatcher(filename string, version string) (*geoIPMatcher, error) {
 		}
 		sort.Slice(bucket, func(a, b int) bool {
 			if bucket[a].prefix != bucket[b].prefix {
-				return bucket[a].prefix > bucket[b].prefix
+				return bucket[a].prefix < bucket[b].prefix
 			}
 			if bucket[a].network != bucket[b].network {
 				return bucket[a].network < bucket[b].network
@@ -378,7 +378,7 @@ func queryGeoIPTagsByIP(filename, input string) []string {
 		matchedTags := make(map[string]struct{}, 4)
 		bestMatchedPrefix := -1
 		for _, rule := range bucket {
-			if bestMatchedPrefix >= 0 && int(rule.prefix) < bestMatchedPrefix {
+			if bestMatchedPrefix >= 0 && int(rule.prefix) > bestMatchedPrefix {
 				break
 			}
 			if _, done := matchedTags[rule.tag]; done {
@@ -386,7 +386,7 @@ func queryGeoIPTagsByIP(filename, input string) []string {
 			}
 			if (ipValue & rule.mask) == rule.network {
 				matchedTags[rule.tag] = struct{}{}
-				if int(rule.prefix) > bestMatchedPrefix {
+				if bestMatchedPrefix < 0 || int(rule.prefix) < bestMatchedPrefix {
 					bestMatchedPrefix = int(rule.prefix)
 				}
 			}
