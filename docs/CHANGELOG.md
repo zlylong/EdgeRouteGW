@@ -1,5 +1,15 @@
 # ProxyGW Changelog
 
+## [1.6.1] - 2026-04-22
+### 🐞 修复 (Bug Fixes)
+- **模式切换卡死修复**: 优化 Mode B/C 切换前置冲突检查路径，不再在 `/api/mode` 请求内触发 geosite 全量解析，避免在大规则集场景下请求长时间阻塞或超时。
+- **DNS 解析超时收敛**: 为 `host` 查询加 5 秒超时控制，防止异常 DNS 查询无限占用切换链路。
+- **更新脚本标签冲突修复**: `scripts/update.sh` 改为 `git fetch --force origin --tags`，修复稳定标签重指向后出现 `would clobber existing tag` 导致更新中断。
+- **前端模式切换可观测性增强**: 模式切换失败时直接展示后端返回错误（HTTP 状态/具体 error），消除静默失败。
+
+### 📦 发布 (Release)
+- **稳定版发布**: 发布 `v1.6.1 Stable`，同步前端版本与安装/更新脚本 fallback 版本号。
+
 ## [1.6.0] - 2026-04-22
 ### 🚀 发布 (Release)
 - **稳定版发布**: 发布 `v1.6.0 Stable`，同步前端版本显示、安装脚本与更新脚本 fallback 版本号。
