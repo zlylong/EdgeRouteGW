@@ -136,6 +136,7 @@ func TestGetOrRefreshDomainCacheWithResolver_SelectsDNSGroup(t *testing.T) {
 func TestGetOrRefreshDomainCacheWithResolver_MigratesLegacyRemoteCacheKey(t *testing.T) {
 	setupFeatureSuiteRouter(t)
 	legacyDomainCacheMigrationOnce = sync.Once{}
+	legacyDomainCacheLastSweep = time.Time{}
 
 	base := time.Date(2026, 4, 22, 0, 0, 0, 0, time.UTC)
 	oldNow := nowFunc
@@ -170,6 +171,35 @@ func TestGetOrRefreshDomainCacheWithResolver_MigratesLegacyRemoteCacheKey(t *tes
 	}
 	if migratedCount != 1 {
 		t.Fatalf("legacy cache key not migrated, count=%d", migratedCount)
+	}
+}
+
+func TestSweepLegacyDomainResolveCacheKeys_RemovesLegacyRows(t *testing.T) {
+	setupFeatureSuiteRouter(t)
+	if _, err := db.Exec("DELETE FROM domain_resolve_cache"); err != nil {
+		t.Fatal(err)
+	}
+	base := time.Date(2026, 4, 22, 0, 0, 0, 0, time.UTC).Unix()
+	if _, err := db.Exec("INSERT INTO domain_resolve_cache(domain, ips_json, dns_ttl, resolved_at, expire_at, last_error, fail_count, geodata_ver) VALUES (?, '[\"1.1.1.1\"]', 300, ?, ?, '', 0, '')", "legacy-only.example", base, base+300); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec("INSERT INTO domain_resolve_cache(domain, ips_json, dns_ttl, resolved_at, expire_at, last_error, fail_count, geodata_ver) VALUES (?, '[\"2.2.2.2\"]', 300, ?, ?, '', 0, '')", "remote:legacy-only.example", base, base+300); err != nil {
+		t.Fatal(err)
+	}
+
+	migrated, removed, err := sweepLegacyDomainResolveCacheKeys(10)
+	if err != nil {
+		t.Fatalf("sweep error: %v", err)
+	}
+	if removed != 1 {
+		t.Fatalf("expected removed=1 got=%d migrated=%d", removed, migrated)
+	}
+	var legacyCount int
+	if err := db.QueryRow("SELECT COUNT(*) FROM domain_resolve_cache WHERE domain='legacy-only.example'").Scan(&legacyCount); err != nil {
+		t.Fatal(err)
+	}
+	if legacyCount != 0 {
+		t.Fatalf("legacy key should be removed, count=%d", legacyCount)
 	}
 }
 

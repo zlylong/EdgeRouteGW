@@ -26,6 +26,11 @@ const (
 var nowFunc = time.Now
 var legacyDomainCacheMigrationOnce sync.Once
 
+var (
+	legacyDomainCacheSweepMu   sync.Mutex
+	legacyDomainCacheLastSweep time.Time
+)
+
 const domainResolveTimeout = 5 * time.Second
 
 const (
@@ -283,6 +288,7 @@ func ensureRouteCacheTables() {
 		}
 	}
 	legacyDomainCacheMigrationOnce.Do(migrateLegacyDomainResolveCacheKeys)
+	scheduleLegacyDomainCacheSweep()
 }
 
 func migrateLegacyDomainResolveCacheKeys() {
@@ -301,6 +307,93 @@ func migrateLegacyDomainResolveCacheKeys() {
 	}
 	if n, err := result.RowsAffected(); err == nil && n > 0 {
 		log.Printf("[OSPF] migrated %d legacy domain cache rows to remote:* keys", n)
+	}
+}
+
+func sweepLegacyDomainResolveCacheKeys(limit int) (migrated int64, removed int64, err error) {
+	if db == nil {
+		return 0, 0, nil
+	}
+	if limit <= 0 {
+		limit = 200
+	}
+	rows, err := db.Query("SELECT domain FROM domain_resolve_cache WHERE instr(domain, ':')=0 LIMIT ?", limit)
+	if err != nil {
+		return 0, 0, err
+	}
+	defer rows.Close()
+
+	legacyDomains := make([]string, 0, limit)
+	for rows.Next() {
+		var domain string
+		if scanErr := rows.Scan(&domain); scanErr != nil {
+			return migrated, removed, scanErr
+		}
+		legacyDomains = append(legacyDomains, domain)
+	}
+	if err := rows.Err(); err != nil {
+		return migrated, removed, err
+	}
+	if len(legacyDomains) == 0 {
+		return 0, 0, nil
+	}
+
+	tx, err := db.Begin()
+	if err != nil {
+		return 0, 0, err
+	}
+	defer func() {
+		if err != nil {
+			_ = tx.Rollback()
+		}
+	}()
+
+	for _, domain := range legacyDomains {
+		ins, execErr := tx.Exec(`
+			INSERT OR IGNORE INTO domain_resolve_cache (domain, ips_json, dns_ttl, resolved_at, expire_at, last_error, fail_count, geodata_ver)
+			SELECT ?, ips_json, dns_ttl, resolved_at, expire_at, last_error, fail_count, geodata_ver
+			FROM domain_resolve_cache
+			WHERE domain = ?
+		`, buildDomainCacheKey(resolverGroupRemote, domain), domain)
+		if execErr != nil {
+			err = execErr
+			return migrated, removed, err
+		}
+		if n, nErr := ins.RowsAffected(); nErr == nil {
+			migrated += n
+		}
+		del, execErr := tx.Exec("DELETE FROM domain_resolve_cache WHERE domain=? AND instr(domain, ':')=0", domain)
+		if execErr != nil {
+			err = execErr
+			return migrated, removed, err
+		}
+		if n, nErr := del.RowsAffected(); nErr == nil {
+			removed += n
+		}
+	}
+	if commitErr := tx.Commit(); commitErr != nil {
+		err = commitErr
+		return migrated, removed, err
+	}
+	return migrated, removed, nil
+}
+
+func scheduleLegacyDomainCacheSweep() {
+	legacyDomainCacheSweepMu.Lock()
+	if !legacyDomainCacheLastSweep.IsZero() && time.Since(legacyDomainCacheLastSweep) < 10*time.Second {
+		legacyDomainCacheSweepMu.Unlock()
+		return
+	}
+	legacyDomainCacheLastSweep = time.Now()
+	legacyDomainCacheSweepMu.Unlock()
+
+	migrated, removed, err := sweepLegacyDomainResolveCacheKeys(500)
+	if err != nil {
+		log.Printf("[WARN] legacy domain cache sweep failed: %v", err)
+		return
+	}
+	if removed > 0 || migrated > 0 {
+		log.Printf("[OSPF] legacy domain cache sweep done: migrated=%d removed=%d", migrated, removed)
 	}
 }
 
