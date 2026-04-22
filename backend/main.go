@@ -734,6 +734,77 @@ func sampleRouteKeys(routeKeys []string, limit int) string {
 	return strings.Join(routeKeys[:limit], ",")
 }
 
+func pruneStaticRoutesPreferBroad(staticRoutes map[string]routeState) (map[string]routeState, int) {
+	type routeItem struct {
+		key     string
+		network uint32
+		prefix  int
+		state   routeState
+	}
+	items := make([]routeItem, 0, len(staticRoutes))
+	passthrough := make(map[string]routeState)
+	for key, state := range staticRoutes {
+		_, ipNet, err := net.ParseCIDR(key)
+		if err != nil || ipNet == nil || ipNet.IP == nil {
+			passthrough[key] = state
+			continue
+		}
+		ipValue, ok := ipv4ToUint32(ipNet.IP)
+		if !ok {
+			passthrough[key] = state
+			continue
+		}
+		prefix, bits := ipNet.Mask.Size()
+		if bits != 32 || prefix < 0 || prefix > 32 {
+			passthrough[key] = state
+			continue
+		}
+		items = append(items, routeItem{key: key, network: ipValue, prefix: prefix, state: state})
+	}
+	sort.Slice(items, func(i, j int) bool {
+		if items[i].prefix != items[j].prefix {
+			return items[i].prefix < items[j].prefix
+		}
+		if items[i].network != items[j].network {
+			return items[i].network < items[j].network
+		}
+		return items[i].key < items[j].key
+	})
+	result := make(map[string]routeState, len(staticRoutes))
+	for k, v := range passthrough {
+		result[k] = v
+	}
+	kept := make(map[string]struct{}, len(items))
+	removed := 0
+	toCIDRKey := func(network uint32, prefix int) string {
+		ip := net.IPv4(byte(network>>24), byte(network>>16), byte(network>>8), byte(network)).To4()
+		return fmt.Sprintf("%s/%d", ip.String(), prefix)
+	}
+	for _, item := range items {
+		covered := false
+		for p := 0; p < item.prefix; p++ {
+			var mask uint32
+			if p == 0 {
+				mask = 0
+			} else {
+				mask = ^uint32(0) << uint(32-p)
+			}
+			ancestor := toCIDRKey(item.network&mask, p)
+			if _, ok := kept[ancestor]; ok {
+				covered = true
+				break
+			}
+		}
+		if covered {
+			removed++
+			continue
+		}
+		kept[item.key] = struct{}{}
+		result[item.key] = item.state
+	}
+	return result, removed
+}
+
 func detectModeSwitchProtectedConflicts(mode string) []string {
 	if mode != "B" && mode != "C" {
 		return nil
@@ -1983,6 +2054,10 @@ func scheduleStaticRouteSync(mode string) {
 func syncStaticRoutesToOSPF(mode string) {
 	protected := collectProtectedRouteKeys()
 	staticRoutes, conflicts := collectStaticRoutesForMode(mode, protected)
+	staticRoutes, pruned := pruneStaticRoutesPreferBroad(staticRoutes)
+	if pruned > 0 {
+		log.Printf("[OSPF] pruned %d narrower routes covered by broader prefixes", pruned)
+	}
 	if len(conflicts) > 0 {
 		log.Printf("[OSPF] skipped %d protected endpoint routes to avoid loop, samples=%s", len(conflicts), sampleRouteKeys(conflicts, 10))
 	}
