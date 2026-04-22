@@ -445,19 +445,19 @@ func collectStaticRoutesForMode(mode string, protected map[string]struct{}) (map
 					log.Printf("[OSPF] geosite %q (%s) cache failed: %v", tag, policy, err)
 					continue
 				}
-				resolvedIPs := 0
-				promotedDomains := 0
-				var statsMu sync.Mutex
+				type domainResolveResult struct {
+					domain     string
+					ips        []string
+					ttl        int
+					lockedTags []string
+				}
+				results := make([]domainResolveResult, len(domains))
 				runParallel(len(domains), func(idx int) {
 					domain := domains[idx]
+					results[idx].domain = domain
 					lockedTags := loadDomainGeoIPLockedTags(domain, resolverGroup, geodataVer)
 					if len(lockedTags) > 0 {
-						for _, geoTag := range lockedTags {
-							_ = addGeoIPTagRoutes(geoTag, domain)
-						}
-						statsMu.Lock()
-						promotedDomains++
-						statsMu.Unlock()
+						results[idx].lockedTags = lockedTags
 						return
 					}
 
@@ -466,11 +466,51 @@ func collectStaticRoutesForMode(mode string, protected map[string]struct{}) (map
 						log.Printf("[OSPF] geosite %q (%s) resolve %q failed: %v", tag, policy, domain, err)
 						return
 					}
+					results[idx].ips = ips
+					results[idx].ttl = ttl
+				})
 
+				resolvedIPs := 0
+				promotedDomains := 0
+				uniqueIPSet := make(map[string]struct{})
+				for _, res := range results {
+					if len(res.lockedTags) > 0 {
+						for _, geoTag := range res.lockedTags {
+							_ = addGeoIPTagRoutes(geoTag, res.domain)
+						}
+						promotedDomains++
+						continue
+					}
+					for _, ip := range res.ips {
+						uniqueIPSet[ip] = struct{}{}
+					}
+				}
+
+				uniqueIPs := make([]string, 0, len(uniqueIPSet))
+				for ip := range uniqueIPSet {
+					uniqueIPs = append(uniqueIPs, ip)
+				}
+				sort.Strings(uniqueIPs)
+				ipMatchedTags := make(map[string][]string, len(uniqueIPs))
+				var ipTagMu sync.Mutex
+				runParallel(len(uniqueIPs), func(idx int) {
+					ip := uniqueIPs[idx]
+					tags := queryGeoIPTagsByIP(geoipPath, ip)
+					if len(tags) == 0 {
+						return
+					}
+					ipTagMu.Lock()
+					ipMatchedTags[ip] = tags
+					ipTagMu.Unlock()
+				})
+
+				for _, res := range results {
+					if len(res.lockedTags) > 0 || len(res.ips) == 0 {
+						continue
+					}
 					matchedTags := map[string]struct{}{}
-					for _, ip := range ips {
-						tags := queryGeoIPTagsByIP(geoipPath, ip)
-						for _, t := range tags {
+					for _, ip := range res.ips {
+						for _, t := range ipMatchedTags[ip] {
 							t = strings.ToLower(strings.TrimSpace(t))
 							if t != "" {
 								matchedTags[t] = struct{}{}
@@ -481,22 +521,18 @@ func collectStaticRoutesForMode(mode string, protected map[string]struct{}) (map
 						tags := make([]string, 0, len(matchedTags))
 						for t := range matchedTags {
 							tags = append(tags, t)
-							_ = addGeoIPTagRoutes(t, domain)
+							_ = addGeoIPTagRoutes(t, res.domain)
 						}
 						sort.Strings(tags)
-						saveDomainGeoIPLockTags(domain, resolverGroup, geodataVer, tags)
-						statsMu.Lock()
+						saveDomainGeoIPLockTags(res.domain, resolverGroup, geodataVer, tags)
 						promotedDomains++
-						statsMu.Unlock()
 					}
-					statsMu.Lock()
-					resolvedIPs += len(ips)
-					statsMu.Unlock()
-					for _, ip := range ips {
-						addRoute(ip, ttl, domain)
+					resolvedIPs += len(res.ips)
+					for _, ip := range res.ips {
+						addRoute(ip, res.ttl, res.domain)
 					}
-				})
-				log.Printf("[OSPF] geosite %q (%s) resolved %d domains into %d IPv4 routes (promoted_geoip_domains=%d, skipped_non_domain=%d, dns_group=%s, workers=%d)", tag, policy, len(domains), resolvedIPs, promotedDomains, skipped, resolverGroup, resolveWorkers)
+				}
+				log.Printf("[OSPF] geosite %q (%s) resolved %d domains into %d IPv4 routes (promoted_geoip_domains=%d, unique_resolved_ips=%d, skipped_non_domain=%d, dns_group=%s, workers=%d)", tag, policy, len(domains), resolvedIPs, promotedDomains, len(uniqueIPs), skipped, resolverGroup, resolveWorkers)
 			}
 		}
 
