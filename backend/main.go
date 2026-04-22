@@ -1019,15 +1019,31 @@ var (
 	applyMutex sync.Mutex
 )
 
+var pendingMosdnsApply bool
+
 func scheduleApply() {
+	scheduleApplyWithMosdns(false)
+}
+
+func scheduleApplyWithMosdns(needMosdns bool) {
 	applyMutex.Lock()
 	defer applyMutex.Unlock()
+	if needMosdns {
+		pendingMosdnsApply = true
+	}
 	if applyTimer != nil {
 		applyTimer.Stop()
 	}
 	applyTimer = time.AfterFunc(3*time.Second, func() {
-		if err := applyMosdnsConfig(); err != nil {
-			log.Printf("[ERROR] apply mosdns failed: %v", err)
+		applyMutex.Lock()
+		runMosdns := pendingMosdnsApply
+		pendingMosdnsApply = false
+		applyMutex.Unlock()
+
+		if runMosdns {
+			if err := applyMosdnsConfig(); err != nil {
+				log.Printf("[ERROR] apply mosdns failed: %v", err)
+			}
 		}
 		if err := applyXrayConfig(); err != nil {
 			log.Printf("[ERROR] apply xray failed: %v", err)

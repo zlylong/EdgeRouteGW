@@ -154,16 +154,21 @@ func registerRuleRoutes(api *gin.RouterGroup) {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "db error"})
 			return
 		}
-		scheduleApply()
+		scheduleApplyWithMosdns(r.Type == "domain")
 		c.JSON(http.StatusOK, gin.H{"success": true})
 	})
 
 	api.DELETE("/rules/:id", func(c *gin.Context) {
-		if _, err := db.Exec("DELETE FROM rules WHERE id=?", c.Param("id")); err != nil {
+		ruleID := c.Param("id")
+		var ruleType string
+		if err := db.QueryRow("SELECT type FROM rules WHERE id=?", ruleID).Scan(&ruleType); err != nil {
+			ruleType = ""
+		}
+		if _, err := db.Exec("DELETE FROM rules WHERE id=?", ruleID); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "db error"})
 			return
 		}
-		scheduleApply()
+		scheduleApplyWithMosdns(strings.EqualFold(strings.TrimSpace(ruleType), "domain"))
 		c.JSON(http.StatusOK, gin.H{"success": true})
 	})
 }
