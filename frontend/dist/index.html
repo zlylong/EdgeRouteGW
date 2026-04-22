@@ -1805,7 +1805,21 @@ window.onerror = function(msg, url, line, col, error) { alert("JS Error: " + msg
                         'C': 'Mode C: 纯 OSPF 模式 (需防环路，OSPF推送所有海外IP)'
                     };
                     if(confirm(`确定切换至 ${descriptions[newMode]}？`)) {
-                        await apiFetch('/api/mode', { method: 'POST', body: JSON.stringify({ Mode: newMode }) });
+                        try {
+                            const res = await apiFetch('/api/mode', { method: 'POST', body: JSON.stringify({ Mode: newMode }) });
+                            if (!res.ok) {
+                                let msg = `切换失败: HTTP ${res.status}`;
+                                try {
+                                    const d = await res.json();
+                                    if (d && d.error) msg = `切换失败: ${d.error}`;
+                                } catch (e) {}
+                                showToast(msg, 'error');
+                            } else {
+                                showToast(`已切换到 Mode ${newMode}`);
+                            }
+                        } catch (e) {
+                            showToast('切换失败: 网络请求异常', 'error');
+                        }
                         loadData();
                     } else {
                         loadData(); // Reset select UI
@@ -1817,7 +1831,21 @@ window.onerror = function(msg, url, line, col, error) { alert("JS Error: " + msg
 Mode A: 全局网关 (nftables)
 Mode B: 旁路由纯Fake-IP (OSPF)
 Mode C: 纯OSPF (恢复真实IP宣告)`)) {
-                        await apiFetch('/api/mode', { method: 'POST', body: JSON.stringify({ Mode: newMode }) });
+                        try {
+                            const res = await apiFetch('/api/mode', { method: 'POST', body: JSON.stringify({ Mode: newMode }) });
+                            if (!res.ok) {
+                                let msg = `切换失败: HTTP ${res.status}`;
+                                try {
+                                    const d = await res.json();
+                                    if (d && d.error) msg = `切换失败: ${d.error}`;
+                                } catch (e) {}
+                                showToast(msg, 'error');
+                            } else {
+                                showToast(`已切换到 Mode ${newMode}`);
+                            }
+                        } catch (e) {
+                            showToast('切换失败: 网络请求异常', 'error');
+                        }
                         loadData();
                     }
                 }
