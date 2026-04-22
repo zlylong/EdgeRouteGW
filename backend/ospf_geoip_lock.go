@@ -1,0 +1,73 @@
+package main
+
+import (
+	"sort"
+	"strings"
+)
+
+func ensureDomainGeoIPLockTable() {
+	if db == nil {
+		return
+	}
+	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS domain_geoip_lock (
+		domain TEXT NOT NULL,
+		resolver_group TEXT NOT NULL,
+		geoip_tag TEXT NOT NULL,
+		geodata_ver TEXT NOT NULL,
+		updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+		PRIMARY KEY (domain, resolver_group, geoip_tag, geodata_ver)
+	)`); err != nil {
+		return
+	}
+}
+
+func loadDomainGeoIPLockedTags(domain, resolverGroup, geodataVer string) []string {
+	ensureDomainGeoIPLockTable()
+	domain = strings.ToLower(strings.TrimSpace(domain))
+	resolverGroup = normalizeResolverGroup(resolverGroup)
+	geodataVer = strings.TrimSpace(geodataVer)
+	if domain == "" || geodataVer == "" {
+		return nil
+	}
+	rows, err := db.Query("SELECT geoip_tag FROM domain_geoip_lock WHERE domain=? AND resolver_group=? AND geodata_ver=?", domain, resolverGroup, geodataVer)
+	if err != nil {
+		return nil
+	}
+	defer rows.Close()
+	set := map[string]struct{}{}
+	for rows.Next() {
+		var tag string
+		if rows.Scan(&tag) == nil {
+			tag = strings.ToLower(strings.TrimSpace(tag))
+			if tag != "" {
+				set[tag] = struct{}{}
+			}
+		}
+	}
+	if len(set) == 0 {
+		return nil
+	}
+	res := make([]string, 0, len(set))
+	for tag := range set {
+		res = append(res, tag)
+	}
+	sort.Strings(res)
+	return res
+}
+
+func saveDomainGeoIPLockTags(domain, resolverGroup, geodataVer string, tags []string) {
+	ensureDomainGeoIPLockTable()
+	domain = strings.ToLower(strings.TrimSpace(domain))
+	resolverGroup = normalizeResolverGroup(resolverGroup)
+	geodataVer = strings.TrimSpace(geodataVer)
+	if domain == "" || geodataVer == "" || len(tags) == 0 {
+		return
+	}
+	for _, t := range tags {
+		tag := strings.ToLower(strings.TrimSpace(t))
+		if tag == "" {
+			continue
+		}
+		_, _ = db.Exec("INSERT INTO domain_geoip_lock(domain, resolver_group, geoip_tag, geodata_ver, updated_at) VALUES (?, ?, ?, ?, datetime('now')) ON CONFLICT(domain, resolver_group, geoip_tag, geodata_ver) DO UPDATE SET updated_at=datetime('now')", domain, resolverGroup, tag, geodataVer)
+	}
+}

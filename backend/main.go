@@ -282,6 +282,8 @@ func collectStaticRoutesForMode(mode string, protected map[string]struct{}) (map
 	staticRoutes := make(map[string]routeState)
 	conflictSet := make(map[string]struct{})
 	geoipPath := getPath("core", "mosdns", "geoip.dat")
+	geodataVer := getGeoDataVersion()
+	geoipTagCIDRCache := make(map[string][]string)
 
 	addRoute := func(ip string, ttl int, domain string) {
 		routeKey, ok := normalizeRouteKey(ip)
@@ -299,6 +301,22 @@ func collectStaticRoutesForMode(mode string, protected map[string]struct{}) (map
 		if !ok || ttl > cur.ttl {
 			staticRoutes[routeKey] = routeState{ttl: ttl, domain: domain}
 		}
+	}
+
+	addGeoIPTagRoutes := func(tag string, domain string) int {
+		tag = strings.ToLower(strings.TrimSpace(tag))
+		if tag == "" {
+			return 0
+		}
+		cidrs, ok := geoipTagCIDRCache[tag]
+		if !ok {
+			cidrs = extractGeoIPs(geoipPath, tag)
+			geoipTagCIDRCache[tag] = cidrs
+		}
+		for _, cidr := range cidrs {
+			addRoute(cidr, 999999999, domain)
+		}
+		return len(cidrs)
 	}
 
 	staticRows, err := db.Query("SELECT value FROM rules WHERE type='ip' AND policy LIKE 'proxy%'")
@@ -366,11 +384,8 @@ func collectStaticRoutesForMode(mode string, protected map[string]struct{}) (map
 					resolverGroup = resolverGroupLocal
 				}
 				if hasGeoIPTag(geoipPath, tag) {
-					ips := extractGeoIPs(geoipPath, tag)
-					for _, ip := range ips {
-						addRoute(ip, 999999999, "static_rule")
-					}
-					log.Printf("[OSPF] geosite %q (%s) matched geoip tag and expanded to %d CIDRs", tag, policy, len(ips))
+					count := addGeoIPTagRoutes(tag, "static_rule")
+					log.Printf("[OSPF] geosite %q (%s) matched geoip tag and expanded to %d CIDRs", tag, policy, count)
 					continue
 				}
 
@@ -380,10 +395,46 @@ func collectStaticRoutesForMode(mode string, protected map[string]struct{}) (map
 					continue
 				}
 				resolvedIPs := 0
+				promotedDomains := 0
 				for _, domain := range domains {
+					lockedTags := loadDomainGeoIPLockedTags(domain, resolverGroup, geodataVer)
+					if len(lockedTags) > 0 {
+						for _, geoTag := range lockedTags {
+							_ = addGeoIPTagRoutes(geoTag, domain)
+						}
+						promotedDomains++
+						continue
+					}
+
 					ips, ttl, _, err := getOrRefreshDomainCacheWithResolver(domain, resolverGroup)
 					if err != nil {
 						log.Printf("[OSPF] geosite %q (%s) resolve %q failed: %v", tag, policy, domain, err)
+						continue
+					}
+
+					matchedTags := map[string]struct{}{}
+					for _, ip := range ips {
+						tags := queryGeoIPTagsByIP(geoipPath, ip)
+						for _, t := range tags {
+							t = strings.ToLower(strings.TrimSpace(t))
+							if t != "" {
+								matchedTags[t] = struct{}{}
+							}
+						}
+					}
+					if len(matchedTags) > 0 {
+						tags := make([]string, 0, len(matchedTags))
+						for t := range matchedTags {
+							tags = append(tags, t)
+							_ = addGeoIPTagRoutes(t, domain)
+						}
+						sort.Strings(tags)
+						saveDomainGeoIPLockTags(domain, resolverGroup, geodataVer, tags)
+						promotedDomains++
+						for _, ip := range ips {
+							addRoute(ip, ttl, domain)
+							resolvedIPs++
+						}
 						continue
 					}
 					for _, ip := range ips {
@@ -391,7 +442,7 @@ func collectStaticRoutesForMode(mode string, protected map[string]struct{}) (map
 						resolvedIPs++
 					}
 				}
-				log.Printf("[OSPF] geosite %q (%s) resolved %d domains into %d IPv4 routes (skipped_non_domain=%d, dns_group=%s)", tag, policy, len(domains), resolvedIPs, skipped, resolverGroup)
+				log.Printf("[OSPF] geosite %q (%s) resolved %d domains into %d IPv4 routes (promoted_geoip_domains=%d, skipped_non_domain=%d, dns_group=%s)", tag, policy, len(domains), resolvedIPs, promotedDomains, skipped, resolverGroup)
 			}
 		}
 
