@@ -141,7 +141,6 @@ func applyOspfDeleteBatch(toDel []string) bool {
 		return false
 	}
 	var buf bytes.Buffer
-	buf.WriteString("conf t\n")
 	for _, ip := range toDel {
 		addOspfLog("[DEL] " + ip + " (Miss count >= 3)")
 		routeStr := formatRouteCIDR(ip)
@@ -169,7 +168,6 @@ func applyOspfAddBatch(toAdd []string) bool {
 		return false
 	}
 	var buf bytes.Buffer
-	buf.WriteString("conf t\n")
 	for _, ip := range toAdd {
 		addOspfLog("[ADD] " + ip + " to published_set")
 		routeStr := formatRouteCIDR(ip)
