@@ -39,11 +39,23 @@ var (
 	staticRouteSyncPending bool
 )
 
+var (
+	domainGeoIPMatchCacheMu sync.Mutex
+	domainGeoIPMatchCache   = map[string]domainGeoIPMatchCacheEntry{}
+)
+
 const (
 	defaultOspfPushBatchLimit      = 500
 	defaultOspfPushIntervalSeconds = 10
 	defaultOspfResolveWorkers      = 16
+	domainGeoIPMatchCacheTTL       = 10 * time.Minute
+	domainGeoIPMatchCacheMax       = 200000
 )
+
+type domainGeoIPMatchCacheEntry struct {
+	tags      []string
+	expiresAt time.Time
+}
 
 type routeState struct {
 	ttl    int
@@ -132,6 +144,55 @@ func getOspfControllerSettings() ospfControllerSettings {
 		PushBatchLimit:      readIntSettingWithDefault("ospf_push_batch_limit", defaultOspfPushBatchLimit, clampOspfPushBatchLimit),
 		PushIntervalSeconds: readIntSettingWithDefault("ospf_push_interval_seconds", defaultOspfPushIntervalSeconds, clampOspfPushIntervalSeconds),
 		ResolveWorkers:      readIntSettingWithDefault("ospf_resolve_workers", defaultOspfResolveWorkers, clampOspfResolveWorkers),
+	}
+}
+
+func cloneStringSliceMain(in []string) []string {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]string, len(in))
+	copy(out, in)
+	return out
+}
+
+func getDomainGeoIPMatchCache(key string) ([]string, bool) {
+	domainGeoIPMatchCacheMu.Lock()
+	defer domainGeoIPMatchCacheMu.Unlock()
+	entry, ok := domainGeoIPMatchCache[key]
+	if !ok {
+		return nil, false
+	}
+	if time.Now().After(entry.expiresAt) {
+		delete(domainGeoIPMatchCache, key)
+		return nil, false
+	}
+	return cloneStringSliceMain(entry.tags), true
+}
+
+func setDomainGeoIPMatchCache(key string, tags []string) {
+	domainGeoIPMatchCacheMu.Lock()
+	defer domainGeoIPMatchCacheMu.Unlock()
+	domainGeoIPMatchCache[key] = domainGeoIPMatchCacheEntry{tags: cloneStringSliceMain(tags), expiresAt: time.Now().Add(domainGeoIPMatchCacheTTL)}
+	if len(domainGeoIPMatchCache) <= domainGeoIPMatchCacheMax {
+		return
+	}
+	now := time.Now()
+	for k, v := range domainGeoIPMatchCache {
+		if now.After(v.expiresAt) {
+			delete(domainGeoIPMatchCache, k)
+		}
+	}
+	if len(domainGeoIPMatchCache) <= domainGeoIPMatchCacheMax {
+		return
+	}
+	trim := len(domainGeoIPMatchCache) - domainGeoIPMatchCacheMax
+	for k := range domainGeoIPMatchCache {
+		delete(domainGeoIPMatchCache, k)
+		trim--
+		if trim <= 0 {
+			break
+		}
 	}
 }
 
@@ -472,6 +533,7 @@ func collectStaticRoutesForMode(mode string, protected map[string]struct{}) (map
 
 				resolvedIPs := 0
 				promotedDomains := 0
+				cachedTagSetHits := 0
 				uniqueIPSet := make(map[string]struct{})
 				for _, res := range results {
 					if len(res.lockedTags) > 0 {
@@ -508,22 +570,33 @@ func collectStaticRoutesForMode(mode string, protected map[string]struct{}) (map
 					if len(res.lockedTags) > 0 || len(res.ips) == 0 {
 						continue
 					}
-					matchedTags := map[string]struct{}{}
-					for _, ip := range res.ips {
-						for _, t := range ipMatchedTags[ip] {
-							t = strings.ToLower(strings.TrimSpace(t))
-							if t != "" {
-								matchedTags[t] = struct{}{}
+					cacheKey := geodataVer + "|" + resolverGroup + "|" + res.domain + "|" + strings.Join(res.ips, ",")
+					tags, ok := getDomainGeoIPMatchCache(cacheKey)
+					if ok {
+						cachedTagSetHits++
+					} else {
+						matchedTags := map[string]struct{}{}
+						for _, ip := range res.ips {
+							for _, t := range ipMatchedTags[ip] {
+								t = strings.ToLower(strings.TrimSpace(t))
+								if t != "" {
+									matchedTags[t] = struct{}{}
+								}
 							}
 						}
+						if len(matchedTags) > 0 {
+							tags = make([]string, 0, len(matchedTags))
+							for t := range matchedTags {
+								tags = append(tags, t)
+							}
+							sort.Strings(tags)
+						}
+						setDomainGeoIPMatchCache(cacheKey, tags)
 					}
-					if len(matchedTags) > 0 {
-						tags := make([]string, 0, len(matchedTags))
-						for t := range matchedTags {
-							tags = append(tags, t)
+					if len(tags) > 0 {
+						for _, t := range tags {
 							_ = addGeoIPTagRoutes(t, res.domain)
 						}
-						sort.Strings(tags)
 						saveDomainGeoIPLockTags(res.domain, resolverGroup, geodataVer, tags)
 						promotedDomains++
 					}
@@ -532,7 +605,7 @@ func collectStaticRoutesForMode(mode string, protected map[string]struct{}) (map
 						addRoute(ip, res.ttl, res.domain)
 					}
 				}
-				log.Printf("[OSPF] geosite %q (%s) resolved %d domains into %d IPv4 routes (promoted_geoip_domains=%d, unique_resolved_ips=%d, skipped_non_domain=%d, dns_group=%s, workers=%d)", tag, policy, len(domains), resolvedIPs, promotedDomains, len(uniqueIPs), skipped, resolverGroup, resolveWorkers)
+				log.Printf("[OSPF] geosite %q (%s) resolved %d domains into %d IPv4 routes (promoted_geoip_domains=%d, unique_resolved_ips=%d, domain_tag_cache_hits=%d, skipped_non_domain=%d, dns_group=%s, workers=%d)", tag, policy, len(domains), resolvedIPs, promotedDomains, len(uniqueIPs), cachedTagSetHits, skipped, resolverGroup, resolveWorkers)
 			}
 		}
 
