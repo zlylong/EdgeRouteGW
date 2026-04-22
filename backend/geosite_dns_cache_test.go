@@ -2,6 +2,7 @@ package main
 
 import (
 	"errors"
+	"sync"
 	"testing"
 	"time"
 )
@@ -129,6 +130,46 @@ func TestGetOrRefreshDomainCacheWithResolver_SelectsDNSGroup(t *testing.T) {
 	}
 	if len(captured[1]) < 2 || captured[1][0] != "10.10.10.10" || captured[1][1] != "10.10.10.11" {
 		t.Fatalf("unexpected local dns servers: %v", captured[1])
+	}
+}
+
+func TestGetOrRefreshDomainCacheWithResolver_MigratesLegacyRemoteCacheKey(t *testing.T) {
+	setupFeatureSuiteRouter(t)
+	legacyDomainCacheMigrationOnce = sync.Once{}
+
+	base := time.Date(2026, 4, 22, 0, 0, 0, 0, time.UTC)
+	oldNow := nowFunc
+	nowFunc = func() time.Time { return base }
+	defer func() { nowFunc = oldNow }()
+
+	if _, err := db.Exec("INSERT OR REPLACE INTO domain_resolve_cache(domain, ips_json, dns_ttl, resolved_at, expire_at, last_error, fail_count, geodata_ver) VALUES (?, ?, ?, ?, ?, '', 0, '')", "legacy.example.com", `["203.0.113.10"]`, 600, base.Unix(), base.Add(600*time.Second).Unix()); err != nil {
+		t.Fatal(err)
+	}
+
+	oldResolve := resolveDomainIPv4WithTTLViaServers
+	resolveDomainIPv4WithTTLViaServers = func(domain string, dnsServers []string) ([]string, int, error) {
+		t.Fatalf("resolver should not be called when legacy cache is migrated")
+		return nil, 0, nil
+	}
+	defer func() { resolveDomainIPv4WithTTLViaServers = oldResolve }()
+
+	ips, ttl, fromCache, err := getOrRefreshDomainCacheWithResolver("legacy.example.com", resolverGroupRemote)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !fromCache {
+		t.Fatalf("expected cache hit after legacy migration")
+	}
+	if ttl != 600 || len(ips) != 1 || ips[0] != "203.0.113.10" {
+		t.Fatalf("unexpected cache payload: ttl=%d ips=%v", ttl, ips)
+	}
+
+	var migratedCount int
+	if err := db.QueryRow("SELECT COUNT(*) FROM domain_resolve_cache WHERE domain='remote:legacy.example.com'").Scan(&migratedCount); err != nil {
+		t.Fatal(err)
+	}
+	if migratedCount != 1 {
+		t.Fatalf("legacy cache key not migrated, count=%d", migratedCount)
 	}
 }
 

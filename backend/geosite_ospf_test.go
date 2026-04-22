@@ -54,7 +54,7 @@ func TestSyncStaticRoutesToOSPF_GeositeFallsBackToGeoIPAndDomainResolution(t *te
 		t.Fatal(err)
 	}
 
-	expected := []string{"8.8.8.0/24", "8.8.8.8", "9.9.9.9"}
+	expected := []string{"8.8.8.0/24", "8.8.8.8/32", "9.9.9.9/32"}
 	if len(ips) != len(expected) {
 		t.Fatalf("unexpected static route count: got=%v want=%v", ips, expected)
 	}

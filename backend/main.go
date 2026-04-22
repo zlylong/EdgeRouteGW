@@ -125,13 +125,37 @@ var runVtyshConfigBatch = func(config string) (string, error) {
 	return string(out), err
 }
 
-func formatRouteCIDR(ip string) string {
-	routeStr := strings.TrimSpace(ip)
-	if routeStr == "" {
-		return ""
+func normalizeRouteKey(raw string) (string, bool) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return "", false
 	}
-	if !strings.Contains(routeStr, "/") {
-		routeStr += "/32"
+	if !strings.Contains(raw, "/") {
+		ip := net.ParseIP(raw)
+		if ip == nil || ip.To4() == nil {
+			return "", false
+		}
+		return ip.To4().String() + "/32", true
+	}
+	_, ipNet, err := net.ParseCIDR(raw)
+	if err != nil || ipNet == nil || ipNet.IP == nil {
+		return "", false
+	}
+	ip4 := ipNet.IP.To4()
+	if ip4 == nil {
+		return "", false
+	}
+	ones, bits := ipNet.Mask.Size()
+	if bits != 32 || ones < 0 || ones > 32 {
+		return "", false
+	}
+	return (&net.IPNet{IP: ip4, Mask: net.CIDRMask(ones, 32)}).String(), true
+}
+
+func formatRouteCIDR(ip string) string {
+	routeStr, ok := normalizeRouteKey(ip)
+	if !ok {
+		return ""
 	}
 	return routeStr
 }
@@ -1086,16 +1110,16 @@ func syncStaticRoutesToOSPF(mode string) {
 	geoipPath := getPath("core", "mosdns", "geoip.dat")
 
 	addRoute := func(ip string, ttl int, domain string) {
-		ip = strings.TrimSpace(ip)
-		if ip == "" {
+		routeKey, ok := normalizeRouteKey(ip)
+		if !ok {
 			return
 		}
 		if ttl <= 0 {
 			ttl = 999999999
 		}
-		cur, ok := staticRoutes[ip]
+		cur, ok := staticRoutes[routeKey]
 		if !ok || ttl > cur.ttl {
-			staticRoutes[ip] = routeState{ttl: ttl, domain: domain}
+			staticRoutes[routeKey] = routeState{ttl: ttl, domain: domain}
 		}
 	}
 

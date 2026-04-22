@@ -12,6 +12,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -23,6 +24,7 @@ const (
 )
 
 var nowFunc = time.Now
+var legacyDomainCacheMigrationOnce sync.Once
 
 const domainResolveTimeout = 5 * time.Second
 
@@ -279,6 +281,26 @@ func ensureRouteCacheTables() {
 		if _, err := db.Exec(stmt); err != nil {
 			log.Printf("[WARN] ensure route cache table failed: %v", err)
 		}
+	}
+	legacyDomainCacheMigrationOnce.Do(migrateLegacyDomainResolveCacheKeys)
+}
+
+func migrateLegacyDomainResolveCacheKeys() {
+	if db == nil {
+		return
+	}
+	result, err := db.Exec(`
+		INSERT OR IGNORE INTO domain_resolve_cache (domain, ips_json, dns_ttl, resolved_at, expire_at, last_error, fail_count, geodata_ver)
+		SELECT 'remote:' || domain, ips_json, dns_ttl, resolved_at, expire_at, last_error, fail_count, geodata_ver
+		FROM domain_resolve_cache
+		WHERE instr(domain, ':') = 0
+	`)
+	if err != nil {
+		log.Printf("[WARN] migrate legacy domain cache keys failed: %v", err)
+		return
+	}
+	if n, err := result.RowsAffected(); err == nil && n > 0 {
+		log.Printf("[OSPF] migrated %d legacy domain cache rows to remote:* keys", n)
 	}
 }
 
