@@ -376,12 +376,19 @@ func queryGeoIPTagsByIP(filename, input string) []string {
 	var matches []string
 	if len(bucket) > 0 {
 		matchedTags := make(map[string]struct{}, 4)
+		bestMatchedPrefix := -1
 		for _, rule := range bucket {
+			if bestMatchedPrefix >= 0 && int(rule.prefix) < bestMatchedPrefix {
+				break
+			}
 			if _, done := matchedTags[rule.tag]; done {
 				continue
 			}
 			if (ipValue & rule.mask) == rule.network {
 				matchedTags[rule.tag] = struct{}{}
+				if int(rule.prefix) > bestMatchedPrefix {
+					bestMatchedPrefix = int(rule.prefix)
+				}
 			}
 		}
 		if len(matchedTags) > 0 {
