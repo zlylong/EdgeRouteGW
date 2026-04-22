@@ -410,6 +410,46 @@ func queryGeoIPTagsByIP(filename, input string) []string {
 	return matches
 }
 
+func queryGeoIPBestCIDRsByIP(filename, input string) []string {
+	ip := net.ParseIP(strings.TrimSpace(input))
+	ipValue, ok := ipv4ToUint32(ip)
+	if !ok {
+		return nil
+	}
+	matcher := loadGeoIPMatcher(filename)
+	if matcher == nil {
+		return nil
+	}
+	bucket := matcher.buckets[int((ipValue>>24)&0xFF)]
+	if len(bucket) == 0 {
+		return nil
+	}
+	bestPrefix := -1
+	cidrSet := make(map[string]struct{}, 4)
+	for _, rule := range bucket {
+		if bestPrefix >= 0 && int(rule.prefix) > bestPrefix {
+			break
+		}
+		if (ipValue & rule.mask) != rule.network {
+			continue
+		}
+		if bestPrefix < 0 {
+			bestPrefix = int(rule.prefix)
+		}
+		cidr := fmt.Sprintf("%d.%d.%d.%d/%d", byte(rule.network>>24), byte(rule.network>>16), byte(rule.network>>8), byte(rule.network), rule.prefix)
+		cidrSet[cidr] = struct{}{}
+	}
+	if len(cidrSet) == 0 {
+		return nil
+	}
+	cidrs := make([]string, 0, len(cidrSet))
+	for cidr := range cidrSet {
+		cidrs = append(cidrs, cidr)
+	}
+	sort.Strings(cidrs)
+	return cidrs
+}
+
 func matchGeoSiteDomain(domain string, entry geoSiteDomainEntry) bool {
 	domain = strings.TrimSuffix(strings.ToLower(strings.TrimSpace(domain)), ".")
 	value := strings.TrimSuffix(strings.ToLower(strings.TrimSpace(entry.Value)), ".")

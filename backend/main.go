@@ -418,6 +418,14 @@ func collectStaticRoutesForMode(mode string, protected map[string]struct{}) (map
 		if tag == "" {
 			return 0
 		}
+		if strings.Contains(tag, "/") {
+			routeKey, ok := normalizeRouteKey(tag)
+			if !ok {
+				return 0
+			}
+			addRoute(routeKey, 999999999, domain)
+			return 1
+		}
 		geoipTagCIDRCacheMu.Lock()
 		cidrs, ok := geoipTagCIDRCache[tag]
 		if !ok {
@@ -429,6 +437,67 @@ func collectStaticRoutesForMode(mode string, protected map[string]struct{}) (map
 			addRoute(cidr, 999999999, domain)
 		}
 		return len(cidrs)
+	}
+
+	reduceCIDRsPreferBroad := func(cidrs []string) []string {
+		if len(cidrs) == 0 {
+			return nil
+		}
+		uniq := make(map[string]struct{}, len(cidrs))
+		norm := make([]string, 0, len(cidrs))
+		for _, raw := range cidrs {
+			routeKey, ok := normalizeRouteKey(raw)
+			if !ok {
+				continue
+			}
+			if _, exists := uniq[routeKey]; exists {
+				continue
+			}
+			uniq[routeKey] = struct{}{}
+			norm = append(norm, routeKey)
+		}
+		if len(norm) <= 1 {
+			return norm
+		}
+		sort.Slice(norm, func(i, j int) bool {
+			_, ni, _ := net.ParseCIDR(norm[i])
+			_, nj, _ := net.ParseCIDR(norm[j])
+			if ni == nil || nj == nil {
+				return norm[i] < norm[j]
+			}
+			pi, _ := ni.Mask.Size()
+			pj, _ := nj.Mask.Size()
+			if pi != pj {
+				return pi < pj
+			}
+			return norm[i] < norm[j]
+		})
+		keptNets := make([]*net.IPNet, 0, len(norm))
+		keptStr := make([]string, 0, len(norm))
+		for _, cidr := range norm {
+			_, n, err := net.ParseCIDR(cidr)
+			if err != nil || n == nil || n.IP == nil || n.IP.To4() == nil {
+				continue
+			}
+			covered := false
+			for _, k := range keptNets {
+				kp, _ := k.Mask.Size()
+				np, _ := n.Mask.Size()
+				if kp > np {
+					continue
+				}
+				if k.Contains(n.IP) {
+					covered = true
+					break
+				}
+			}
+			if covered {
+				continue
+			}
+			keptNets = append(keptNets, n)
+			keptStr = append(keptStr, n.String())
+		}
+		return keptStr
 	}
 
 	staticRows, err := db.Query("SELECT value FROM rules WHERE type='ip' AND policy LIKE 'proxy%'")
@@ -553,16 +622,16 @@ func collectStaticRoutesForMode(mode string, protected map[string]struct{}) (map
 					uniqueIPs = append(uniqueIPs, ip)
 				}
 				sort.Strings(uniqueIPs)
-				ipMatchedTags := make(map[string][]string, len(uniqueIPs))
+				ipMatchedCIDRs := make(map[string][]string, len(uniqueIPs))
 				var ipTagMu sync.Mutex
 				runParallel(len(uniqueIPs), func(idx int) {
 					ip := uniqueIPs[idx]
-					tags := queryGeoIPTagsByIP(geoipPath, ip)
-					if len(tags) == 0 {
+					cidrs := queryGeoIPBestCIDRsByIP(geoipPath, ip)
+					if len(cidrs) == 0 {
 						return
 					}
 					ipTagMu.Lock()
-					ipMatchedTags[ip] = tags
+					ipMatchedCIDRs[ip] = cidrs
 					ipTagMu.Unlock()
 				})
 
@@ -571,34 +640,39 @@ func collectStaticRoutesForMode(mode string, protected map[string]struct{}) (map
 						continue
 					}
 					cacheKey := geodataVer + "|" + resolverGroup + "|" + res.domain + "|" + strings.Join(res.ips, ",")
-					tags, ok := getDomainGeoIPMatchCache(cacheKey)
+					cidrs, ok := getDomainGeoIPMatchCache(cacheKey)
 					if ok {
 						cachedTagSetHits++
 					} else {
-						matchedTags := map[string]struct{}{}
+						matchedCIDRs := make(map[string]struct{})
 						for _, ip := range res.ips {
-							for _, t := range ipMatchedTags[ip] {
-								t = strings.ToLower(strings.TrimSpace(t))
-								if t != "" {
-									matchedTags[t] = struct{}{}
+							for _, c := range ipMatchedCIDRs[ip] {
+								c = strings.TrimSpace(c)
+								if c != "" {
+									matchedCIDRs[c] = struct{}{}
 								}
 							}
 						}
-						if len(matchedTags) > 0 {
-							tags = make([]string, 0, len(matchedTags))
-							for t := range matchedTags {
-								tags = append(tags, t)
+						if len(matchedCIDRs) > 0 {
+							cidrs = make([]string, 0, len(matchedCIDRs))
+							for c := range matchedCIDRs {
+								cidrs = append(cidrs, c)
 							}
-							sort.Strings(tags)
+							sort.Strings(cidrs)
+							cidrs = reduceCIDRsPreferBroad(cidrs)
 						}
-						setDomainGeoIPMatchCache(cacheKey, tags)
+						setDomainGeoIPMatchCache(cacheKey, cidrs)
 					}
-					if len(tags) > 0 {
-						for _, t := range tags {
-							_ = addGeoIPTagRoutes(t, res.domain)
+					if len(cidrs) > 0 {
+						addedCIDRs := 0
+						for _, c := range cidrs {
+							addedCIDRs += addGeoIPTagRoutes(c, res.domain)
 						}
-						saveDomainGeoIPLockTags(res.domain, resolverGroup, geodataVer, tags)
-						promotedDomains++
+						if addedCIDRs > 0 {
+							saveDomainGeoIPLockTags(res.domain, resolverGroup, geodataVer, cidrs)
+							promotedDomains++
+							continue
+						}
 					}
 					resolvedIPs += len(res.ips)
 					for _, ip := range res.ips {
