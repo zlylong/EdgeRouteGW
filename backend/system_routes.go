@@ -256,37 +256,94 @@ func registerSystemRoutes(api *gin.RouterGroup) {
 	})
 
 	api.GET("/cron", func(c *gin.Context) {
-		var enabled, cronTime string
-		if err := db.QueryRow("SELECT value FROM settings WHERE key='cron_enabled'").Scan(&enabled); err != nil && err != sql.ErrNoRows {
-			log.Printf("[WARN] SELECT value FROM settings WHERE key='cron_enabled' err: %v", err)
-		}
-		if err := db.QueryRow("SELECT value FROM settings WHERE key='cron_time'").Scan(&cronTime); err != nil && err != sql.ErrNoRows {
-			log.Printf("[WARN] SELECT value FROM settings WHERE key='cron_time' err: %v", err)
-		}
-		if strings.TrimSpace(cronTime) == "" {
-			cronTime = "04:00"
-			db.Exec("INSERT OR REPLACE INTO settings (key, value) VALUES ('cron_time', ?)", cronTime)
-		}
-		c.JSON(http.StatusOK, gin.H{"enabled": enabled == "true", "time": cronTime})
+		cfg := loadCronScheduleSettings()
+		_, _ = db.Exec("INSERT OR REPLACE INTO settings (key, value) VALUES ('cron_time', ?)", cfg.Time)
+		_, _ = db.Exec("INSERT OR REPLACE INTO settings (key, value) VALUES ('cron_schedule_type', ?)", cfg.ScheduleType)
+		_, _ = db.Exec("INSERT OR REPLACE INTO settings (key, value) VALUES ('cron_weekday', ?)", strconv.Itoa(cfg.Weekday))
+		_, _ = db.Exec("INSERT OR REPLACE INTO settings (key, value) VALUES ('cron_monthday', ?)", strconv.Itoa(cfg.Monthday))
+		c.JSON(http.StatusOK, gin.H{
+			"enabled":       cfg.Enabled,
+			"time":          cfg.Time,
+			"schedule_type": cfg.ScheduleType,
+			"weekday":       cfg.Weekday,
+			"monthday":      cfg.Monthday,
+		})
 	})
 
 	api.POST("/cron", func(c *gin.Context) {
 		var req struct {
-			Enabled bool
-			Time    string
+			Enabled            bool   `json:"enabled"`
+			Time               string `json:"time"`
+			ScheduleType       string `json:"schedule_type"`
+			Weekday            int    `json:"weekday"`
+			Monthday           int    `json:"monthday"`
+			EnabledLegacy      bool   `json:"Enabled"`
+			TimeLegacy         string `json:"Time"`
+			ScheduleTypeLegacy string `json:"ScheduleType"`
+			WeekdayLegacy      int    `json:"Weekday"`
+			MonthdayLegacy     int    `json:"Monthday"`
 		}
 		if c.BindJSON(&req) != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "bad cron payload"})
 			return
 		}
+		enabled := req.Enabled || req.EnabledLegacy
 		cronTime := strings.TrimSpace(req.Time)
+		if cronTime == "" {
+			cronTime = strings.TrimSpace(req.TimeLegacy)
+		}
 		if cronTime == "" {
 			cronTime = "04:00"
 		}
-		db.Exec("INSERT OR REPLACE INTO settings (key, value) VALUES ('cron_enabled', ?)", fmt.Sprintf("%t", req.Enabled))
-		db.Exec("INSERT OR REPLACE INTO settings (key, value) VALUES ('cron_time', ?)", cronTime)
+		if _, err := time.Parse("15:04", cronTime); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid cron time, expected HH:MM"})
+			return
+		}
+		scheduleType := req.ScheduleType
+		if strings.TrimSpace(scheduleType) == "" {
+			scheduleType = req.ScheduleTypeLegacy
+		}
+		scheduleType = normalizeCronScheduleType(scheduleType)
+		weekday := req.Weekday
+		if weekday == 0 {
+			weekday = req.WeekdayLegacy
+		}
+		monthday := req.Monthday
+		if monthday == 0 {
+			monthday = req.MonthdayLegacy
+		}
+		weekday = clampCronWeekday(weekday)
+		monthday = clampCronMonthday(monthday)
+
+		if _, err := db.Exec("INSERT OR REPLACE INTO settings (key, value) VALUES ('cron_enabled', ?)", fmt.Sprintf("%t", enabled)); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		if _, err := db.Exec("INSERT OR REPLACE INTO settings (key, value) VALUES ('cron_time', ?)", cronTime); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		if _, err := db.Exec("INSERT OR REPLACE INTO settings (key, value) VALUES ('cron_schedule_type', ?)", scheduleType); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		if _, err := db.Exec("INSERT OR REPLACE INTO settings (key, value) VALUES ('cron_weekday', ?)", strconv.Itoa(weekday)); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		if _, err := db.Exec("INSERT OR REPLACE INTO settings (key, value) VALUES ('cron_monthday', ?)", strconv.Itoa(monthday)); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
 		triggerCronReload()
-		c.JSON(http.StatusOK, gin.H{"success": true})
+		c.JSON(http.StatusOK, gin.H{
+			"success":       true,
+			"enabled":       enabled,
+			"time":          cronTime,
+			"schedule_type": scheduleType,
+			"weekday":       weekday,
+			"monthday":      monthday,
+		})
 	})
 
 	api.GET("/traffic", func(c *gin.Context) {

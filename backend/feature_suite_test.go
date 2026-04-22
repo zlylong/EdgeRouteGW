@@ -246,7 +246,7 @@ func TestFeatureSuite_AuthConfigAndSystem(t *testing.T) {
 
 	t.Run("cron can save and read back", func(t *testing.T) {
 		post := httptest.NewRecorder()
-		r.ServeHTTP(post, authedJSONRequest(http.MethodPost, "/api/cron", `{"Enabled":true,"Time":"03:30"}`))
+		r.ServeHTTP(post, authedJSONRequest(http.MethodPost, "/api/cron", `{"enabled":true,"time":"03:30","schedule_type":"weekly","weekday":5,"monthday":20}`))
 		if post.Code != http.StatusOK {
 			t.Fatalf("want 200 got %d", post.Code)
 		}
@@ -256,7 +256,7 @@ func TestFeatureSuite_AuthConfigAndSystem(t *testing.T) {
 			t.Fatalf("want 200 got %d", get.Code)
 		}
 		resp := decodeJSONMap(t, get.Body.Bytes())
-		if resp["enabled"] != true || resp["time"] != "03:30" {
+		if resp["enabled"] != true || resp["time"] != "03:30" || resp["schedule_type"] != "weekly" || resp["weekday"].(float64) != 5 {
 			t.Fatalf("unexpected cron payload: %v", resp)
 		}
 	})

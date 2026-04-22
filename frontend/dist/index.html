@@ -942,12 +942,44 @@ PersistentKeepalive = 25
                                     </div>
                                     <div class="flex items-center justify-between pt-2 mt-2 border-t">
                                         <div class="flex items-center">
-                                            <input type="checkbox" v-model="cron.enabled" @change="saveCron" class="h-4 w-4 text-blue-600 border-gray-300 rounded mr-2 cursor-pointer">
-                                            <span class="text-sm text-gray-700">启用每日自动更新规则库 (Cron)</span>
+                                            <input type="checkbox" v-model="cron.enabled" class="h-4 w-4 text-blue-600 border-gray-300 rounded mr-2 cursor-pointer">
+                                            <span class="text-sm text-gray-700">启用自动更新规则库 (Cron)</span>
                                         </div>
-                                        <div v-if="cron.enabled" class="flex items-center text-sm text-gray-600">
-                                            <span>执行时间:</span>
-                                            <input type="time" v-model="cron.time" @change="saveCron" class="ml-2 border rounded p-1 text-sm focus:outline-blue-500">
+                                    </div>
+                                    <div v-if="cron.enabled" class="pt-2 border-t space-y-3">
+                                        <div class="grid grid-cols-1 md:grid-cols-4 gap-3 items-end">
+                                            <label class="block">
+                                                <span class="text-sm text-gray-600">调度类型</span>
+                                                <select v-model="cron.schedule_type" class="mt-1 w-full border rounded p-2 text-sm focus:outline-blue-500">
+                                                    <option value="daily">每日</option>
+                                                    <option value="weekly">每周</option>
+                                                    <option value="monthly">每月</option>
+                                                </select>
+                                            </label>
+                                            <label class="block" v-if="cron.schedule_type === 'weekly'">
+                                                <span class="text-sm text-gray-600">星期</span>
+                                                <select v-model.number="cron.weekday" class="mt-1 w-full border rounded p-2 text-sm focus:outline-blue-500">
+                                                    <option :value="1">周一</option>
+                                                    <option :value="2">周二</option>
+                                                    <option :value="3">周三</option>
+                                                    <option :value="4">周四</option>
+                                                    <option :value="5">周五</option>
+                                                    <option :value="6">周六</option>
+                                                    <option :value="7">周日</option>
+                                                </select>
+                                            </label>
+                                            <label class="block" v-if="cron.schedule_type === 'monthly'">
+                                                <span class="text-sm text-gray-600">每月第几天</span>
+                                                <input type="number" min="1" max="31" v-model.number="cron.monthday" class="mt-1 w-full border rounded p-2 text-sm focus:outline-blue-500">
+                                            </label>
+                                            <label class="block">
+                                                <span class="text-sm text-gray-600">执行时间</span>
+                                                <input type="time" v-model="cron.time" class="mt-1 w-full border rounded p-2 text-sm focus:outline-blue-500">
+                                            </label>
+                                            <button @click="saveCron" class="bg-blue-600 text-white px-4 py-2 rounded text-sm hover:bg-blue-700">保存自动更新计划</button>
+                                        </div>
+                                        <div class="text-xs text-gray-500">
+                                            当前计划：{{ cron.schedule_type === 'daily' ? '每日' : (cron.schedule_type === 'weekly' ? ('每周 ' + ['一','二','三','四','五','六','日'][Math.max(1,Math.min(7,cron.weekday))-1]) : ('每月 ' + Math.max(1,Math.min(31,cron.monthday)) + ' 日')) }} {{ cron.time }}
                                         </div>
                                     </div>
                                 </div>
@@ -1520,9 +1552,28 @@ window.onerror = function(msg, url, line, col, error) { alert("JS Error: " + msg
                     loadData();
                 };
                 const sysStatus = ref({ mode: 'B', xray: false, ospf: false, mosdns: false, cpu: 0, ram: 0 });
-                const cron = ref({ enabled: false, time: '04:00' });
+                const cron = ref({ enabled: false, time: '04:00', schedule_type: 'daily', weekday: 1, monthday: 1 });
                 const saveCron = async () => {
-                    await apiFetch('/api/cron', { method: 'POST', body: JSON.stringify({ Enabled: cron.value.enabled, Time: cron.value.time }) });
+                    const weekday = Math.max(1, Math.min(7, parseInt(cron.value.weekday, 10) || 1));
+                    const monthday = Math.max(1, Math.min(31, parseInt(cron.value.monthday, 10) || 1));
+                    const payload = {
+                        enabled: !!cron.value.enabled,
+                        time: cron.value.time || '04:00',
+                        schedule_type: cron.value.schedule_type || 'daily',
+                        weekday,
+                        monthday
+                    };
+                    const res = await apiFetch('/api/cron', { method: 'POST', body: JSON.stringify(payload) });
+                    if (!res.ok) {
+                        showToast("自动更新设置保存失败", 'error');
+                        return;
+                    }
+                    const data = await res.json().catch(() => ({}));
+                    cron.value.enabled = !!data.enabled;
+                    cron.value.time = data.time || payload.time;
+                    cron.value.schedule_type = data.schedule_type || payload.schedule_type;
+                    cron.value.weekday = Math.max(1, Math.min(7, parseInt(data.weekday, 10) || weekday));
+                    cron.value.monthday = Math.max(1, Math.min(31, parseInt(data.monthday, 10) || monthday));
                     showToast("自动更新设置已保存");
                 };
 
@@ -1783,7 +1834,13 @@ window.onerror = function(msg, url, line, col, error) { alert("JS Error: " + msg
                     }
 
                     if (token.value && (isInit === true || !initLoaded)) {
-                        apiFetch('/api/cron').then(r=>r.json()).then(d => { if(d) { cron.value.enabled = d.enabled; cron.value.time = d.time || '04:00'; }});
+                        apiFetch('/api/cron').then(r=>r.json()).then(d => { if(d) {
+                            cron.value.enabled = !!d.enabled;
+                            cron.value.time = d.time || '04:00';
+                            cron.value.schedule_type = d.schedule_type || 'daily';
+                            cron.value.weekday = Math.max(1, Math.min(7, parseInt(d.weekday, 10) || 1));
+                            cron.value.monthday = Math.max(1, Math.min(31, parseInt(d.monthday, 10) || 1));
+                        }});
                         apiFetch('/api/dns').then(r=>r.json()).then(d => dns.value = d);
                         initLoaded = true;
                     }
