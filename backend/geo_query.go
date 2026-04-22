@@ -3,11 +3,13 @@ package main
 import (
 	"context"
 	"fmt"
+	"log"
 	"net"
 	"os"
 	"regexp"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -77,17 +79,76 @@ func parseGeoRuleInput(input string) (kind string, tag string, ok bool) {
 	}
 }
 
-func queryGeoIPTagsByIP(filename, input string) []string {
-	ip := net.ParseIP(strings.TrimSpace(input))
-	if ip == nil {
-		return nil
+type geoIPBucketRule struct {
+	network uint32
+	mask    uint32
+	tag     string
+}
+
+type geoIPMatcher struct {
+	version string
+	buckets [256][]geoIPBucketRule
+	tags    map[string]struct{}
+}
+
+var (
+	geoIPMatcherMu         sync.RWMutex
+	geoIPMatcherCache      = map[string]*geoIPMatcher{}
+	geoDataVersionCacheMu  sync.Mutex
+	geoDataVersionCached   string
+	geoDataVersionCachedAt time.Time
+)
+
+func fastGeoDataVersion() string {
+	geoDataVersionCacheMu.Lock()
+	defer geoDataVersionCacheMu.Unlock()
+	if geoDataVersionCached != "" && time.Since(geoDataVersionCachedAt) < 2*time.Second {
+		return geoDataVersionCached
 	}
-	data, err := os.ReadFile(filename)
-	if err != nil {
-		return nil
+	geoDataVersionCached = getGeoDataVersion()
+	geoDataVersionCachedAt = time.Now()
+	return geoDataVersionCached
+}
+
+func ipv4ToUint32(ip net.IP) (uint32, bool) {
+	ip4 := ip.To4()
+	if ip4 == nil {
+		return 0, false
+	}
+	return (uint32(ip4[0]) << 24) | (uint32(ip4[1]) << 16) | (uint32(ip4[2]) << 8) | uint32(ip4[3]), true
+}
+
+func loadGeoIPMatcher(filename string) *geoIPMatcher {
+	ver := fastGeoDataVersion()
+	geoIPMatcherMu.RLock()
+	cached := geoIPMatcherCache[filename]
+	geoIPMatcherMu.RUnlock()
+	if cached != nil && cached.version == ver {
+		return cached
 	}
 
-	matches := make([]string, 0)
+	geoIPMatcherMu.Lock()
+	defer geoIPMatcherMu.Unlock()
+	cached = geoIPMatcherCache[filename]
+	if cached != nil && cached.version == ver {
+		return cached
+	}
+
+	matcher, err := buildGeoIPMatcher(filename, ver)
+	if err != nil {
+		log.Printf("[WARN] build geoip matcher failed: %v", err)
+		return nil
+	}
+	geoIPMatcherCache[filename] = matcher
+	return matcher
+}
+
+func buildGeoIPMatcher(filename string, version string) (*geoIPMatcher, error) {
+	data, err := os.ReadFile(filename)
+	if err != nil {
+		return nil, err
+	}
+	matcher := &geoIPMatcher{version: version, tags: make(map[string]struct{})}
 	idx := 0
 	for idx < len(data) {
 		if data[idx] != 0x0A {
@@ -103,7 +164,6 @@ func queryGeoIPTagsByIP(filename, input string) []string {
 		}
 
 		tag := ""
-		matched := false
 		for idx < endIdx {
 			field := data[idx]
 			idx++
@@ -116,6 +176,7 @@ func queryGeoIPTagsByIP(filename, input string) []string {
 					break
 				}
 				tag = strings.ToLower(string(data[idx : idx+strLen]))
+				matcher.tags[tag] = struct{}{}
 				idx += strLen
 			case 0x12:
 				cidrLen, nIdx := parseVarint(data, idx)
@@ -123,6 +184,10 @@ func queryGeoIPTagsByIP(filename, input string) []string {
 				cidrEnd := idx + cidrLen
 				if cidrEnd > endIdx {
 					cidrEnd = endIdx
+				}
+				if tag == "" {
+					idx = cidrEnd
+					continue
 				}
 				var ipBytes []byte
 				prefix := 0
@@ -137,7 +202,7 @@ func queryGeoIPTagsByIP(filename, input string) []string {
 							idx = cidrEnd
 							break
 						}
-						ipBytes = append([]byte(nil), data[idx:idx+ipLen]...)
+						ipBytes = append(ipBytes[:0], data[idx:idx+ipLen]...)
 						idx += ipLen
 					case 0x10:
 						prefix, idx = parseVarint(data, idx)
@@ -145,19 +210,68 @@ func queryGeoIPTagsByIP(filename, input string) []string {
 						idx = skipProtoField(data, idx, f)
 					}
 				}
-				if len(ipBytes) > 0 {
-					if _, cidr, err := net.ParseCIDR(fmt.Sprintf("%s/%d", net.IP(ipBytes).String(), prefix)); err == nil && cidr.Contains(ip) {
-						matched = true
-					}
+				if len(ipBytes) == 0 {
+					continue
+				}
+				ipValue, ok := ipv4ToUint32(net.IP(ipBytes))
+				if !ok {
+					continue
+				}
+				if prefix < 0 {
+					prefix = 0
+				}
+				if prefix > 32 {
+					prefix = 32
+				}
+				var mask uint32
+				if prefix == 0 {
+					mask = 0
+				} else {
+					mask = ^uint32(0) << uint(32-prefix)
+				}
+				network := ipValue & mask
+				end := network | ^mask
+				startFirst := int((network >> 24) & 0xFF)
+				endFirst := int((end >> 24) & 0xFF)
+				rule := geoIPBucketRule{network: network, mask: mask, tag: tag}
+				for first := startFirst; first <= endFirst; first++ {
+					matcher.buckets[first] = append(matcher.buckets[first], rule)
 				}
 			default:
 				idx = skipProtoField(data, idx, field)
 			}
 		}
-		if matched && tag != "" {
-			matches = append(matches, tag)
-		}
 		idx = endIdx
+	}
+	return matcher, nil
+}
+
+func queryGeoIPTagsByIP(filename, input string) []string {
+	ip := net.ParseIP(strings.TrimSpace(input))
+	ipValue, ok := ipv4ToUint32(ip)
+	if !ok {
+		return nil
+	}
+	matcher := loadGeoIPMatcher(filename)
+	if matcher == nil {
+		return nil
+	}
+	bucket := matcher.buckets[int((ipValue>>24)&0xFF)]
+	if len(bucket) == 0 {
+		return nil
+	}
+	matchedTags := make(map[string]struct{}, 4)
+	for _, rule := range bucket {
+		if (ipValue & rule.mask) == rule.network {
+			matchedTags[rule.tag] = struct{}{}
+		}
+	}
+	if len(matchedTags) == 0 {
+		return nil
+	}
+	matches := make([]string, 0, len(matchedTags))
+	for tag := range matchedTags {
+		matches = append(matches, tag)
 	}
 	sort.Strings(matches)
 	return matches
@@ -350,46 +464,14 @@ func hasGeoSiteTag(filename, targetTag string) bool {
 }
 
 func hasGeoIPTag(filename, targetTag string) bool {
-	targetTag = strings.ToUpper(strings.TrimSpace(strings.TrimPrefix(targetTag, "!")))
+	targetTag = strings.ToLower(strings.TrimSpace(strings.TrimPrefix(targetTag, "!")))
 	if targetTag == "" {
 		return false
 	}
-	data, err := os.ReadFile(filename)
-	if err != nil {
+	matcher := loadGeoIPMatcher(filename)
+	if matcher == nil {
 		return false
 	}
-	idx := 0
-	for idx < len(data) {
-		if data[idx] != 0x0A {
-			idx++
-			continue
-		}
-		idx++
-		msgLen, newIdx := parseVarint(data, idx)
-		idx = newIdx
-		endIdx := idx + msgLen
-		if endIdx > len(data) {
-			endIdx = len(data)
-		}
-		for idx < endIdx {
-			field := data[idx]
-			idx++
-			if field == 0x0A {
-				strLen, nIdx := parseVarint(data, idx)
-				idx = nIdx
-				if idx+strLen > endIdx {
-					idx = endIdx
-					break
-				}
-				if strings.ToUpper(string(data[idx:idx+strLen])) == targetTag {
-					return true
-				}
-				idx += strLen
-				continue
-			}
-			idx = skipProtoField(data, idx, field)
-		}
-		idx = endIdx
-	}
-	return false
+	_, ok := matcher.tags[targetTag]
+	return ok
 }
