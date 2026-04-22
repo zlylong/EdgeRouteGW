@@ -79,7 +79,10 @@ func registerNodeRoutes(api *gin.RouterGroup) {
 
 	api.PUT("/nodes/:id/default", func(c *gin.Context) {
 		db.Exec("INSERT OR REPLACE INTO settings (key, value) VALUES ('default_node_id', ?)", c.Param("id"))
-		scheduleApply()
+		if err := applyNodeChangeDynamically(); err != nil {
+			log.Printf("[WARN] dynamic default node apply failed, fallback to scheduled apply: %v", err)
+			scheduleApplyFallbackIfRuntimeReady(false)
+		}
 		c.JSON(http.StatusOK, gin.H{"success": true})
 	})
 
@@ -99,7 +102,10 @@ func registerNodeRoutes(api *gin.RouterGroup) {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "db error"})
 			return
 		}
-		scheduleApply()
+		if err := applyNodeChangeDynamically(); err != nil {
+			log.Printf("[WARN] dynamic node add apply failed, fallback to scheduled apply: %v", err)
+			scheduleApplyFallbackIfRuntimeReady(false)
+		}
 		c.JSON(http.StatusOK, gin.H{"success": true})
 	})
 
@@ -176,7 +182,10 @@ func registerNodeRoutes(api *gin.RouterGroup) {
 					return
 				}
 
-				scheduleApply()
+				if err := applyNodeChangeDynamically(); err != nil {
+					log.Printf("[WARN] dynamic vmess import apply failed, fallback to scheduled apply: %v", err)
+					scheduleApplyFallbackIfRuntimeReady(false)
+				}
 				c.JSON(http.StatusOK, gin.H{"success": true})
 				return
 			} else if strings.HasPrefix(req.Url, "vless://") {
@@ -243,7 +252,10 @@ func registerNodeRoutes(api *gin.RouterGroup) {
 						c.JSON(http.StatusInternalServerError, gin.H{"error": "db error"})
 						return
 					}
-					scheduleApply()
+					if err := applyNodeChangeDynamically(); err != nil {
+						log.Printf("[WARN] dynamic vless import apply failed, fallback to scheduled apply: %v", err)
+						scheduleApplyFallbackIfRuntimeReady(false)
+					}
 					c.JSON(http.StatusOK, gin.H{"success": true})
 					return
 				}
@@ -300,7 +312,10 @@ func registerNodeRoutes(api *gin.RouterGroup) {
 					c.JSON(http.StatusInternalServerError, gin.H{"error": "db error"})
 					return
 				}
-				scheduleApply()
+				if err := applyNodeChangeDynamically(); err != nil {
+					log.Printf("[WARN] dynamic wireguard import apply failed, fallback to scheduled apply: %v", err)
+					scheduleApplyFallbackIfRuntimeReady(false)
+				}
 				c.JSON(http.StatusOK, gin.H{"success": true})
 				return
 			}
@@ -405,16 +420,23 @@ func registerNodeRoutes(api *gin.RouterGroup) {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "db error"})
 			return
 		}
-		scheduleApply()
+		if err := applyNodeChangeDynamically(); err != nil {
+			log.Printf("[WARN] dynamic node update apply failed, fallback to scheduled apply: %v", err)
+			scheduleApplyFallbackIfRuntimeReady(false)
+		}
 		c.JSON(http.StatusOK, gin.H{"success": true})
 	})
 
 	api.DELETE("/nodes/:id", func(c *gin.Context) {
+		removedTag := nodeIDToTag(c.Param("id"))
 		if _, err := db.Exec("DELETE FROM nodes WHERE id=?", c.Param("id")); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "db error"})
 			return
 		}
-		scheduleApply()
+		if err := applyNodeChangeDynamically(removedTag); err != nil {
+			log.Printf("[WARN] dynamic node delete apply failed, fallback to scheduled apply: %v", err)
+			scheduleApplyFallbackIfRuntimeReady(false)
+		}
 		c.JSON(http.StatusOK, gin.H{"success": true})
 	})
 
@@ -423,7 +445,10 @@ func registerNodeRoutes(api *gin.RouterGroup) {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "db error"})
 			return
 		}
-		scheduleApply()
+		if err := applyNodeChangeDynamically(); err != nil {
+			log.Printf("[WARN] dynamic node toggle apply failed, fallback to scheduled apply: %v", err)
+			scheduleApplyFallbackIfRuntimeReady(false)
+		}
 		c.JSON(http.StatusOK, gin.H{"success": true})
 	})
 }

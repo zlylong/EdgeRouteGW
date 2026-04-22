@@ -158,7 +158,7 @@ func registerRuleRoutes(api *gin.RouterGroup) {
 		needMosdns := r.Type == "domain"
 		if err := applyRuleChangeDynamically(needMosdns); err != nil {
 			log.Printf("[WARN] dynamic rule apply failed, fallback to scheduled apply: %v", err)
-			scheduleApplyWithMosdns(needMosdns)
+			scheduleApplyFallbackIfRuntimeReady(needMosdns)
 		}
 		c.JSON(http.StatusOK, gin.H{"success": true})
 	})
@@ -176,7 +176,7 @@ func registerRuleRoutes(api *gin.RouterGroup) {
 		needMosdns := strings.EqualFold(strings.TrimSpace(ruleType), "domain")
 		if err := applyRuleChangeDynamically(needMosdns); err != nil {
 			log.Printf("[WARN] dynamic rule delete apply failed, fallback to scheduled apply: %v", err)
-			scheduleApplyWithMosdns(needMosdns)
+			scheduleApplyFallbackIfRuntimeReady(needMosdns)
 		}
 		c.JSON(http.StatusOK, gin.H{"success": true})
 	})

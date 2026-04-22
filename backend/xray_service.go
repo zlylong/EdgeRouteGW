@@ -3,7 +3,7 @@ package main
 func buildBaseXrayConfig(mode string) map[string]interface{} {
 	config := map[string]interface{}{
 		"log":    map[string]string{"loglevel": "warning", "access": "/run/proxygw/xray_access.log"},
-		"api":    map[string]interface{}{"services": []string{"StatsService", "RoutingService"}, "tag": "api"},
+		"api":    map[string]interface{}{"services": []string{"StatsService", "RoutingService", "HandlerService"}, "tag": "api"},
 		"stats":  map[string]interface{}{},
 		"policy": map[string]interface{}{"system": map[string]interface{}{"statsInboundDownlink": true, "statsInboundUplink": true}},
 		"inbounds": []map[string]interface{}{

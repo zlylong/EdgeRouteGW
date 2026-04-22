@@ -10,6 +10,9 @@ import (
 )
 
 func applyRuleChangeDynamically(needMosdns bool) error {
+	if _, err := os.Stat(getPath("core", "xray", "xray")); err != nil {
+		return fmt.Errorf("xray runtime not ready: %w", err)
+	}
 	if needMosdns {
 		if err := applyMosdnsConfig(); err != nil {
 			return fmt.Errorf("apply mosdns failed: %w", err)
