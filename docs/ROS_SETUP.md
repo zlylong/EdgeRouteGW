@@ -67,7 +67,44 @@ ProxyGW 的 Mode B (Fake-IP) 和 Mode C (真实 IP 路由) 依赖 OSPF 协议向
 
 ---
 
-## 5. 防火墙伪装 (Masquerade) 检查
+## 5. Mode C 防环路 PBR（强烈建议）
+
+当 Mode C 发布真实 IP 网段时，如果主路由把“ProxyGW 节点目标 IP”回指给 ProxyGW，会形成回弹环路：
+`ProxyGW -> ROS -> ProxyGW`。
+
+建议在 ROS 保留一条源地址旁路：让 **ProxyGW 主机自身** 的出站流量永远查 WAN 主路由表，不受 OSPF 回流影响。
+
+### ROS v7（推荐命令）
+```routeros
+# 1) 新建独立旁路路由表
+/routing table add name=bypass_proxy fib
+
+# 2) 在旁路表里放一条默认路由（按你的真实 WAN 出口替换）
+/ip route add dst-address=0.0.0.0/0 gateway=pppoe-out1 routing-table=bypass_proxy
+
+# 3) 源地址策略：ProxyGW(示例 192.168.20.155) 仅查旁路表
+/routing rule add src-address=192.168.20.155/32 action=lookup-only-in-table table=bypass_proxy
+```
+
+### ROS v6（等价思路）
+```routeros
+/ip route add dst-address=0.0.0.0/0 gateway=pppoe-out1 routing-mark=bypass_proxy
+/ip firewall mangle add chain=prerouting src-address=192.168.20.155 action=mark-routing new-routing-mark=bypass_proxy passthrough=no
+```
+
+> 注意：`192.168.20.155` 请替换成你的 ProxyGW LAN IP；`pppoe-out1` 请替换成你的真实 WAN 出口。
+
+### 验证
+```routeros
+/routing rule print detail where src-address=192.168.20.155/32
+/ip route print detail where routing-table=bypass_proxy
+```
+
+若验证通过，ProxyGW 发往代理节点的流量不会再被 OSPF 回指，能稳定避免回弹环路。
+
+---
+
+## 6. 防火墙伪装 (Masquerade) 检查
 确保你的 ROS 已经正确配置了上网的源地址转换 (NAT)，通常默认已经存在：
 - `IP` -> `Firewall` -> `NAT` -> `+` 号
 - **Chain**: `srcnat`
