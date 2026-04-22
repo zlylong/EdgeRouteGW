@@ -48,7 +48,8 @@ jobs:
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
-          name: ProxyGW ${{ github.ref_name }} Stable
+          name: ${{ contains(github.ref_name, '-rc.') && format('ProxyGW {0} Pre-release', github.ref_name) || format('ProxyGW {0} Stable', github.ref_name) }}
+          prerelease: ${{ contains(github.ref_name, '-rc.') }}
           body_path: /tmp/release_notes.md
           files: |
             backend/proxygw-backend-linux-amd64

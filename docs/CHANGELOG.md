@@ -1,5 +1,12 @@
 # ProxyGW Changelog
 
+## [1.6.2-rc.2] - 2026-04-22
+### 🐞 修复 (Bug Fixes)
+- **发布流程 RC 识别**: `release.yml` 在 tag 含 `-rc.` 时自动标记 `prerelease: true`，并使用 `Pre-release` 标题，避免 RC 误标为 Stable。
+
+### 📦 发布 (Release)
+- **预发布**: 发布 `v1.6.2-rc.2`，用于验证动态下发与分级 apply。
+
 ## [1.6.2-rc.1] - 2026-04-22
 ### ⚡ 性能优化 (Performance)
 - **规则变更动态下发（A/B/C）**: `/api/rules` 增删改优先走 Xray Routing API 动态更新，避免每次规则变更都重启 Xray，显著降低流量抖动。
