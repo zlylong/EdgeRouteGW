@@ -678,7 +678,7 @@ PersistentKeepalive = 25
                             </div>
                             <div class="flex-1">
                                 <label class="block text-sm font-medium text-gray-700 mb-1">匹配值 (如 google.com, cn, 8.8.8.8/32)</label>
-                                <input v-model="newRule.value" list="ruleSuggestions" type="text" class="border border-gray-300 rounded px-3 py-2 w-full" placeholder="输入或选择匹配值...">
+                                <input v-model="newRule.value" @focus="handleRuleValueFocus" @blur="handleRuleValueBlur" list="ruleSuggestions" type="text" class="border border-gray-300 rounded px-3 py-2 w-full" placeholder="输入或选择匹配值...">
                                 <datalist id="ruleSuggestions">
                                     <template v-if="newRule.type === 'geosite'">
                                         <option v-for="tag in categories.geosite" :key="tag" :value="tag">{{ tag }}</option>
@@ -1847,7 +1847,10 @@ window.onerror = function(msg, url, line, col, error) { alert("JS Error: " + msg
                     if(token.value && activeTab.value === 'lan_acls') apiFetch('/api/lan_acls').then(r=>r.json()).then(d => { lanAcls.value = d.acls || []; defaultLanPolicy.value = d.default_policy || 'proxy'; });
                     if(token.value && activeTab.value === 'nodes') apiFetch('/api/nodes').then(r=>r.json()).then(d => nodes.value = d);
                     if(token.value && activeTab.value === 'remote_nodes') loadRemoteNodes();
-                    if(token.value && (activeTab.value === 'rules' || activeTab.value === 'geo_query')) { if(activeTab.value === 'rules') apiFetch('/api/rules').then(r=>r.json()).then(d => rules.value = d); if(categories.value.geosite.length===0) apiFetch('/api/rules/categories').then(r=>r.json()).then(d => categories.value = d); }
+                    if(token.value && (activeTab.value === 'rules' || activeTab.value === 'geo_query')) {
+                        if(activeTab.value === 'rules' && !isRuleValueEditing.value) apiFetch('/api/rules').then(r=>r.json()).then(d => rules.value = d);
+                        if(categories.value.geosite.length===0) apiFetch('/api/rules/categories').then(r=>r.json()).then(d => categories.value = d);
+                    }
                     if(token.value && activeTab.value === 'ospf') apiFetch('/api/ospf').then(r=>r.json()).then(d => applyOspfPayload(d));
                     if(token.value && activeTab.value === 'configs') loadConfigs();
  
@@ -1933,6 +1936,11 @@ Mode C: 纯OSPF (恢复真实IP宣告)`)) {
                 const toggleNode = async (id) => { await apiFetch(`/api/nodes/${id}/toggle`, {method: 'PUT'}); loadData(); };
 
                 const newRule = ref({ type: 'domain', value: '', action: 'proxy', primary: '', standby: '', policy: 'proxy' });
+                const isRuleValueEditing = ref(false);
+                const handleRuleValueFocus = () => { isRuleValueEditing.value = true; };
+                const handleRuleValueBlur = () => {
+                    setTimeout(() => { isRuleValueEditing.value = false; }, 120);
+                };
                 const addRule = async () => {
                     if(!newRule.value.value) return showToast("匹配值不能为空");
                     let finalPolicy = newRule.value.action;
@@ -1982,7 +1990,7 @@ Mode C: 纯OSPF (恢复真实IP宣告)`)) {
                     showAclModal, aclForm, openAddAcl, saveAcl, deleteAcl, updateLanDefault,
                     currentConfigTab,
                     loadData,
-                    isSubmitting, isLoading, vlessParams, cron, saveCron, showPwdModal, pwdForm, logout, changePwd, toastMsg, toastType, confirmData, doConfirm, isUpdating, token, password, login, categories, geoQuery, showGeoSuggestions, geoSuggestionIndex, filteredGeoSuggestions, handleGeoInput, handleGeoInputBlur, moveGeoSuggestion, confirmGeoSuggestionOrQuery, applyGeoSuggestion, runGeoQuery, xrayConfigStr, mosdnsConfigStr, nftablesConfigStr, frrConfigStr, loadConfigs, newRule, addRule, activeTab, tabs, currentTabLabel, nodes, rules, dns, dnsLogs, ospf, ospfController, ospfControllerDirty, saveOspfController, sysStatus, applyConfig, toggleMode, changeMode, importNodeUrl, pingNodes, openAddNode, editNode, saveNode, showNodeModal, editingNode, deleteNode, toggleNode, deleteRule, saveDns, updateComp, showMosdnsRollbackModal, mosdnsVersions, selectedMosdnsRollbackVersion, openMosdnsRollbackModal, confirmMosdnsRollback, showRollbackModal, xrayVersions, selectedRollbackVersion, openRollbackModal, confirmRollback, remoteNodes, showRemoteNodeModal, showRemoteDetailsModal, selectedRemoteNode, remoteNodeForm, loadRemoteNodes, openAddRemoteNode, submitRemoteNode, viewRemoteNode, checkRemoteNode, confirmDeleteRemoteNode, copyText, importToLocal, isDeploying, showBatchModal, batchText, submitBatchNodes, showHistoryModal, nodeHistory, setDefaultNode, regenerateNode, loadNodeHistory, rollbackNode }
+                    isSubmitting, isLoading, vlessParams, cron, saveCron, showPwdModal, pwdForm, logout, changePwd, toastMsg, toastType, confirmData, doConfirm, isUpdating, token, password, login, categories, geoQuery, showGeoSuggestions, geoSuggestionIndex, filteredGeoSuggestions, handleGeoInput, handleGeoInputBlur, moveGeoSuggestion, confirmGeoSuggestionOrQuery, applyGeoSuggestion, runGeoQuery, xrayConfigStr, mosdnsConfigStr, nftablesConfigStr, frrConfigStr, loadConfigs, newRule, handleRuleValueFocus, handleRuleValueBlur, addRule, activeTab, tabs, currentTabLabel, nodes, rules, dns, dnsLogs, ospf, ospfController, ospfControllerDirty, saveOspfController, sysStatus, applyConfig, toggleMode, changeMode, importNodeUrl, pingNodes, openAddNode, editNode, saveNode, showNodeModal, editingNode, deleteNode, toggleNode, deleteRule, saveDns, updateComp, showMosdnsRollbackModal, mosdnsVersions, selectedMosdnsRollbackVersion, openMosdnsRollbackModal, confirmMosdnsRollback, showRollbackModal, xrayVersions, selectedRollbackVersion, openRollbackModal, confirmRollback, remoteNodes, showRemoteNodeModal, showRemoteDetailsModal, selectedRemoteNode, remoteNodeForm, loadRemoteNodes, openAddRemoteNode, submitRemoteNode, viewRemoteNode, checkRemoteNode, confirmDeleteRemoteNode, copyText, importToLocal, isDeploying, showBatchModal, batchText, submitBatchNodes, showHistoryModal, nodeHistory, setDefaultNode, regenerateNode, loadNodeHistory, rollbackNode }
             }
         }).mount('#app');
     </script>
