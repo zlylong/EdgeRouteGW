@@ -12,8 +12,12 @@ apt-get install -y jq >/dev/null 2>&1 || true
 
 echo "=== ProxyGW Update ==="
 echo "[1/4] Pulling latest changes..."
+# Stop backend first to avoid runtime rewriting tracked files during git reset
+systemctl stop proxygw >/dev/null 2>&1 || true
 git fetch origin --tags
+# Hard sync + clean to tolerate local generated/dirty files (geodata, binaries, etc.)
 git reset --hard origin/main
+git clean -fd
 
 echo "[2/4] Downloading backend from GitHub Releases..."
 ARCH=$(uname -m)
