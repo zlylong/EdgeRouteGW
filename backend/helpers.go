@@ -59,15 +59,8 @@ func parsePortValue(v interface{}) int {
 }
 
 func isValidIPOrCIDR(v string) bool {
-	s := strings.TrimSpace(v)
-	if s == "" {
-		return false
-	}
-	if strings.Contains(s, "/") {
-		_, _, err := net.ParseCIDR(s)
-		return err == nil
-	}
-	return net.ParseIP(s) != nil
+	_, ok := normalizeRouteKey(v)
+	return ok
 }
 
 func sanitizeUpstreamItem(addr string) (string, bool) {

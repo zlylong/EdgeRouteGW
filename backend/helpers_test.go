@@ -107,6 +107,27 @@ func TestParsePortValue(t *testing.T) {
 	}
 }
 
+func TestIsValidIPOrCIDR(t *testing.T) {
+	cases := []struct {
+		in   string
+		want bool
+	}{
+		{"8.8.8.8", true},
+		{"8.8.8.0/24", true},
+		{"0.0.0.0", false},
+		{"0.0.0.0/0", false},
+		{"127.0.0.1", false},
+		{"169.254.10.1", false},
+		{"224.0.0.1", false},
+		{"not-an-ip", false},
+	}
+	for _, tc := range cases {
+		if got := isValidIPOrCIDR(tc.in); got != tc.want {
+			t.Fatalf("isValidIPOrCIDR(%q)=%v, want %v", tc.in, got, tc.want)
+		}
+	}
+}
+
 func TestAuthMiddlewareUnauthorized(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	sessions.Store("abc", SessionInfo{ExpiresAt: time.Now().Add(time.Hour)})

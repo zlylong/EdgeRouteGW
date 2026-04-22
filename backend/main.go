@@ -125,6 +125,32 @@ var runVtyshConfigBatch = func(config string) (string, error) {
 	return string(out), err
 }
 
+func isDirtyRouteIPv4(ip4 net.IP, prefix int) bool {
+	if ip4 == nil || ip4.To4() == nil {
+		return true
+	}
+	v4 := ip4.To4()
+	if prefix < 0 || prefix > 32 {
+		return true
+	}
+	if prefix == 0 {
+		return true // block default route injection into OSPF
+	}
+	if v4.Equal(net.IPv4zero) {
+		return true // 0.0.0.0 or 0.0.0.0/32
+	}
+	if v4[0] == 127 {
+		return true // loopback
+	}
+	if v4[0] == 169 && v4[1] == 254 {
+		return true // link-local
+	}
+	if v4[0] >= 224 {
+		return true // multicast/reserved/broadcast
+	}
+	return false
+}
+
 func normalizeRouteKey(raw string) (string, bool) {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
@@ -135,7 +161,11 @@ func normalizeRouteKey(raw string) (string, bool) {
 		if ip == nil || ip.To4() == nil {
 			return "", false
 		}
-		return ip.To4().String() + "/32", true
+		ip4 := ip.To4()
+		if isDirtyRouteIPv4(ip4, 32) {
+			return "", false
+		}
+		return ip4.String() + "/32", true
 	}
 	_, ipNet, err := net.ParseCIDR(raw)
 	if err != nil || ipNet == nil || ipNet.IP == nil {
@@ -147,6 +177,9 @@ func normalizeRouteKey(raw string) (string, bool) {
 	}
 	ones, bits := ipNet.Mask.Size()
 	if bits != 32 || ones < 0 || ones > 32 {
+		return "", false
+	}
+	if isDirtyRouteIPv4(ip4, ones) {
 		return "", false
 	}
 	return (&net.IPNet{IP: ip4, Mask: net.CIDRMask(ones, 32)}).String(), true
@@ -392,9 +425,51 @@ func initDB() {
 		db.Exec("INSERT INTO rules (type, value, policy) VALUES ('geolocation', '!cn', 'proxy')")
 	}
 
+	purgeDirtyRoutesTable()
 	db.Exec("UPDATE routes_table SET status='candidate' WHERE status='published'")
 
 	ensurePasswordInitialized()
+}
+
+func purgeDirtyRoutesTable() {
+	rows, err := db.Query("SELECT ip FROM routes_table")
+	if err != nil {
+		log.Printf("[WARN] purge dirty routes query failed: %v", err)
+		return
+	}
+	defer rows.Close()
+
+	var dirty []string
+	for rows.Next() {
+		var ip string
+		if err := rows.Scan(&ip); err != nil {
+			continue
+		}
+		if _, ok := normalizeRouteKey(ip); !ok {
+			dirty = append(dirty, ip)
+		}
+	}
+	if len(dirty) == 0 {
+		return
+	}
+
+	tx, err := db.Begin()
+	if err != nil {
+		log.Printf("[WARN] purge dirty routes begin tx failed: %v", err)
+		return
+	}
+	for _, ip := range dirty {
+		if _, err := tx.Exec("DELETE FROM routes_table WHERE ip=?", ip); err != nil {
+			_ = tx.Rollback()
+			log.Printf("[WARN] purge dirty route delete failed for %q: %v", ip, err)
+			return
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		log.Printf("[WARN] purge dirty routes commit failed: %v", err)
+		return
+	}
+	log.Printf("[OSPF] purged %d dirty routes from routes_table", len(dirty))
 }
 
 func ensurePasswordInitialized() {
