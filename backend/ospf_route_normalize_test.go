@@ -49,10 +49,10 @@ func TestSyncStaticRoutesToOSPF_DedupSameIPCanonicalForm(t *testing.T) {
 
 	oldResolve := resolveDomainIPv4WithTTLViaServers
 	resolveDomainIPv4WithTTLViaServers = func(domain string, dnsServers []string) ([]string, int, error) {
-		if domain != "google.com" {
-			t.Fatalf("unexpected domain: %s", domain)
+		if domain == "google.com" {
+			return []string{"8.8.8.8/32", "8.8.8.8"}, 300, nil
 		}
-		return []string{"8.8.8.8/32", "8.8.8.8"}, 300, nil
+		return []string{"203.0.113.10"}, 300, nil
 	}
 	defer func() { resolveDomainIPv4WithTTLViaServers = oldResolve }()
 
@@ -72,5 +72,45 @@ func TestSyncStaticRoutesToOSPF_DedupSameIPCanonicalForm(t *testing.T) {
 	}
 	if ip != "8.8.8.8/32" {
 		t.Fatalf("expected canonical ip 8.8.8.8/32, got %s", ip)
+	}
+}
+
+func TestSyncStaticRoutesToOSPF_ExcludesProtectedNodeEndpoints(t *testing.T) {
+	setupFeatureSuiteRouter(t)
+	writeTestGeoData(t)
+
+	if _, err := db.Exec("DELETE FROM rules"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec("DELETE FROM routes_table"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec("INSERT INTO rules(type, value, policy) VALUES ('domain', 'example.com', 'proxy')"); err != nil {
+		t.Fatal(err)
+	}
+
+	oldResolve := resolveDomainIPv4WithTTLViaServers
+	resolveDomainIPv4WithTTLViaServers = func(domain string, dnsServers []string) ([]string, int, error) {
+		if domain == "example.com" {
+			return []string{"2.2.2.2", "8.8.8.8"}, 300, nil // 2.2.2.2 is seeded active node endpoint
+		}
+		return []string{"203.0.113.11"}, 300, nil
+	}
+	defer func() { resolveDomainIPv4WithTTLViaServers = oldResolve }()
+
+	syncStaticRoutesToOSPF("C")
+
+	var protectedCnt, normalCnt int
+	if err := db.QueryRow("SELECT COUNT(*) FROM routes_table WHERE source='static' AND ip='2.2.2.2/32'").Scan(&protectedCnt); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.QueryRow("SELECT COUNT(*) FROM routes_table WHERE source='static' AND ip='8.8.8.8/32'").Scan(&normalCnt); err != nil {
+		t.Fatal(err)
+	}
+	if protectedCnt != 0 {
+		t.Fatalf("protected node endpoint must be excluded, got count=%d", protectedCnt)
+	}
+	if normalCnt != 1 {
+		t.Fatalf("non-protected route should remain, got count=%d", normalCnt)
 	}
 }

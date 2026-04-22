@@ -52,12 +52,34 @@ ProxyGW 是一个高度整合的网络系统。开发者坚信 **原生至上 (N
 - `169.254.0.0/16`（Link-local）
 - `224.0.0.0/4` 及以上（Multicast / Reserved / Broadcast）
 
-### 3) 两层防护
+### 3) 受保护节点地址排除（防 OSPF 回弹环路）
+
+系统会自动收集并保护以下地址，不允许进入 OSPF 静态发布集合：
+- `nodes.address`（启用节点）
+- `remote_nodes.ssh_host`
+- `remote_node_wg.endpoint`
+- `remote_node_vless.dest`
+
+若以上字段是域名，后端会解析为 IPv4 后加入保护集。命中保护集的候选路由会被跳过，并记录日志：
+`[OSPF] skipped <N> protected endpoint routes to avoid loop`。
+
+### 4) 模式切换 Preflight 拦截
+
+切换到 `Mode B/C` 前，后端会做预检查：
+
+`candidate_ospf_routes ∩ protected_node_ips`
+
+若存在交集，模式切换会被直接拒绝，返回明确错误：
+`mode switch blocked: protected endpoint route conflict ...`。
+
+这可以在配置生效前就阻断“网关流量被主路由回踢”的闭环。
+
+### 5) 两层防护
 
 - **写入前防护**：`/api/rules` 中 `type=ip` 的值改为复用 `normalizeRouteKey()` 校验，脏路由在 API 层直接拒绝。
-- **下发前防护**：`syncStaticRoutesToOSPF()` 调用 `addRoute()` 时统一走 `normalizeRouteKey()`，防止历史数据或其他来源绕过 API 进入下发链路。
+- **下发前防护**：`syncStaticRoutesToOSPF()` 在归一化后再做“受保护地址排除”，防止历史数据或其他来源绕过 API 进入下发链路。
 
-### 4) 启动自愈清理
+### 6) 启动自愈清理
 
 启动时执行 `purgeDirtyRoutesTable()`：
 - 扫描 `routes_table.ip`

@@ -281,6 +281,57 @@ func TestModeSwitchUpsertsModeWhenMissing(t *testing.T) {
 	}
 }
 
+func TestModeSwitchPreflightBlocksProtectedEndpointConflicts(t *testing.T) {
+	setupFeatureSuiteRouter(t)
+
+	oldResolve := resolveDomainIPv4WithTTLViaServers
+	defer func() { resolveDomainIPv4WithTTLViaServers = oldResolve }()
+	resolveDomainIPv4WithTTLViaServers = func(domain string, dnsServers []string) ([]string, int, error) {
+		if domain == "example.com" {
+			return []string{"2.2.2.2"}, 300, nil // seeded active node endpoint
+		}
+		return []string{"8.8.8.8"}, 300, nil
+	}
+
+	called := false
+	oldSetServices := modeSwitchSetServices
+	oldSyncFRR := modeSwitchSyncFRR
+	oldApplyNftables := modeSwitchApplyNftables
+	oldApplyMosdns := modeSwitchApplyMosdns
+	oldApplyXray := modeSwitchApplyXray
+	oldFinalizeRoutes := modeSwitchFinalizeRoutes
+	defer func() {
+		modeSwitchSetServices = oldSetServices
+		modeSwitchSyncFRR = oldSyncFRR
+		modeSwitchApplyNftables = oldApplyNftables
+		modeSwitchApplyMosdns = oldApplyMosdns
+		modeSwitchApplyXray = oldApplyXray
+		modeSwitchFinalizeRoutes = oldFinalizeRoutes
+	}()
+	modeSwitchSetServices = func(mode string) error { called = true; return nil }
+	modeSwitchSyncFRR = func() error { called = true; return nil }
+	modeSwitchApplyNftables = func() error { called = true; return nil }
+	modeSwitchApplyMosdns = func() error { called = true; return nil }
+	modeSwitchApplyXray = func() error { called = true; return nil }
+	modeSwitchFinalizeRoutes = func(mode string) error { called = true; return nil }
+
+	err := applyModeChange("C")
+	if err == nil || !strings.Contains(err.Error(), "protected endpoint route conflict") {
+		t.Fatalf("expected protected endpoint conflict, got err=%v", err)
+	}
+	if called {
+		t.Fatal("mode switch steps should not run when preflight is blocked")
+	}
+
+	var mode string
+	if err := db.QueryRow("SELECT value FROM settings WHERE key='mode'").Scan(&mode); err != nil {
+		t.Fatal(err)
+	}
+	if mode != "B" {
+		t.Fatalf("mode should stay B when preflight fails, got %s", mode)
+	}
+}
+
 func TestModeSwitchSetServices_ToleratesFailedFRRState(t *testing.T) {
 	oldSetServices := modeSwitchSetServices
 	defer func() { modeSwitchSetServices = oldSetServices }()

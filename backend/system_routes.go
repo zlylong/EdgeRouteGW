@@ -80,6 +80,10 @@ func rollbackModeChange(mode string) {
 }
 
 func applyModeChange(newMode string) error {
+	if conflicts := detectModeSwitchProtectedConflicts(newMode); len(conflicts) > 0 {
+		return fmt.Errorf("mode switch blocked: protected endpoint route conflict (%d): %s", len(conflicts), sampleRouteKeys(conflicts, 10))
+	}
+
 	oldMode := currentMode()
 	if err := setModeValue(newMode); err != nil {
 		return err

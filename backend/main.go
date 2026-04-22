@@ -9,6 +9,7 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"sort"
@@ -42,6 +43,11 @@ const (
 	defaultOspfPushBatchLimit      = 500
 	defaultOspfPushIntervalSeconds = 10
 )
+
+type routeState struct {
+	ttl    int
+	domain string
+}
 
 func addOspfLog(msg string) {
 	ospfLogsMu.Lock()
@@ -183,6 +189,269 @@ func normalizeRouteKey(raw string) (string, bool) {
 		return "", false
 	}
 	return (&net.IPNet{IP: ip4, Mask: net.CIDRMask(ones, 32)}).String(), true
+}
+
+func extractHostForProtection(raw string) string {
+	s := strings.TrimSpace(raw)
+	if s == "" {
+		return ""
+	}
+	if strings.Contains(s, "://") {
+		u, err := url.Parse(s)
+		if err == nil {
+			if host := strings.TrimSpace(u.Hostname()); host != "" {
+				return strings.TrimSuffix(host, ".")
+			}
+		}
+	}
+	if at := strings.LastIndex(s, "@"); at >= 0 && at+1 < len(s) {
+		s = s[at+1:]
+	}
+	s = strings.TrimPrefix(s, "//")
+	if host, _, err := net.SplitHostPort(s); err == nil {
+		host = strings.Trim(host, "[]")
+		return strings.TrimSuffix(strings.TrimSpace(host), ".")
+	}
+	if i := strings.LastIndex(s, ":"); i > 0 && !strings.Contains(s[i+1:], ":") {
+		if _, err := strconv.Atoi(s[i+1:]); err == nil {
+			host := strings.Trim(s[:i], "[]")
+			return strings.TrimSuffix(strings.TrimSpace(host), ".")
+		}
+	}
+	s = strings.Trim(s, "[]")
+	return strings.TrimSuffix(strings.TrimSpace(s), ".")
+}
+
+func collectProtectedRouteKeys() map[string]struct{} {
+	protected := make(map[string]struct{})
+	hosts := make(map[string]struct{})
+
+	addHost := func(raw string) {
+		host := strings.ToLower(extractHostForProtection(raw))
+		if host == "" || host == "localhost" {
+			return
+		}
+		hosts[host] = struct{}{}
+	}
+
+	collectColumn := func(query string) {
+		rows, err := db.Query(query)
+		if err != nil {
+			log.Printf("[OSPF] collect protected hosts query failed: %v", err)
+			return
+		}
+		defer rows.Close()
+		for rows.Next() {
+			var value string
+			if err := rows.Scan(&value); err != nil {
+				continue
+			}
+			addHost(value)
+		}
+	}
+
+	collectColumn("SELECT address FROM nodes WHERE active=1")
+	collectColumn("SELECT ssh_host FROM remote_nodes")
+	collectColumn("SELECT endpoint FROM remote_node_wg")
+	collectColumn("SELECT dest FROM remote_node_vless")
+
+	for host := range hosts {
+		if ip := net.ParseIP(host); ip != nil && ip.To4() != nil {
+			if routeKey, ok := normalizeRouteKey(ip.String()); ok {
+				protected[routeKey] = struct{}{}
+			}
+			continue
+		}
+		ips, _, _, err := getOrRefreshDomainCacheWithResolver(host, resolverGroupRemote)
+		if err != nil {
+			log.Printf("[OSPF] resolve protected host %q failed: %v", host, err)
+			continue
+		}
+		for _, ip := range ips {
+			if routeKey, ok := normalizeRouteKey(ip); ok {
+				protected[routeKey] = struct{}{}
+			}
+		}
+	}
+
+	return protected
+}
+
+func collectStaticRoutesForMode(mode string, protected map[string]struct{}) (map[string]routeState, []string) {
+	ensureRouteCacheTables()
+	staticRoutes := make(map[string]routeState)
+	conflictSet := make(map[string]struct{})
+	geoipPath := getPath("core", "mosdns", "geoip.dat")
+
+	addRoute := func(ip string, ttl int, domain string) {
+		routeKey, ok := normalizeRouteKey(ip)
+		if !ok {
+			return
+		}
+		if _, blocked := protected[routeKey]; blocked {
+			conflictSet[routeKey] = struct{}{}
+			return
+		}
+		if ttl <= 0 {
+			ttl = 999999999
+		}
+		cur, ok := staticRoutes[routeKey]
+		if !ok || ttl > cur.ttl {
+			staticRoutes[routeKey] = routeState{ttl: ttl, domain: domain}
+		}
+	}
+
+	staticRows, err := db.Query("SELECT value FROM rules WHERE type='ip' AND policy LIKE 'proxy%'")
+	if err == nil {
+		for staticRows.Next() {
+			var ip string
+			if err := staticRows.Scan(&ip); err == nil {
+				addRoute(ip, 999999999, "static_rule")
+			}
+		}
+		staticRows.Close()
+	}
+
+	geoipRows, err := db.Query("SELECT value FROM rules WHERE type='geoip' AND policy LIKE 'proxy%'")
+	if err == nil {
+		for geoipRows.Next() {
+			var tag string
+			if err := geoipRows.Scan(&tag); err == nil {
+				var ips []string
+				if strings.HasPrefix(tag, "!") {
+					excludeTag := strings.TrimSpace(strings.TrimPrefix(tag, "!"))
+					ips = extractGeoIPsExclude(geoipPath, excludeTag, "private")
+					log.Printf("[OSPF] expanded inverted geoip tag %q to %d CIDRs (excluding %q and private)", tag, len(ips), excludeTag)
+				} else {
+					ips = extractGeoIPs(geoipPath, tag)
+				}
+				for _, ip := range ips {
+					addRoute(ip, 999999999, "static_rule")
+				}
+			}
+		}
+		geoipRows.Close()
+	}
+
+	if mode == "B" || mode == "C" {
+		geositeRows, err := db.Query("SELECT value, policy FROM rules WHERE type='geosite' AND (policy LIKE 'proxy%' OR policy LIKE 'direct%')")
+		if err != nil {
+			log.Printf("[OSPF] geosite rule query failed: %v", err)
+		} else {
+			type geositeRule struct {
+				tag    string
+				policy string
+			}
+			var geositeRules []geositeRule
+			for geositeRows.Next() {
+				var rule geositeRule
+				if err := geositeRows.Scan(&rule.tag, &rule.policy); err != nil {
+					log.Printf("[OSPF] geosite row scan failed: %v", err)
+					continue
+				}
+				geositeRules = append(geositeRules, rule)
+			}
+			if err := geositeRows.Err(); err != nil {
+				log.Printf("[OSPF] geosite row iteration failed: %v", err)
+			}
+			geositeRows.Close()
+			for _, rule := range geositeRules {
+				tag := strings.ToLower(strings.TrimSpace(rule.tag))
+				if tag == "" {
+					continue
+				}
+				resolverGroup := resolverGroupRemote
+				policy := strings.ToLower(strings.TrimSpace(rule.policy))
+				if strings.HasPrefix(policy, "direct") {
+					resolverGroup = resolverGroupLocal
+				}
+				if hasGeoIPTag(geoipPath, tag) {
+					ips := extractGeoIPs(geoipPath, tag)
+					for _, ip := range ips {
+						addRoute(ip, 999999999, "static_rule")
+					}
+					log.Printf("[OSPF] geosite %q (%s) matched geoip tag and expanded to %d CIDRs", tag, policy, len(ips))
+					continue
+				}
+
+				domains, skipped, err := getOrRefreshGeositeDomainCache(tag)
+				if err != nil {
+					log.Printf("[OSPF] geosite %q (%s) cache failed: %v", tag, policy, err)
+					continue
+				}
+				resolvedIPs := 0
+				for _, domain := range domains {
+					ips, ttl, _, err := getOrRefreshDomainCacheWithResolver(domain, resolverGroup)
+					if err != nil {
+						log.Printf("[OSPF] geosite %q (%s) resolve %q failed: %v", tag, policy, domain, err)
+						continue
+					}
+					for _, ip := range ips {
+						addRoute(ip, ttl, domain)
+						resolvedIPs++
+					}
+				}
+				log.Printf("[OSPF] geosite %q (%s) resolved %d domains into %d IPv4 routes (skipped_non_domain=%d, dns_group=%s)", tag, policy, len(domains), resolvedIPs, skipped, resolverGroup)
+			}
+		}
+
+		domainRows, err := db.Query("SELECT value, policy FROM rules WHERE type='domain' AND (policy LIKE 'proxy%' OR policy LIKE 'direct%')")
+		if err == nil {
+			type domainRule struct {
+				domain string
+				policy string
+			}
+			var domains []domainRule
+			for domainRows.Next() {
+				var rule domainRule
+				if err := domainRows.Scan(&rule.domain, &rule.policy); err == nil {
+					domains = append(domains, rule)
+				}
+			}
+			domainRows.Close()
+			for _, rule := range domains {
+				resolverGroup := resolverGroupRemote
+				policy := strings.ToLower(strings.TrimSpace(rule.policy))
+				if strings.HasPrefix(policy, "direct") {
+					resolverGroup = resolverGroupLocal
+				}
+				ips, ttl, _, err := getOrRefreshDomainCacheWithResolver(rule.domain, resolverGroup)
+				if err != nil {
+					log.Printf("[OSPF] domain %q (%s) resolve failed: %v", rule.domain, policy, err)
+					continue
+				}
+				for _, ip := range ips {
+					addRoute(ip, ttl, rule.domain)
+				}
+			}
+		}
+	}
+
+	conflicts := make([]string, 0, len(conflictSet))
+	for routeKey := range conflictSet {
+		conflicts = append(conflicts, routeKey)
+	}
+	sort.Strings(conflicts)
+	return staticRoutes, conflicts
+}
+
+func sampleRouteKeys(routeKeys []string, limit int) string {
+	if len(routeKeys) == 0 {
+		return ""
+	}
+	if limit <= 0 || len(routeKeys) <= limit {
+		return strings.Join(routeKeys, ",")
+	}
+	return strings.Join(routeKeys[:limit], ",")
+}
+
+func detectModeSwitchProtectedConflicts(mode string) []string {
+	if mode != "B" && mode != "C" {
+		return nil
+	}
+	protected := collectProtectedRouteKeys()
+	_, conflicts := collectStaticRoutesForMode(mode, protected)
+	return conflicts
 }
 
 func formatRouteCIDR(ip string) string {
@@ -1175,153 +1444,10 @@ func scheduleStaticRouteSync(mode string) {
 }
 
 func syncStaticRoutesToOSPF(mode string) {
-	type routeState struct {
-		ttl    int
-		domain string
-	}
-
-	ensureRouteCacheTables()
-	staticRoutes := make(map[string]routeState)
-	geoipPath := getPath("core", "mosdns", "geoip.dat")
-
-	addRoute := func(ip string, ttl int, domain string) {
-		routeKey, ok := normalizeRouteKey(ip)
-		if !ok {
-			return
-		}
-		if ttl <= 0 {
-			ttl = 999999999
-		}
-		cur, ok := staticRoutes[routeKey]
-		if !ok || ttl > cur.ttl {
-			staticRoutes[routeKey] = routeState{ttl: ttl, domain: domain}
-		}
-	}
-
-	staticRows, err := db.Query("SELECT value FROM rules WHERE type='ip' AND policy LIKE 'proxy%'")
-	if err == nil {
-		for staticRows.Next() {
-			var ip string
-			if err := staticRows.Scan(&ip); err == nil {
-				addRoute(ip, 999999999, "static_rule")
-			}
-		}
-		staticRows.Close()
-	}
-
-	geoipRows, err := db.Query("SELECT value FROM rules WHERE type='geoip' AND policy LIKE 'proxy%'")
-	if err == nil {
-		for geoipRows.Next() {
-			var tag string
-			if err := geoipRows.Scan(&tag); err == nil {
-				var ips []string
-				if strings.HasPrefix(tag, "!") {
-					excludeTag := strings.TrimSpace(strings.TrimPrefix(tag, "!"))
-					ips = extractGeoIPsExclude(geoipPath, excludeTag, "private")
-					log.Printf("[OSPF] expanded inverted geoip tag %q to %d CIDRs (excluding %q and private)", tag, len(ips), excludeTag)
-				} else {
-					ips = extractGeoIPs(geoipPath, tag)
-				}
-				for _, ip := range ips {
-					addRoute(ip, 999999999, "static_rule")
-				}
-			}
-		}
-		geoipRows.Close()
-	}
-
-	if mode == "B" || mode == "C" {
-		geositeRows, err := db.Query("SELECT value, policy FROM rules WHERE type='geosite' AND (policy LIKE 'proxy%' OR policy LIKE 'direct%')")
-		if err != nil {
-			log.Printf("[OSPF] geosite rule query failed: %v", err)
-		} else {
-			type geositeRule struct {
-				tag    string
-				policy string
-			}
-			var geositeRules []geositeRule
-			for geositeRows.Next() {
-				var rule geositeRule
-				if err := geositeRows.Scan(&rule.tag, &rule.policy); err != nil {
-					log.Printf("[OSPF] geosite row scan failed: %v", err)
-					continue
-				}
-				geositeRules = append(geositeRules, rule)
-			}
-			if err := geositeRows.Err(); err != nil {
-				log.Printf("[OSPF] geosite row iteration failed: %v", err)
-			}
-			geositeRows.Close()
-			for _, rule := range geositeRules {
-				tag := strings.ToLower(strings.TrimSpace(rule.tag))
-				if tag == "" {
-					continue
-				}
-				resolverGroup := resolverGroupRemote
-				policy := strings.ToLower(strings.TrimSpace(rule.policy))
-				if strings.HasPrefix(policy, "direct") {
-					resolverGroup = resolverGroupLocal
-				}
-				if hasGeoIPTag(geoipPath, tag) {
-					ips := extractGeoIPs(geoipPath, tag)
-					for _, ip := range ips {
-						addRoute(ip, 999999999, "static_rule")
-					}
-					log.Printf("[OSPF] geosite %q (%s) matched geoip tag and expanded to %d CIDRs", tag, policy, len(ips))
-					continue
-				}
-
-				domains, skipped, err := getOrRefreshGeositeDomainCache(tag)
-				if err != nil {
-					log.Printf("[OSPF] geosite %q (%s) cache failed: %v", tag, policy, err)
-					continue
-				}
-				resolvedIPs := 0
-				for _, domain := range domains {
-					ips, ttl, _, err := getOrRefreshDomainCacheWithResolver(domain, resolverGroup)
-					if err != nil {
-						log.Printf("[OSPF] geosite %q (%s) resolve %q failed: %v", tag, policy, domain, err)
-						continue
-					}
-					for _, ip := range ips {
-						addRoute(ip, ttl, domain)
-						resolvedIPs++
-					}
-				}
-				log.Printf("[OSPF] geosite %q (%s) resolved %d domains into %d IPv4 routes (skipped_non_domain=%d, dns_group=%s)", tag, policy, len(domains), resolvedIPs, skipped, resolverGroup)
-			}
-		}
-
-		domainRows, err := db.Query("SELECT value, policy FROM rules WHERE type='domain' AND (policy LIKE 'proxy%' OR policy LIKE 'direct%')")
-		if err == nil {
-			type domainRule struct {
-				domain string
-				policy string
-			}
-			var domains []domainRule
-			for domainRows.Next() {
-				var rule domainRule
-				if err := domainRows.Scan(&rule.domain, &rule.policy); err == nil {
-					domains = append(domains, rule)
-				}
-			}
-			domainRows.Close()
-			for _, rule := range domains {
-				resolverGroup := resolverGroupRemote
-				policy := strings.ToLower(strings.TrimSpace(rule.policy))
-				if strings.HasPrefix(policy, "direct") {
-					resolverGroup = resolverGroupLocal
-				}
-				ips, ttl, _, err := getOrRefreshDomainCacheWithResolver(rule.domain, resolverGroup)
-				if err != nil {
-					log.Printf("[OSPF] domain %q (%s) resolve failed: %v", rule.domain, policy, err)
-					continue
-				}
-				for _, ip := range ips {
-					addRoute(ip, ttl, rule.domain)
-				}
-			}
-		}
+	protected := collectProtectedRouteKeys()
+	staticRoutes, conflicts := collectStaticRoutesForMode(mode, protected)
+	if len(conflicts) > 0 {
+		log.Printf("[OSPF] skipped %d protected endpoint routes to avoid loop, samples=%s", len(conflicts), sampleRouteKeys(conflicts, 10))
 	}
 
 	var toDelete []string

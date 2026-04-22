@@ -129,3 +129,24 @@ systemctl restart proxygw
 ```
 
 若重启后仍持续出现脏路由，优先检查是否有外部脚本直接写库绕过 API，或存在旧版二进制未替换成功。
+
+### 6. 开发机出现大量 `via 192.168.20.1 proto static metric 20` 是否环路
+
+这类路由本身不一定是 bug。危险在于：
+- 开发机（ProxyGW）访问某目标 `X` 时，下一跳是主路由 `192.168.20.1`
+- 主路由又因为 OSPF 把同一目标 `X` 回指到 ProxyGW
+
+这会形成回弹闭环：`ProxyGW -> 主路由 -> ProxyGW`。
+
+#### 系统级防护（已内置）
+- `syncStaticRoutesToOSPF()` 自动排除受保护节点地址（`nodes.address` / `remote_nodes.ssh_host` / `remote_node_wg.endpoint` / `remote_node_vless.dest` 及其解析 IP）
+- 切换 `Mode B/C` 前做 preflight，若检测到 `candidate_ospf_routes ∩ protected_node_ips` 非空，直接拒绝切换
+
+#### 仍建议保留的网络侧兜底
+在主路由保留源地址旁路（PBR）：
+```routeros
+/routing table add name=bypass_proxy fib
+/ip route add dst-address=0.0.0.0/0 gateway=pppoe-out1 routing-table=bypass_proxy
+/routing rule add src-address=192.168.20.155/32 action=lookup-only-in-table table=bypass_proxy
+```
+这条规则可确保 ProxyGW 自身出站永远走 WAN 主路，不受 OSPF 回流影响。
