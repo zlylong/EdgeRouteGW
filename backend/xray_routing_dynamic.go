@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"strconv"
+	"strings"
 )
 
 func applyRuleChangeDynamically(needMosdns bool) error {
@@ -22,11 +24,71 @@ func applyRuleChangeDynamically(needMosdns bool) error {
 	return nil
 }
 
+func getActiveNodeContext() (map[int]struct{}, int) {
+	active := map[int]struct{}{}
+	rows, err := db.Query("SELECT id FROM nodes WHERE active=1")
+	if err == nil {
+		defer rows.Close()
+		for rows.Next() {
+			var id int
+			if rows.Scan(&id) == nil {
+				active[id] = struct{}{}
+			}
+		}
+	}
+
+	var defNodeStr string
+	_ = db.QueryRow("SELECT value FROM settings WHERE key='default_node_id'").Scan(&defNodeStr)
+	defaultID, _ := strconv.Atoi(strings.TrimSpace(defNodeStr))
+	if _, ok := active[defaultID]; !ok {
+		defaultID = 0
+		for id := range active {
+			defaultID = id
+			break
+		}
+	}
+	return active, defaultID
+}
+
+func outboundTagForPolicy(policy string, active map[int]struct{}, defaultID int) string {
+	policy = strings.TrimSpace(strings.ToLower(policy))
+	switch {
+	case policy == "direct", policy == "block":
+		return policy
+	case strings.HasPrefix(policy, "proxy-"):
+		idStr := strings.TrimPrefix(policy, "proxy-")
+		id, _ := strconv.Atoi(idStr)
+		if _, ok := active[id]; ok {
+			return fmt.Sprintf("proxy-%d-out", id)
+		}
+	case strings.HasPrefix(policy, "ha-"):
+		parts := strings.Split(strings.TrimPrefix(policy, "ha-"), "-")
+		if len(parts) == 2 {
+			first, _ := strconv.Atoi(parts[0])
+			second, _ := strconv.Atoi(parts[1])
+			if _, ok := active[first]; ok {
+				return fmt.Sprintf("proxy-%d-out", first)
+			}
+			if _, ok := active[second]; ok {
+				return fmt.Sprintf("proxy-%d-out", second)
+			}
+		}
+	case policy == "proxy":
+		fallthrough
+	default:
+		if defaultID > 0 {
+			return fmt.Sprintf("proxy-%d-out", defaultID)
+		}
+	}
+	return "direct"
+}
+
 func syncXrayRoutingRulesDynamically() error {
 	var mode string
 	if err := db.QueryRow("SELECT value FROM settings WHERE key='mode'").Scan(&mode); err != nil {
 		mode = "A"
 	}
+	active, defaultID := getActiveNodeContext()
 	cfg := map[string]interface{}{
 		"routing": map[string]interface{}{
 			"domainStrategy": "IPIfNonMatch",
@@ -52,27 +114,18 @@ func syncXrayRoutingRulesDynamically() error {
 		if err := rRows.Scan(&id, &rtype, &value, &policy); err != nil {
 			continue
 		}
-		rule := map[string]interface{}{"type": "field", "ruleTag": fmt.Sprintf("db-rule-%d", id)}
-		switch {
-		case policy == "direct" || policy == "block":
-			rule["outboundTag"] = policy
-		case policy == "proxy":
-			rule["balancerTag"] = "proxy-balancer"
-		case len(policy) > 6 && policy[:6] == "proxy-":
-			rule["outboundTag"] = policy + "-out"
-		case len(policy) > 3 && policy[:3] == "ha-":
-			rule["balancerTag"] = "bal-" + policy
-		default:
-			rule["outboundTag"] = policy
+		rule := map[string]interface{}{
+			"type":        "field",
+			"ruleTag":     fmt.Sprintf("db-rule-%d", id),
+			"outboundTag": outboundTagForPolicy(policy, active, defaultID),
 		}
-
 		switch rtype {
 		case "domain", "geosite":
 			rule["domain"] = []string{rtype + ":" + value}
 		case "ip":
 			rule["ip"] = []string{value}
 		case "geoip", "geolocation":
-			if value == "private" || value == "PRIVATE" {
+			if strings.EqualFold(value, "private") {
 				rule["ip"] = []string{"10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "127.0.0.0/8", "169.254.0.0/16", "100.64.0.0/10"}
 			} else {
 				rule["ip"] = []string{"geoip:" + value}
