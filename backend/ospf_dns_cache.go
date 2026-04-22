@@ -39,7 +39,12 @@ const (
 )
 
 var hostLookupCommand = func(domain string) (string, error) {
-	out, err := exec.Command("host", "-t", "A", "-v", domain).CombinedOutput()
+	ctx, cancel := context.WithTimeout(context.Background(), domainResolveTimeout)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, "host", "-t", "A", "-v", domain).CombinedOutput()
+	if ctx.Err() == context.DeadlineExceeded {
+		return string(out), fmt.Errorf("host lookup timeout for %q after %s", domain, domainResolveTimeout)
+	}
 	if err != nil {
 		return string(out), err
 	}
@@ -51,7 +56,12 @@ var hostLookupCommandAtServer = func(domain string, server string) (string, erro
 	if normalized, ok := normalizeDNSServerAddr(server); ok {
 		args = append(args, normalized)
 	}
-	out, err := exec.Command("host", args...).CombinedOutput()
+	ctx, cancel := context.WithTimeout(context.Background(), domainResolveTimeout)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, "host", args...).CombinedOutput()
+	if ctx.Err() == context.DeadlineExceeded {
+		return string(out), fmt.Errorf("host lookup timeout for %q via %q after %s", domain, server, domainResolveTimeout)
+	}
 	if err != nil {
 		return string(out), err
 	}
