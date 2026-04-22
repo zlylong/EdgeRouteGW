@@ -617,6 +617,14 @@ func initDB() {
 			id INTEGER PRIMARY KEY AUTOINCREMENT, type TEXT, value TEXT, policy TEXT
 		);`,
 		`CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT);`,
+		`CREATE TABLE IF NOT EXISTS lan_acls (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			type TEXT,
+			value TEXT,
+			policy TEXT,
+			remark TEXT,
+			created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+		);`,
 		`CREATE TABLE IF NOT EXISTS geosite_expand_cache (
 			tag TEXT NOT NULL,
 			geodata_ver TEXT NOT NULL,
@@ -681,6 +689,9 @@ func initDB() {
 		log.Printf("[WARN] default data insert failed: %v", err)
 	}
 	if _, err := db.Exec("INSERT OR IGNORE INTO settings (key, value) VALUES ('ospf_push_interval_seconds', '10')"); err != nil {
+		log.Printf("[WARN] default data insert failed: %v", err)
+	}
+	if _, err := db.Exec("INSERT OR IGNORE INTO settings (key, value) VALUES ('lan_default_policy', 'proxy')"); err != nil {
 		log.Printf("[WARN] default data insert failed: %v", err)
 	}
 
