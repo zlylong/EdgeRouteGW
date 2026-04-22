@@ -115,6 +115,83 @@ func getOspfControllerSettings() ospfControllerSettings {
 	}
 }
 
+var runVtyshConfigBatch = func(config string) (string, error) {
+	tmpFile := "/tmp/proxygw_vtysh_batch.conf"
+	if err := os.WriteFile(tmpFile, []byte(config), 0600); err != nil {
+		return "", err
+	}
+	defer os.Remove(tmpFile)
+	out, err := exec.Command("vtysh", "-f", tmpFile).CombinedOutput()
+	return string(out), err
+}
+
+func formatRouteCIDR(ip string) string {
+	routeStr := strings.TrimSpace(ip)
+	if routeStr == "" {
+		return ""
+	}
+	if !strings.Contains(routeStr, "/") {
+		routeStr += "/32"
+	}
+	return routeStr
+}
+
+func applyOspfDeleteBatch(toDel []string) bool {
+	if len(toDel) == 0 {
+		return false
+	}
+	var buf bytes.Buffer
+	buf.WriteString("conf t\n")
+	for _, ip := range toDel {
+		addOspfLog("[DEL] " + ip + " (Miss count >= 3)")
+		routeStr := formatRouteCIDR(ip)
+		if routeStr == "" {
+			continue
+		}
+		buf.WriteString(fmt.Sprintf("no ip route %s 127.0.0.1 tag 100\n", routeStr))
+	}
+	out, err := runVtyshConfigBatch(buf.String())
+	if err != nil {
+		log.Printf("[FRR] DEL batch=%d apply_failed: %v, out=%q", len(toDel), err, strings.TrimSpace(out))
+		return false
+	}
+	tx, _ := db.Begin()
+	for _, ip := range toDel {
+		tx.Exec("DELETE FROM routes_table WHERE ip=?", ip)
+	}
+	tx.Commit()
+	log.Printf("[FRR] DEL batch=%d applied via vtysh", len(toDel))
+	return true
+}
+
+func applyOspfAddBatch(toAdd []string) bool {
+	if len(toAdd) == 0 {
+		return false
+	}
+	var buf bytes.Buffer
+	buf.WriteString("conf t\n")
+	for _, ip := range toAdd {
+		addOspfLog("[ADD] " + ip + " to published_set")
+		routeStr := formatRouteCIDR(ip)
+		if routeStr == "" {
+			continue
+		}
+		buf.WriteString(fmt.Sprintf("ip route %s 127.0.0.1 tag 100\n", routeStr))
+	}
+	out, err := runVtyshConfigBatch(buf.String())
+	if err != nil {
+		log.Printf("[FRR] ADD batch=%d apply_failed: %v, out=%q", len(toAdd), err, strings.TrimSpace(out))
+		return false
+	}
+	tx, _ := db.Begin()
+	for _, ip := range toAdd {
+		tx.Exec("UPDATE routes_table SET status='published', last_seen=datetime('now'), miss_count=0 WHERE ip=?", ip)
+	}
+	tx.Commit()
+	log.Printf("[FRR] ADD batch=%d applied via vtysh", len(toAdd))
+	return true
+}
+
 func parseDatFile(filename string) []string {
 	data, err := os.ReadFile(filename)
 	if err != nil {
@@ -391,25 +468,7 @@ func ospfController() {
 		}
 
 		log.Printf("[DEBUG] toDel len = %d", len(toDel))
-		if len(toDel) > 0 {
-			var buf bytes.Buffer
-			buf.WriteString("conf t\n")
-			tx, _ := db.Begin()
-			for _, ip := range toDel {
-				addOspfLog("[DEL] " + ip + " (Miss count >= 3)")
-				routeStr := ip
-				if !strings.Contains(ip, "/") {
-					routeStr += "/32"
-				}
-				buf.WriteString(fmt.Sprintf("no ip route %s 127.0.0.1 tag 100\n", routeStr))
-				tx.Exec("DELETE FROM routes_table WHERE ip=?", ip)
-			}
-			tx.Commit()
-
-			tmpFile := "/tmp/proxygw_vtysh_del.conf"
-			os.WriteFile(tmpFile, buf.Bytes(), 0600)
-			exec.Command("vtysh", "-f", tmpFile).Run()
-			os.Remove(tmpFile)
+		if applyOspfDeleteBatch(toDel) {
 			updated = true
 		}
 
@@ -430,25 +489,7 @@ func ospfController() {
 			log.Printf("[WARN] query rowsAdd err: %v", err)
 		}
 
-		if len(toAdd) > 0 {
-			var buf bytes.Buffer
-			buf.WriteString("conf t\n")
-			tx, _ := db.Begin()
-			for _, ip := range toAdd {
-				addOspfLog("[ADD] " + ip + " to published_set")
-				routeStr := ip
-				if !strings.Contains(ip, "/") {
-					routeStr += "/32"
-				}
-				buf.WriteString(fmt.Sprintf("ip route %s 127.0.0.1 tag 100\n", routeStr))
-				tx.Exec("UPDATE routes_table SET status='published', last_seen=datetime('now'), miss_count=0 WHERE ip=?", ip)
-			}
-			tx.Commit()
-
-			tmpFile := "/tmp/proxygw_vtysh_add.conf"
-			os.WriteFile(tmpFile, buf.Bytes(), 0600)
-			exec.Command("vtysh", "-f", tmpFile).Run()
-			os.Remove(tmpFile)
+		if applyOspfAddBatch(toAdd) {
 			updated = true
 		}
 
