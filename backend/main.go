@@ -42,6 +42,7 @@ var (
 const (
 	defaultOspfPushBatchLimit      = 500
 	defaultOspfPushIntervalSeconds = 10
+	defaultOspfResolveWorkers      = 16
 )
 
 type routeState struct {
@@ -69,6 +70,7 @@ func getOspfLogsSnapshot() []string {
 type ospfControllerSettings struct {
 	PushBatchLimit      int
 	PushIntervalSeconds int
+	ResolveWorkers      int
 }
 
 func clampOspfPushBatchLimit(v int) int {
@@ -88,6 +90,17 @@ func clampOspfPushIntervalSeconds(v int) int {
 		return 1
 	case v > 3600:
 		return 3600
+	default:
+		return v
+	}
+}
+
+func clampOspfResolveWorkers(v int) int {
+	switch {
+	case v < 1:
+		return 1
+	case v > 128:
+		return 128
 	default:
 		return v
 	}
@@ -118,6 +131,7 @@ func getOspfControllerSettings() ospfControllerSettings {
 	return ospfControllerSettings{
 		PushBatchLimit:      readIntSettingWithDefault("ospf_push_batch_limit", defaultOspfPushBatchLimit, clampOspfPushBatchLimit),
 		PushIntervalSeconds: readIntSettingWithDefault("ospf_push_interval_seconds", defaultOspfPushIntervalSeconds, clampOspfPushIntervalSeconds),
+		ResolveWorkers:      readIntSettingWithDefault("ospf_resolve_workers", defaultOspfResolveWorkers, clampOspfResolveWorkers),
 	}
 }
 
@@ -285,18 +299,7 @@ func collectStaticRoutesForMode(mode string, protected map[string]struct{}) (map
 	geodataVer := getGeoDataVersion()
 	geoipTagCIDRCache := make(map[string][]string)
 
-	resolveWorkers := 16
-	if raw := strings.TrimSpace(os.Getenv("PROXYGW_OSPF_RESOLVE_WORKERS")); raw != "" {
-		if n, err := strconv.Atoi(raw); err == nil {
-			if n < 1 {
-				n = 1
-			}
-			if n > 128 {
-				n = 128
-			}
-			resolveWorkers = n
-		}
-	}
+	resolveWorkers := getOspfControllerSettings().ResolveWorkers
 
 	runParallel := func(total int, fn func(idx int)) {
 		if total <= 0 {
@@ -877,6 +880,9 @@ func initDB() {
 		log.Printf("[WARN] default data insert failed: %v", err)
 	}
 	if _, err := db.Exec("INSERT OR IGNORE INTO settings (key, value) VALUES ('ospf_push_interval_seconds', '10')"); err != nil {
+		log.Printf("[WARN] default data insert failed: %v", err)
+	}
+	if _, err := db.Exec("INSERT OR IGNORE INTO settings (key, value) VALUES ('ospf_resolve_workers', '16')"); err != nil {
 		log.Printf("[WARN] default data insert failed: %v", err)
 	}
 	if _, err := db.Exec("INSERT OR IGNORE INTO settings (key, value) VALUES ('lan_default_policy', 'proxy')"); err != nil {

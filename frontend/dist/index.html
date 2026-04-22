@@ -878,7 +878,11 @@ PersistentKeepalive = 25
                                         <span class="text-sm text-gray-600">推送最短间隔（秒）</span>
                                         <input type="number" min="1" max="3600" v-model.number="ospfController.push_interval_seconds" @input="ospfControllerDirty = true" class="mt-1 w-full border rounded px-3 py-2 text-sm focus:outline-blue-500">
                                     </label>
-                                    <div class="text-xs text-gray-500 xl:pb-2">当前：每批 {{ ospfController.push_batch_limit }} 条 / 最短间隔 {{ ospfController.push_interval_seconds }} 秒</div>
+                                    <label class="block min-w-[12rem]">
+                                        <span class="text-sm text-gray-600">域名解析并发数</span>
+                                        <input type="number" min="1" max="128" v-model.number="ospfController.resolve_workers" @input="ospfControllerDirty = true" class="mt-1 w-full border rounded px-3 py-2 text-sm focus:outline-blue-500">
+                                    </label>
+                                    <div class="text-xs text-gray-500 xl:pb-2">当前：每批 {{ ospfController.push_batch_limit }} 条 / 最短间隔 {{ ospfController.push_interval_seconds }} 秒 / 解析并发 {{ ospfController.resolve_workers }}</div>
                                     <button @click="saveOspfController" :disabled="!ospfControllerDirty" class="bg-blue-600 text-white px-4 py-2 rounded text-sm hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed xl:mb-[1px]">保存推送控制</button>
                                 </div>
                             </div>
@@ -1481,7 +1485,7 @@ window.onerror = function(msg, url, line, col, error) { alert("JS Error: " + msg
                 const dns = ref({ local: '', remote: '', lazy: true, mode: 'smart' });
                 const dnsLogs = ref([]);
                 const ospf = ref({ neighbors: 0, published: 0, pending: 0, logs: [] });
-                const ospfController = ref({ push_batch_limit: 500, push_interval_seconds: 10 });
+                const ospfController = ref({ push_batch_limit: 500, push_interval_seconds: 10, resolve_workers: 16 });
                 const ospfControllerDirty = ref(false);
                 const applyOspfPayload = (data) => {
                     ospf.value = {
@@ -1493,12 +1497,14 @@ window.onerror = function(msg, url, line, col, error) { alert("JS Error: " + msg
                     if (!ospfControllerDirty.value) {
                         ospfController.value.push_batch_limit = data?.push_batch_limit || 500;
                         ospfController.value.push_interval_seconds = data?.push_interval_seconds || 10;
+                        ospfController.value.resolve_workers = data?.resolve_workers || 16;
                     }
                 };
                 const saveOspfController = async () => {
                     const payload = {
                         push_batch_limit: parseInt(ospfController.value.push_batch_limit, 10) || 1,
-                        push_interval_seconds: parseInt(ospfController.value.push_interval_seconds, 10) || 1
+                        push_interval_seconds: parseInt(ospfController.value.push_interval_seconds, 10) || 1,
+                        resolve_workers: parseInt(ospfController.value.resolve_workers, 10) || 1
                     };
                     const res = await apiFetch('/api/ospf/settings', { method: 'POST', body: JSON.stringify(payload) });
                     if (!res.ok) {
@@ -1508,6 +1514,7 @@ window.onerror = function(msg, url, line, col, error) { alert("JS Error: " + msg
                     const data = await res.json().catch(() => ({}));
                     ospfController.value.push_batch_limit = data.push_batch_limit || payload.push_batch_limit;
                     ospfController.value.push_interval_seconds = data.push_interval_seconds || payload.push_interval_seconds;
+                    ospfController.value.resolve_workers = data.resolve_workers || payload.resolve_workers;
                     ospfControllerDirty.value = false;
                     showToast('OSPF 推送控制已保存');
                     loadData();
