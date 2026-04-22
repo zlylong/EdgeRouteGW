@@ -285,11 +285,56 @@ func collectStaticRoutesForMode(mode string, protected map[string]struct{}) (map
 	geodataVer := getGeoDataVersion()
 	geoipTagCIDRCache := make(map[string][]string)
 
+	resolveWorkers := 16
+	if raw := strings.TrimSpace(os.Getenv("PROXYGW_OSPF_RESOLVE_WORKERS")); raw != "" {
+		if n, err := strconv.Atoi(raw); err == nil {
+			if n < 1 {
+				n = 1
+			}
+			if n > 128 {
+				n = 128
+			}
+			resolveWorkers = n
+		}
+	}
+
+	runParallel := func(total int, fn func(idx int)) {
+		if total <= 0 {
+			return
+		}
+		workers := resolveWorkers
+		if workers < 1 {
+			workers = 1
+		}
+		if workers > total {
+			workers = total
+		}
+		jobs := make(chan int)
+		var wg sync.WaitGroup
+		for i := 0; i < workers; i++ {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				for idx := range jobs {
+					fn(idx)
+				}
+			}()
+		}
+		for i := 0; i < total; i++ {
+			jobs <- i
+		}
+		close(jobs)
+		wg.Wait()
+	}
+
+	var routeStateMu sync.Mutex
 	addRoute := func(ip string, ttl int, domain string) {
 		routeKey, ok := normalizeRouteKey(ip)
 		if !ok {
 			return
 		}
+		routeStateMu.Lock()
+		defer routeStateMu.Unlock()
 		if _, blocked := protected[routeKey]; blocked {
 			conflictSet[routeKey] = struct{}{}
 			return
@@ -303,16 +348,19 @@ func collectStaticRoutesForMode(mode string, protected map[string]struct{}) (map
 		}
 	}
 
+	var geoipTagCIDRCacheMu sync.Mutex
 	addGeoIPTagRoutes := func(tag string, domain string) int {
 		tag = strings.ToLower(strings.TrimSpace(tag))
 		if tag == "" {
 			return 0
 		}
+		geoipTagCIDRCacheMu.Lock()
 		cidrs, ok := geoipTagCIDRCache[tag]
 		if !ok {
 			cidrs = extractGeoIPs(geoipPath, tag)
 			geoipTagCIDRCache[tag] = cidrs
 		}
+		geoipTagCIDRCacheMu.Unlock()
 		for _, cidr := range cidrs {
 			addRoute(cidr, 999999999, domain)
 		}
@@ -396,20 +444,24 @@ func collectStaticRoutesForMode(mode string, protected map[string]struct{}) (map
 				}
 				resolvedIPs := 0
 				promotedDomains := 0
-				for _, domain := range domains {
+				var statsMu sync.Mutex
+				runParallel(len(domains), func(idx int) {
+					domain := domains[idx]
 					lockedTags := loadDomainGeoIPLockedTags(domain, resolverGroup, geodataVer)
 					if len(lockedTags) > 0 {
 						for _, geoTag := range lockedTags {
 							_ = addGeoIPTagRoutes(geoTag, domain)
 						}
+						statsMu.Lock()
 						promotedDomains++
-						continue
+						statsMu.Unlock()
+						return
 					}
 
 					ips, ttl, _, err := getOrRefreshDomainCacheWithResolver(domain, resolverGroup)
 					if err != nil {
 						log.Printf("[OSPF] geosite %q (%s) resolve %q failed: %v", tag, policy, domain, err)
-						continue
+						return
 					}
 
 					matchedTags := map[string]struct{}{}
@@ -430,19 +482,18 @@ func collectStaticRoutesForMode(mode string, protected map[string]struct{}) (map
 						}
 						sort.Strings(tags)
 						saveDomainGeoIPLockTags(domain, resolverGroup, geodataVer, tags)
+						statsMu.Lock()
 						promotedDomains++
-						for _, ip := range ips {
-							addRoute(ip, ttl, domain)
-							resolvedIPs++
-						}
-						continue
+						statsMu.Unlock()
 					}
+					statsMu.Lock()
+					resolvedIPs += len(ips)
+					statsMu.Unlock()
 					for _, ip := range ips {
 						addRoute(ip, ttl, domain)
-						resolvedIPs++
 					}
-				}
-				log.Printf("[OSPF] geosite %q (%s) resolved %d domains into %d IPv4 routes (promoted_geoip_domains=%d, skipped_non_domain=%d, dns_group=%s)", tag, policy, len(domains), resolvedIPs, promotedDomains, skipped, resolverGroup)
+				})
+				log.Printf("[OSPF] geosite %q (%s) resolved %d domains into %d IPv4 routes (promoted_geoip_domains=%d, skipped_non_domain=%d, dns_group=%s, workers=%d)", tag, policy, len(domains), resolvedIPs, promotedDomains, skipped, resolverGroup, resolveWorkers)
 			}
 		}
 
@@ -460,7 +511,8 @@ func collectStaticRoutesForMode(mode string, protected map[string]struct{}) (map
 				}
 			}
 			domainRows.Close()
-			for _, rule := range domains {
+			runParallel(len(domains), func(idx int) {
+				rule := domains[idx]
 				resolverGroup := resolverGroupRemote
 				policy := strings.ToLower(strings.TrimSpace(rule.policy))
 				if strings.HasPrefix(policy, "direct") {
@@ -469,12 +521,12 @@ func collectStaticRoutesForMode(mode string, protected map[string]struct{}) (map
 				ips, ttl, _, err := getOrRefreshDomainCacheWithResolver(rule.domain, resolverGroup)
 				if err != nil {
 					log.Printf("[OSPF] domain %q (%s) resolve failed: %v", rule.domain, policy, err)
-					continue
+					return
 				}
 				for _, ip := range ips {
 					addRoute(ip, ttl, rule.domain)
 				}
-			}
+			})
 		}
 	}
 
