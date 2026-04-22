@@ -450,7 +450,92 @@ func detectModeSwitchProtectedConflicts(mode string) []string {
 		return nil
 	}
 	protected := collectProtectedRouteKeys()
-	_, conflicts := collectStaticRoutesForMode(mode, protected)
+	if len(protected) == 0 {
+		return nil
+	}
+
+	conflictSet := make(map[string]struct{})
+	addIfConflict := func(route string) {
+		routeKey, ok := normalizeRouteKey(route)
+		if !ok {
+			return
+		}
+		if _, hit := protected[routeKey]; hit {
+			conflictSet[routeKey] = struct{}{}
+		}
+	}
+
+	rows, err := db.Query("SELECT ip FROM routes_table WHERE status IN ('candidate','published') AND source='static'")
+	if err == nil {
+		defer rows.Close()
+		for rows.Next() {
+			var ip string
+			if rows.Scan(&ip) == nil {
+				addIfConflict(ip)
+			}
+		}
+	}
+
+	staticRows, err := db.Query("SELECT value FROM rules WHERE type='ip' AND policy LIKE 'proxy%'")
+	if err == nil {
+		defer staticRows.Close()
+		for staticRows.Next() {
+			var ip string
+			if staticRows.Scan(&ip) == nil {
+				addIfConflict(ip)
+			}
+		}
+	}
+
+	geoipPath := getPath("core", "mosdns", "geoip.dat")
+	geoipRows, err := db.Query("SELECT value FROM rules WHERE type='geoip' AND policy LIKE 'proxy%'")
+	if err == nil {
+		defer geoipRows.Close()
+		for geoipRows.Next() {
+			var tag string
+			if geoipRows.Scan(&tag) != nil {
+				continue
+			}
+			var ips []string
+			if strings.HasPrefix(tag, "!") {
+				excludeTag := strings.TrimSpace(strings.TrimPrefix(tag, "!"))
+				ips = extractGeoIPsExclude(geoipPath, excludeTag, "private")
+			} else {
+				ips = extractGeoIPs(geoipPath, tag)
+			}
+			for _, ip := range ips {
+				addIfConflict(ip)
+			}
+		}
+	}
+
+	domainRows, err := db.Query("SELECT value, policy FROM rules WHERE type='domain' AND (policy LIKE 'proxy%' OR policy LIKE 'direct%')")
+	if err == nil {
+		defer domainRows.Close()
+		for domainRows.Next() {
+			var domain, policy string
+			if domainRows.Scan(&domain, &policy) != nil {
+				continue
+			}
+			resolverGroup := resolverGroupRemote
+			if strings.HasPrefix(strings.ToLower(strings.TrimSpace(policy)), "direct") {
+				resolverGroup = resolverGroupLocal
+			}
+			ips, _, _, err := getOrRefreshDomainCacheWithResolver(domain, resolverGroup)
+			if err != nil {
+				continue
+			}
+			for _, ip := range ips {
+				addIfConflict(ip)
+			}
+		}
+	}
+
+	conflicts := make([]string, 0, len(conflictSet))
+	for routeKey := range conflictSet {
+		conflicts = append(conflicts, routeKey)
+	}
+	sort.Strings(conflicts)
 	return conflicts
 }
 
