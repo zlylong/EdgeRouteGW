@@ -137,8 +137,8 @@ fi
 
 # Ultimate fallback if both git and API fail (GFW block / no IPv4)
 if [ -z "$PROXYGW_LATEST" ]; then
-    echo "Warning: API blocked. Using fallback version v1.5.17..."
-    PROXYGW_LATEST="v1.5.17"
+    echo "Warning: API blocked. Using fallback version v1.5.18..."
+    PROXYGW_LATEST="v1.5.18"
 fi
 if [ "$ARCH" = "x86_64" ]; then
     wget -q -4 -O "$REPO_DIR/backend/proxygw-backend" "https://github.com/zlylong/proxygw/releases/download/${PROXYGW_LATEST}/proxygw-backend-linux-amd64"

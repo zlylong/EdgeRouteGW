@@ -1,5 +1,19 @@
 # ProxyGW Changelog
 
+## [1.5.18] - 2026-04-22
+### 🐞 修复 (Bug Fixes)
+- **OSPF 发布状态一致性修复**: OSPF 控制器改为“`vtysh` 成功后再更新数据库状态”。`ADD` 失败不再误标 `published`，`DEL` 失败不再提前删库，彻底消除 DB 已发布但 FRR/ROS 未生效的状态漂移。
+- **FRR mgmtd 批处理兼容修复**: 修复 `vtysh -f` 批文件包含 `conf t` 导致 `Unknown command[4]` 的问题，批处理改为直接下发 `ip route`/`no ip route`，确保在 mgmtd 模式可稳定应用。
+- **OSPF 路由键规范化去重**: 新增统一路由键规范化（如 `1.1.1.1` 与 `1.1.1.1/32` 统一为 `1.1.1.1/32`），解决多规则命中同一 IP 时重复发布问题。
+
+### ⚡ 性能优化 (Performance)
+- **DNS 缓存迁移与清理**: 增加 `domain_resolve_cache` 旧键（无前缀）向 `remote:*` 的自动迁移与后台分批清理，减少策略切换后的缓存冷启动掉量，加快 geosite 收敛。
+
+### ✅ 测试 (Tests)
+- 新增 OSPF 下发一致性测试：覆盖 `vtysh` 成功/失败下 DB 状态不漂移。
+- 新增路由规范化与跨规则去重测试。
+- 新增旧 DNS 缓存键迁移与清理测试。
+
 ## [1.5.17] - 2026-04-21
 ### 🐞 修复 (Bug Fixes)
 - **开发机 Web 服务启动阻塞修复**: 将 OSPF 静态路由同步从 `applyXrayConfig()` 启动链路中解耦，改为异步调度并合并 pending 请求，避免 `geosite` 大规模展开/DNS 刷新在进程启动时阻塞 Gin 监听端口，恢复开发机 Web 面板可访问性。
