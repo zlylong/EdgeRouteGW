@@ -907,6 +907,96 @@ func formatRouteCIDR(ip string) string {
 	return routeStr
 }
 
+func parseFRRTaggedRoutesFromConfig(conf string) map[string]struct{} {
+	set := make(map[string]struct{})
+	for _, line := range strings.Split(conf, "\n") {
+		line = strings.TrimSpace(line)
+		if !strings.HasPrefix(line, "ip route ") || !strings.Contains(line, " tag 100") {
+			continue
+		}
+		fields := strings.Fields(line)
+		if len(fields) < 3 {
+			continue
+		}
+		routeKey, ok := normalizeRouteKey(fields[2])
+		if !ok {
+			continue
+		}
+		set[routeKey] = struct{}{}
+	}
+	return set
+}
+
+func readFRRTaggedStaticRoutes() (map[string]struct{}, error) {
+	out, err := exec.Command("vtysh", "-c", "show running-config").CombinedOutput()
+	if err != nil {
+		return nil, fmt.Errorf("vtysh show running-config failed: %w (%s)", err, strings.TrimSpace(string(out)))
+	}
+	return parseFRRTaggedRoutesFromConfig(string(out)), nil
+}
+
+func reconcilePublishedRoutesWithFRR() {
+	frrRoutes, err := readFRRTaggedStaticRoutes()
+	if err != nil {
+		log.Printf("[WARN] OSPF reconcile skip: %v", err)
+		return
+	}
+	rows, err := db.Query("SELECT ip, status FROM routes_table WHERE source='static'")
+	if err != nil {
+		log.Printf("[WARN] OSPF reconcile query failed: %v", err)
+		return
+	}
+	defer rows.Close()
+
+	tx, err := db.Begin()
+	if err != nil {
+		log.Printf("[WARN] OSPF reconcile begin failed: %v", err)
+		return
+	}
+
+	updatedToPublished := 0
+	demotedToCandidate := 0
+	totalPublished := 0
+	for rows.Next() {
+		var ip string
+		var status string
+		if rows.Scan(&ip, &status) != nil {
+			continue
+		}
+		routeKey, ok := normalizeRouteKey(ip)
+		if !ok {
+			continue
+		}
+		_, inFRR := frrRoutes[routeKey]
+		if status == "published" {
+			totalPublished++
+		}
+		if inFRR && status != "published" {
+			if _, err := tx.Exec("UPDATE routes_table SET status='published', last_seen=datetime('now'), miss_count=0 WHERE ip=?", routeKey); err == nil {
+				updatedToPublished++
+			}
+			continue
+		}
+		if !inFRR && status == "published" {
+			if _, err := tx.Exec("UPDATE routes_table SET status='candidate', miss_count=0 WHERE ip=?", routeKey); err == nil {
+				demotedToCandidate++
+			}
+		}
+	}
+	if err := rows.Err(); err != nil {
+		_ = tx.Rollback()
+		log.Printf("[WARN] OSPF reconcile row err: %v", err)
+		return
+	}
+	if err := tx.Commit(); err != nil {
+		log.Printf("[WARN] OSPF reconcile commit failed: %v", err)
+		return
+	}
+	if updatedToPublished > 0 || demotedToCandidate > 0 || totalPublished != len(frrRoutes) {
+		log.Printf("[OSPF] reconcile DB<->FRR: frr_tagged=%d db_published(before)=%d promoted=%d demoted=%d", len(frrRoutes), totalPublished, updatedToPublished, demotedToCandidate)
+	}
+}
+
 func applyOspfDeleteBatch(toDel []string) bool {
 	if len(toDel) == 0 {
 		return false
@@ -1261,6 +1351,7 @@ func ensurePasswordInitialized() {
 
 func ospfController() {
 	var lastUpdate time.Time
+	var lastReconcile time.Time
 
 	for {
 		time.Sleep(2 * time.Second)
@@ -1275,6 +1366,10 @@ func ospfController() {
 		}
 		if mode != "C" && mode != "B" {
 			continue
+		}
+		if lastReconcile.IsZero() || time.Since(lastReconcile) >= 15*time.Second {
+			reconcilePublishedRoutesWithFRR()
+			lastReconcile = time.Now()
 		}
 
 		if time.Since(lastUpdate) < coolingTime {
