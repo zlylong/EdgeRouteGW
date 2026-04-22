@@ -83,6 +83,7 @@ func parseGeoRuleInput(input string) (kind string, tag string, ok bool) {
 type geoIPBucketRule struct {
 	network uint32
 	mask    uint32
+	prefix  uint8
 	tag     string
 }
 
@@ -316,7 +317,7 @@ func buildGeoIPMatcher(filename string, version string) (*geoIPMatcher, error) {
 				end := network | ^mask
 				startFirst := int((network >> 24) & 0xFF)
 				endFirst := int((end >> 24) & 0xFF)
-				rule := geoIPBucketRule{network: network, mask: mask, tag: tag}
+				rule := geoIPBucketRule{network: network, mask: mask, prefix: uint8(prefix), tag: tag}
 				for first := startFirst; first <= endFirst; first++ {
 					matcher.buckets[first] = append(matcher.buckets[first], rule)
 				}
@@ -325,6 +326,22 @@ func buildGeoIPMatcher(filename string, version string) (*geoIPMatcher, error) {
 			}
 		}
 		idx = endIdx
+	}
+	for i := range matcher.buckets {
+		bucket := matcher.buckets[i]
+		if len(bucket) < 2 {
+			continue
+		}
+		sort.Slice(bucket, func(a, b int) bool {
+			if bucket[a].prefix != bucket[b].prefix {
+				return bucket[a].prefix > bucket[b].prefix
+			}
+			if bucket[a].network != bucket[b].network {
+				return bucket[a].network < bucket[b].network
+			}
+			return bucket[a].tag < bucket[b].tag
+		})
+		matcher.buckets[i] = bucket
 	}
 	return matcher, nil
 }
@@ -360,6 +377,9 @@ func queryGeoIPTagsByIP(filename, input string) []string {
 	if len(bucket) > 0 {
 		matchedTags := make(map[string]struct{}, 4)
 		for _, rule := range bucket {
+			if _, done := matchedTags[rule.tag]; done {
+				continue
+			}
 			if (ipValue & rule.mask) == rule.network {
 				matchedTags[rule.tag] = struct{}{}
 			}
