@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -29,7 +30,27 @@ var legacyDomainCacheMigrationOnce sync.Once
 var (
 	legacyDomainCacheSweepMu   sync.Mutex
 	legacyDomainCacheLastSweep time.Time
+	routeCacheEnsureMu         sync.Mutex
+	routeCacheEnsuredDB        *sql.DB
+	routeGeoDataVersionCacheMu sync.Mutex
+	routeGeoDataVersionCache   geoDataVersionState
 )
+
+const geoDataVersionCheckInterval = 5 * time.Second
+
+type geoDataVersionState struct {
+	version     string
+	checkedAt   time.Time
+	geodataVer  fileSignature
+	geositeDat  fileSignature
+	initialized bool
+}
+
+type fileSignature struct {
+	exists bool
+	size   int64
+	mtime  int64
+}
 
 const domainResolveTimeout = 5 * time.Second
 
@@ -272,6 +293,15 @@ func ensureRouteCacheTables() {
 	if db == nil {
 		return
 	}
+
+	routeCacheEnsureMu.Lock()
+	if routeCacheEnsuredDB == db {
+		routeCacheEnsureMu.Unlock()
+		return
+	}
+	routeCacheEnsuredDB = db
+	routeCacheEnsureMu.Unlock()
+
 	stmts := []string{
 		`CREATE TABLE IF NOT EXISTS geosite_expand_cache (
 			tag TEXT NOT NULL,
@@ -407,17 +437,59 @@ func scheduleLegacyDomainCacheSweep() {
 	}
 }
 
+func getFileSignature(path string) fileSignature {
+	info, err := os.Stat(path)
+	if err != nil {
+		return fileSignature{}
+	}
+	return fileSignature{exists: true, size: info.Size(), mtime: info.ModTime().UnixNano()}
+}
+
 func getGeoDataVersion() string {
-	data, err := os.ReadFile(getPath("core", "mosdns", "geodata.ver"))
-	if err == nil {
-		if v := strings.TrimSpace(string(data)); v != "" {
-			return v
+	now := time.Now()
+	geoVerPath := getPath("core", "mosdns", "geodata.ver")
+	geoSitePath := getPath("core", "mosdns", "geosite.dat")
+
+	routeGeoDataVersionCacheMu.Lock()
+	cached := routeGeoDataVersionCache
+	if cached.initialized && now.Sub(cached.checkedAt) < geoDataVersionCheckInterval {
+		version := cached.version
+		routeGeoDataVersionCacheMu.Unlock()
+		return version
+	}
+	routeGeoDataVersionCacheMu.Unlock()
+
+	geoVerSig := getFileSignature(geoVerPath)
+	geoSiteSig := getFileSignature(geoSitePath)
+
+	routeGeoDataVersionCacheMu.Lock()
+	defer routeGeoDataVersionCacheMu.Unlock()
+	cached = routeGeoDataVersionCache
+	if cached.initialized && cached.geodataVer == geoVerSig && cached.geositeDat == geoSiteSig {
+		routeGeoDataVersionCache.checkedAt = now
+		return cached.version
+	}
+
+	version := "unknown"
+	if geoVerSig.exists {
+		if data, err := os.ReadFile(geoVerPath); err == nil {
+			if v := strings.TrimSpace(string(data)); v != "" {
+				version = v
+			}
 		}
 	}
-	if info, statErr := os.Stat(getPath("core", "mosdns", "geosite.dat")); statErr == nil {
-		return info.ModTime().UTC().Format(time.RFC3339)
+	if version == "unknown" && geoSiteSig.exists {
+		version = time.Unix(0, geoSiteSig.mtime).UTC().Format(time.RFC3339)
 	}
-	return "unknown"
+
+	routeGeoDataVersionCache = geoDataVersionState{
+		version:     version,
+		checkedAt:   now,
+		geodataVer:  geoVerSig,
+		geositeDat:  geoSiteSig,
+		initialized: true,
+	}
+	return version
 }
 
 func clampDomainCacheTTL(ttl int) int {

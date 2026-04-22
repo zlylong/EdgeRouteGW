@@ -51,6 +51,7 @@ const (
 	defaultOspfAllowSlash32        = true
 	defaultOspfMaxSpecificPrefix   = 32
 	defaultOspfLRUMaxRoutes        = 0
+	defaultOspfReconcileInterval   = 45 * time.Second
 	domainGeoIPMatchCacheTTL       = 10 * time.Minute
 	domainGeoIPMatchCacheMax       = 200000
 )
@@ -1519,7 +1520,7 @@ func ospfController() {
 			continue
 		}
 		modeDemotedForNonBC = false
-		if lastReconcile.IsZero() || time.Since(lastReconcile) >= 15*time.Second {
+		if lastReconcile.IsZero() || time.Since(lastReconcile) >= defaultOspfReconcileInterval {
 			reconcilePublishedRoutesWithFRR()
 			lastReconcile = time.Now()
 		}
