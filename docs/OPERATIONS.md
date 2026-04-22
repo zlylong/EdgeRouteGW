@@ -144,9 +144,67 @@ systemctl restart proxygw
 
 #### 仍建议保留的网络侧兜底
 在主路由保留源地址旁路（PBR）：
+
+**MikroTik ROS：**
 ```routeros
 /routing table add name=bypass_proxy fib
 /ip route add dst-address=0.0.0.0/0 gateway=pppoe-out1 routing-table=bypass_proxy
 /routing rule add src-address=192.168.20.155/32 action=lookup-only-in-table table=bypass_proxy
 ```
+
+**OpenWrt（临时生效，立即止血）：**
+```bash
+# 变量按现场替换
+PROXY_IP="192.168.10.9/32"
+TABLE="100"
+
+WAN_DEV="$(ip -4 route show default | awk 'NR==1{print $5}')"
+WAN_GW="$(ip -4 route show default | awk 'NR==1{print $3}')"
+
+ip -4 rule del from "$PROXY_IP" table "$TABLE" 2>/dev/null
+if [ -n "$WAN_GW" ]; then
+  ip -4 route replace default via "$WAN_GW" dev "$WAN_DEV" table "$TABLE"
+else
+  ip -4 route replace default dev "$WAN_DEV" table "$TABLE"
+fi
+ip -4 rule add pref 100 from "$PROXY_IP" table "$TABLE"
+ip -4 route flush cache
+```
+
+**OpenWrt（持久化，推荐）：** 新建 `/etc/hotplug.d/iface/99-proxygw-bypass`
+```sh
+#!/bin/sh
+[ "$ACTION" = "ifup" ] || exit 0
+case "$INTERFACE" in
+  wan|pppoe-wan) ;;
+  *) exit 0 ;;
+esac
+
+PROXY_IP="192.168.10.9/32"   # 改成你的 ProxyGW LAN IP
+TABLE="100"
+
+WAN_DEV="$(ip -4 route show default | awk 'NR==1{print $5}')"
+WAN_GW="$(ip -4 route show default | awk 'NR==1{print $3}')"
+
+ip -4 rule del from "$PROXY_IP" table "$TABLE" 2>/dev/null
+if [ -n "$WAN_GW" ]; then
+  ip -4 route replace default via "$WAN_GW" dev "$WAN_DEV" table "$TABLE"
+else
+  ip -4 route replace default dev "$WAN_DEV" table "$TABLE"
+fi
+ip -4 rule add pref 100 from "$PROXY_IP" table "$TABLE"
+ip -4 route flush cache
+```
+然后执行：
+```bash
+chmod +x /etc/hotplug.d/iface/99-proxygw-bypass
+ACTION=ifup INTERFACE=wan /etc/hotplug.d/iface/99-proxygw-bypass
+```
+
+验证：
+```bash
+ip -4 rule show | grep "from 192.168.10.9/32"
+ip -4 route show table 100
+```
+
 这条规则可确保 ProxyGW 自身出站永远走 WAN 主路，不受 OSPF 回流影响。

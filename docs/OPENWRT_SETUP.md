@@ -69,7 +69,72 @@ router ospf
 
 ---
 
-## 5. 防火墙伪装 (Masquerade) 检查
+## 5. Mode C 防环路 PBR（强烈建议）
+
+当 Mode C 发布真实 IP 网段时，主路由若把“ProxyGW 节点目标 IP”回指给 ProxyGW，会形成回弹环路：
+`ProxyGW -> OpenWrt -> ProxyGW`。
+
+建议在 OpenWrt 配置源地址旁路：让 **ProxyGW 主机自身** 的出站流量永远走 WAN 主路。
+
+### 临时生效（立即止血）
+```bash
+PROXY_IP="192.168.20.155/32"  # 改成你的 ProxyGW IP
+TABLE="100"
+
+WAN_DEV="$(ip -4 route show default | awk 'NR==1{print $5}')"
+WAN_GW="$(ip -4 route show default | awk 'NR==1{print $3}')"
+
+ip -4 rule del from "$PROXY_IP" table "$TABLE" 2>/dev/null
+if [ -n "$WAN_GW" ]; then
+  ip -4 route replace default via "$WAN_GW" dev "$WAN_DEV" table "$TABLE"
+else
+  ip -4 route replace default dev "$WAN_DEV" table "$TABLE"
+fi
+ip -4 rule add pref 100 from "$PROXY_IP" table "$TABLE"
+ip -4 route flush cache
+```
+
+### 持久化（推荐）
+新建 `/etc/hotplug.d/iface/99-proxygw-bypass`：
+```sh
+#!/bin/sh
+[ "$ACTION" = "ifup" ] || exit 0
+case "$INTERFACE" in
+  wan|pppoe-wan) ;;
+  *) exit 0 ;;
+esac
+
+PROXY_IP="192.168.20.155/32"   # 改成你的 ProxyGW IP
+TABLE="100"
+
+WAN_DEV="$(ip -4 route show default | awk 'NR==1{print $5}')"
+WAN_GW="$(ip -4 route show default | awk 'NR==1{print $3}')"
+
+ip -4 rule del from "$PROXY_IP" table "$TABLE" 2>/dev/null
+if [ -n "$WAN_GW" ]; then
+  ip -4 route replace default via "$WAN_GW" dev "$WAN_DEV" table "$TABLE"
+else
+  ip -4 route replace default dev "$WAN_DEV" table "$TABLE"
+fi
+ip -4 rule add pref 100 from "$PROXY_IP" table "$TABLE"
+ip -4 route flush cache
+```
+
+启用：
+```bash
+chmod +x /etc/hotplug.d/iface/99-proxygw-bypass
+ACTION=ifup INTERFACE=wan /etc/hotplug.d/iface/99-proxygw-bypass
+```
+
+验证：
+```bash
+ip -4 rule show | grep "from 192.168.20.155/32"
+ip -4 route show table 100
+```
+
+---
+
+## 6. 防火墙伪装 (Masquerade) 检查
 OpenWrt 默认会自动为 WAN 口开启动态伪装。如果你遇到了无法上网的问题，可以检查：
 - `网络` -> `防火墙` -> `基本设置`
 - 确保 `wan` 区域的 **IP 动态伪装 (Masquerading)** 已勾选。
