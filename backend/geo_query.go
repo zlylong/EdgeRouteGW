@@ -1,6 +1,7 @@
 package main
 
 import (
+	"container/list"
 	"context"
 	"fmt"
 	"log"
@@ -91,13 +92,95 @@ type geoIPMatcher struct {
 	tags    map[string]struct{}
 }
 
+const (
+	geoIPTagLookupCacheTTL        = 10 * time.Minute
+	geoIPTagLookupCacheMaxEntries = 200000
+)
+
+type geoIPTagCacheEntry struct {
+	key       geoIPCacheKey
+	tags      []string
+	expiresAt time.Time
+}
+
+type geoIPLookupCall struct {
+	done chan struct{}
+	tags []string
+}
+
+type geoIPCacheKey struct {
+	filename string
+	version  string
+	ip       uint32
+}
+
 var (
 	geoIPMatcherMu         sync.RWMutex
 	geoIPMatcherCache      = map[string]*geoIPMatcher{}
 	geoDataVersionCacheMu  sync.Mutex
 	geoDataVersionCached   string
 	geoDataVersionCachedAt time.Time
+
+	geoIPTagCacheMu   sync.Mutex
+	geoIPTagCacheList = list.New()
+	geoIPTagCacheMap  = map[geoIPCacheKey]*list.Element{}
+
+	geoIPLookupCallMu sync.Mutex
+	geoIPLookupCalls  = map[geoIPCacheKey]*geoIPLookupCall{}
 )
+
+func cloneStringSlice(in []string) []string {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]string, len(in))
+	copy(out, in)
+	return out
+}
+
+func geoIPTagCacheGet(key geoIPCacheKey) ([]string, bool) {
+	geoIPTagCacheMu.Lock()
+	defer geoIPTagCacheMu.Unlock()
+	ele := geoIPTagCacheMap[key]
+	if ele == nil {
+		return nil, false
+	}
+	entry, _ := ele.Value.(*geoIPTagCacheEntry)
+	if entry == nil || time.Now().After(entry.expiresAt) {
+		geoIPTagCacheList.Remove(ele)
+		delete(geoIPTagCacheMap, key)
+		return nil, false
+	}
+	geoIPTagCacheList.MoveToFront(ele)
+	return cloneStringSlice(entry.tags), true
+}
+
+func geoIPTagCacheSet(key geoIPCacheKey, tags []string) {
+	geoIPTagCacheMu.Lock()
+	defer geoIPTagCacheMu.Unlock()
+	if ele := geoIPTagCacheMap[key]; ele != nil {
+		if entry, _ := ele.Value.(*geoIPTagCacheEntry); entry != nil {
+			entry.tags = cloneStringSlice(tags)
+			entry.expiresAt = time.Now().Add(geoIPTagLookupCacheTTL)
+			geoIPTagCacheList.MoveToFront(ele)
+			return
+		}
+	}
+	entry := &geoIPTagCacheEntry{key: key, tags: cloneStringSlice(tags), expiresAt: time.Now().Add(geoIPTagLookupCacheTTL)}
+	ele := geoIPTagCacheList.PushFront(entry)
+	geoIPTagCacheMap[key] = ele
+	for len(geoIPTagCacheMap) > geoIPTagLookupCacheMaxEntries {
+		last := geoIPTagCacheList.Back()
+		if last == nil {
+			break
+		}
+		lastEntry, _ := last.Value.(*geoIPTagCacheEntry)
+		geoIPTagCacheList.Remove(last)
+		if lastEntry != nil {
+			delete(geoIPTagCacheMap, lastEntry.key)
+		}
+	}
+}
 
 func fastGeoDataVersion() string {
 	geoDataVersionCacheMu.Lock()
@@ -256,24 +339,47 @@ func queryGeoIPTagsByIP(filename, input string) []string {
 	if matcher == nil {
 		return nil
 	}
-	bucket := matcher.buckets[int((ipValue>>24)&0xFF)]
-	if len(bucket) == 0 {
-		return nil
+
+	cacheKey := geoIPCacheKey{filename: filename, version: matcher.version, ip: ipValue}
+	if cached, ok := geoIPTagCacheGet(cacheKey); ok {
+		return cached
 	}
-	matchedTags := make(map[string]struct{}, 4)
-	for _, rule := range bucket {
-		if (ipValue & rule.mask) == rule.network {
-			matchedTags[rule.tag] = struct{}{}
+
+	geoIPLookupCallMu.Lock()
+	if call := geoIPLookupCalls[cacheKey]; call != nil {
+		geoIPLookupCallMu.Unlock()
+		<-call.done
+		return cloneStringSlice(call.tags)
+	}
+	call := &geoIPLookupCall{done: make(chan struct{})}
+	geoIPLookupCalls[cacheKey] = call
+	geoIPLookupCallMu.Unlock()
+
+	bucket := matcher.buckets[int((ipValue>>24)&0xFF)]
+	var matches []string
+	if len(bucket) > 0 {
+		matchedTags := make(map[string]struct{}, 4)
+		for _, rule := range bucket {
+			if (ipValue & rule.mask) == rule.network {
+				matchedTags[rule.tag] = struct{}{}
+			}
+		}
+		if len(matchedTags) > 0 {
+			matches = make([]string, 0, len(matchedTags))
+			for tag := range matchedTags {
+				matches = append(matches, tag)
+			}
+			sort.Strings(matches)
 		}
 	}
-	if len(matchedTags) == 0 {
-		return nil
-	}
-	matches := make([]string, 0, len(matchedTags))
-	for tag := range matchedTags {
-		matches = append(matches, tag)
-	}
-	sort.Strings(matches)
+
+	geoIPTagCacheSet(cacheKey, matches)
+
+	geoIPLookupCallMu.Lock()
+	call.tags = cloneStringSlice(matches)
+	close(call.done)
+	delete(geoIPLookupCalls, cacheKey)
+	geoIPLookupCallMu.Unlock()
 	return matches
 }
 
