@@ -1,5 +1,16 @@
 # ProxyGW Changelog
 
+## [1.6.2-rc.3] - 2026-04-22
+### ✨ 新特性 (Features)
+- **geosite→geoip 网段锁定**: 对 `geosite` 域名解析结果新增“命中 geoip 后提升到整网段并锁定”的机制，按 `geodata` 版本维度持久化，显著降低高波动域名导致的 OSPF 路由抖动。
+- **版本感知重评估**: 锁定记录绑定 `geodata` 版本；当 geodata 更新后自动触发重新学习，避免旧网段长期固化。
+
+### 🐞 修复 (Bug Fixes)
+- **未命中 geoip 回退单 IP**: 对无法命中 geoip tag 的解析结果保持单 IP 发布，确保兼容性与覆盖完整性。
+
+### 📦 发布 (Release)
+- **预发布**: 发布 `v1.6.2-rc.3`，用于灰度验证 geoip 网段锁定与 OSPF 收敛稳定性。
+
 ## [1.6.2-rc.2] - 2026-04-22
 ### 🐞 修复 (Bug Fixes)
 - **发布流程 RC 识别**: `release.yml` 在 tag 含 `-rc.` 时自动标记 `prerelease: true`，并使用 `Pre-release` 标题，避免 RC 误标为 Stable。
