@@ -21,8 +21,8 @@ func TestSyncStaticRoutesToOSPF_GeositeFallsBackToGeoIPAndDomainResolution(t *te
 		t.Fatal(err)
 	}
 
-	oldResolve := resolveDomainIPv4WithTTL
-	resolveDomainIPv4WithTTL = func(domain string) ([]string, int, error) {
+	oldResolve := resolveDomainIPv4WithTTLViaServers
+	resolveDomainIPv4WithTTLViaServers = func(domain string, dnsServers []string) ([]string, int, error) {
 		switch domain {
 		case "google.com":
 			return []string{"8.8.8.8"}, 300, nil
@@ -32,7 +32,7 @@ func TestSyncStaticRoutesToOSPF_GeositeFallsBackToGeoIPAndDomainResolution(t *te
 			return nil, 0, nil
 		}
 	}
-	defer func() { resolveDomainIPv4WithTTL = oldResolve }()
+	defer func() { resolveDomainIPv4WithTTLViaServers = oldResolve }()
 
 	syncStaticRoutesToOSPF("C")
 

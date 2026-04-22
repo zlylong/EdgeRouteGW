@@ -23,8 +23,8 @@ func TestSyncStaticRoutesToOSPF_GeositeUsesDomainResolveCache(t *testing.T) {
 	}
 
 	calls := map[string]int{}
-	oldResolve := resolveDomainIPv4WithTTL
-	resolveDomainIPv4WithTTL = func(domain string) ([]string, int, error) {
+	oldResolve := resolveDomainIPv4WithTTLViaServers
+	resolveDomainIPv4WithTTLViaServers = func(domain string, dnsServers []string) ([]string, int, error) {
 		calls[domain]++
 		switch domain {
 		case "google.com":
@@ -35,7 +35,7 @@ func TestSyncStaticRoutesToOSPF_GeositeUsesDomainResolveCache(t *testing.T) {
 			return nil, 0, nil
 		}
 	}
-	defer func() { resolveDomainIPv4WithTTL = oldResolve }()
+	defer func() { resolveDomainIPv4WithTTLViaServers = oldResolve }()
 
 	syncStaticRoutesToOSPF("C")
 	syncStaticRoutesToOSPF("C")
@@ -54,8 +54,8 @@ func TestGetOrRefreshDomainCache_RefreshAfterExpireAndKeepStaleOnFailure(t *test
 	defer func() { nowFunc = oldNow }()
 
 	calls := 0
-	oldResolve := resolveDomainIPv4WithTTL
-	resolveDomainIPv4WithTTL = func(domain string) ([]string, int, error) {
+	oldResolve := resolveDomainIPv4WithTTLViaServers
+	resolveDomainIPv4WithTTLViaServers = func(domain string, dnsServers []string) ([]string, int, error) {
 		calls++
 		switch calls {
 		case 1:
@@ -66,7 +66,7 @@ func TestGetOrRefreshDomainCache_RefreshAfterExpireAndKeepStaleOnFailure(t *test
 			return nil, 0, errTestDNSFailure
 		}
 	}
-	defer func() { resolveDomainIPv4WithTTL = oldResolve }()
+	defer func() { resolveDomainIPv4WithTTLViaServers = oldResolve }()
 
 	ips, ttl, fromCache, err := getOrRefreshDomainCache("google.com")
 	if err != nil || fromCache || ttl != 300 || len(ips) != 1 || ips[0] != "8.8.8.8" {
@@ -92,6 +92,43 @@ func TestGetOrRefreshDomainCache_RefreshAfterExpireAndKeepStaleOnFailure(t *test
 
 	if calls != 3 {
 		t.Fatalf("unexpected resolver calls: %d", calls)
+	}
+}
+
+func TestGetOrRefreshDomainCacheWithResolver_SelectsDNSGroup(t *testing.T) {
+	setupFeatureSuiteRouter(t)
+	if _, err := db.Exec("UPDATE settings SET value='10.10.10.10,10.10.10.11' WHERE key='dns_local'"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec("UPDATE settings SET value='20.20.20.20,20.20.20.21' WHERE key='dns_remote'"); err != nil {
+		t.Fatal(err)
+	}
+
+	oldResolve := resolveDomainIPv4WithTTLViaServers
+	defer func() { resolveDomainIPv4WithTTLViaServers = oldResolve }()
+
+	captured := make([][]string, 0, 2)
+	resolveDomainIPv4WithTTLViaServers = func(domain string, dnsServers []string) ([]string, int, error) {
+		copied := append([]string(nil), dnsServers...)
+		captured = append(captured, copied)
+		return []string{"1.1.1.1"}, 300, nil
+	}
+
+	if _, _, _, err := getOrRefreshDomainCacheWithResolver("example.com", resolverGroupRemote); err != nil {
+		t.Fatalf("remote resolve failed: %v", err)
+	}
+	if _, _, _, err := getOrRefreshDomainCacheWithResolver("example.org", resolverGroupLocal); err != nil {
+		t.Fatalf("local resolve failed: %v", err)
+	}
+
+	if len(captured) != 2 {
+		t.Fatalf("unexpected resolver calls: %d", len(captured))
+	}
+	if len(captured[0]) < 2 || captured[0][0] != "20.20.20.20" || captured[0][1] != "20.20.20.21" {
+		t.Fatalf("unexpected remote dns servers: %v", captured[0])
+	}
+	if len(captured[1]) < 2 || captured[1][0] != "10.10.10.10" || captured[1][1] != "10.10.10.11" {
+		t.Fatalf("unexpected local dns servers: %v", captured[1])
 	}
 }
 

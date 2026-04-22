@@ -1093,47 +1093,56 @@ func syncStaticRoutesToOSPF(mode string) {
 	}
 
 	if mode == "B" || mode == "C" {
-		geositeRows, err := db.Query("SELECT value FROM rules WHERE type='geosite' AND policy LIKE 'proxy%'")
+		geositeRows, err := db.Query("SELECT value, policy FROM rules WHERE type='geosite' AND (policy LIKE 'proxy%' OR policy LIKE 'direct%')")
 		if err != nil {
 			log.Printf("[OSPF] geosite rule query failed: %v", err)
 		} else {
-			var geositeTags []string
+			type geositeRule struct {
+				tag    string
+				policy string
+			}
+			var geositeRules []geositeRule
 			for geositeRows.Next() {
-				var tag string
-				if err := geositeRows.Scan(&tag); err != nil {
+				var rule geositeRule
+				if err := geositeRows.Scan(&rule.tag, &rule.policy); err != nil {
 					log.Printf("[OSPF] geosite row scan failed: %v", err)
 					continue
 				}
-				geositeTags = append(geositeTags, tag)
+				geositeRules = append(geositeRules, rule)
 			}
 			if err := geositeRows.Err(); err != nil {
 				log.Printf("[OSPF] geosite row iteration failed: %v", err)
 			}
 			geositeRows.Close()
-			for _, tag := range geositeTags {
-				tag = strings.ToLower(strings.TrimSpace(tag))
+			for _, rule := range geositeRules {
+				tag := strings.ToLower(strings.TrimSpace(rule.tag))
 				if tag == "" {
 					continue
+				}
+				resolverGroup := resolverGroupRemote
+				policy := strings.ToLower(strings.TrimSpace(rule.policy))
+				if strings.HasPrefix(policy, "direct") {
+					resolverGroup = resolverGroupLocal
 				}
 				if hasGeoIPTag(geoipPath, tag) {
 					ips := extractGeoIPs(geoipPath, tag)
 					for _, ip := range ips {
 						addRoute(ip, 999999999, "static_rule")
 					}
-					log.Printf("[OSPF] geosite %q matched geoip tag and expanded to %d CIDRs", tag, len(ips))
+					log.Printf("[OSPF] geosite %q (%s) matched geoip tag and expanded to %d CIDRs", tag, policy, len(ips))
 					continue
 				}
 
 				domains, skipped, err := getOrRefreshGeositeDomainCache(tag)
 				if err != nil {
-					log.Printf("[OSPF] geosite %q cache failed: %v", tag, err)
+					log.Printf("[OSPF] geosite %q (%s) cache failed: %v", tag, policy, err)
 					continue
 				}
 				resolvedIPs := 0
 				for _, domain := range domains {
-					ips, ttl, _, err := getOrRefreshDomainCache(domain)
+					ips, ttl, _, err := getOrRefreshDomainCacheWithResolver(domain, resolverGroup)
 					if err != nil {
-						log.Printf("[OSPF] geosite %q resolve %q failed: %v", tag, domain, err)
+						log.Printf("[OSPF] geosite %q (%s) resolve %q failed: %v", tag, policy, domain, err)
 						continue
 					}
 					for _, ip := range ips {
@@ -1141,28 +1150,37 @@ func syncStaticRoutesToOSPF(mode string) {
 						resolvedIPs++
 					}
 				}
-				log.Printf("[OSPF] geosite %q resolved %d domains into %d IPv4 routes (skipped_non_domain=%d)", tag, len(domains), resolvedIPs, skipped)
+				log.Printf("[OSPF] geosite %q (%s) resolved %d domains into %d IPv4 routes (skipped_non_domain=%d, dns_group=%s)", tag, policy, len(domains), resolvedIPs, skipped, resolverGroup)
 			}
 		}
 
-		domainRows, err := db.Query("SELECT value FROM rules WHERE type='domain' AND policy LIKE 'proxy%'")
+		domainRows, err := db.Query("SELECT value, policy FROM rules WHERE type='domain' AND (policy LIKE 'proxy%' OR policy LIKE 'direct%')")
 		if err == nil {
-			var domains []string
+			type domainRule struct {
+				domain string
+				policy string
+			}
+			var domains []domainRule
 			for domainRows.Next() {
-				var domain string
-				if err := domainRows.Scan(&domain); err == nil {
-					domains = append(domains, domain)
+				var rule domainRule
+				if err := domainRows.Scan(&rule.domain, &rule.policy); err == nil {
+					domains = append(domains, rule)
 				}
 			}
 			domainRows.Close()
-			for _, domain := range domains {
-				ips, ttl, _, err := getOrRefreshDomainCache(domain)
+			for _, rule := range domains {
+				resolverGroup := resolverGroupRemote
+				policy := strings.ToLower(strings.TrimSpace(rule.policy))
+				if strings.HasPrefix(policy, "direct") {
+					resolverGroup = resolverGroupLocal
+				}
+				ips, ttl, _, err := getOrRefreshDomainCacheWithResolver(rule.domain, resolverGroup)
 				if err != nil {
-					log.Printf("[OSPF] domain %q resolve failed: %v", domain, err)
+					log.Printf("[OSPF] domain %q (%s) resolve failed: %v", rule.domain, policy, err)
 					continue
 				}
 				for _, ip := range ips {
-					addRoute(ip, ttl, domain)
+					addRoute(ip, ttl, rule.domain)
 				}
 			}
 		}
