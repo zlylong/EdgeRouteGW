@@ -1,14 +1,43 @@
 package main
 
 import (
+	"fmt"
 	"log"
 	"net"
 	"net/http"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 )
+
+func splitRuleBatchValues(raw string) []string {
+	normalized := strings.NewReplacer("，", ",", "\n", ",", "\r", ",", "\t", ",").Replace(raw)
+	parts := strings.Split(normalized, ",")
+	seen := make(map[string]struct{}, len(parts))
+	values := make([]string, 0, len(parts))
+	for _, part := range parts {
+		value := strings.TrimSpace(part)
+		if value == "" {
+			continue
+		}
+		if _, ok := seen[value]; ok {
+			continue
+		}
+		seen[value] = struct{}{}
+		values = append(values, value)
+	}
+	return values
+}
+
+func newRuleGroupID() string {
+	return fmt.Sprintf("rg-%x", time.Now().UnixNano())
+}
+
+func rulesContainBatchSeparator(raw string) bool {
+	return strings.ContainsAny(raw, ",，\n\r\t")
+}
 
 func registerRuleRoutes(api *gin.RouterGroup) {
 	api.GET("/rules/categories", func(c *gin.Context) {
@@ -93,7 +122,7 @@ func registerRuleRoutes(api *gin.RouterGroup) {
 	})
 
 	api.GET("/rules", func(c *gin.Context) {
-		rows, err := db.Query("SELECT id, type, value, policy FROM rules")
+		rows, err := db.Query("SELECT id, type, value, policy, COALESCE(group_id, '') FROM rules ORDER BY id ASC")
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "db query error"})
 			return
@@ -102,11 +131,11 @@ func registerRuleRoutes(api *gin.RouterGroup) {
 		var rules []map[string]interface{}
 		for rows.Next() {
 			var id int
-			var rtype, value, policy string
-			if err := rows.Scan(&id, &rtype, &value, &policy); err != nil {
+			var rtype, value, policy, groupID string
+			if err := rows.Scan(&id, &rtype, &value, &policy, &groupID); err != nil {
 				continue
 			}
-			rules = append(rules, map[string]interface{}{"id": id, "type": rtype, "value": value, "policy": policy})
+			rules = append(rules, map[string]interface{}{"id": id, "type": rtype, "value": value, "policy": policy, "group_id": groupID})
 		}
 		if err := rows.Err(); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "db rows error"})
@@ -142,26 +171,55 @@ func registerRuleRoutes(api *gin.RouterGroup) {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid rule type"})
 			return
 		}
+
+		values := []string{r.Value}
+		if r.Type == "domain" {
+			values = splitRuleBatchValues(r.Value)
+			if len(values) == 0 {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "type/value/policy required"})
+				return
+			}
+			for _, value := range values {
+				if _, err := parseDomainRulePattern(value); err != nil {
+					c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+					return
+				}
+				if currentMode() != "A" && isWildcardDomainRuleValue(value) {
+					c.JSON(http.StatusBadRequest, gin.H{"error": "wildcard domain rules (*.example.com / **.example.com) only support Mode A; Mode B/C cannot expand them into OSPF static routes"})
+					return
+				}
+			}
+		} else if rulesContainBatchSeparator(r.Value) {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "only domain rules support comma-separated batch add"})
+			return
+		}
+
 		if r.Type == "ip" && !isValidIPOrCIDR(r.Value) {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid ip/cidr rule value"})
 			return
-		}
-		if r.Type == "domain" {
-			if _, err := parseDomainRulePattern(r.Value); err != nil {
-				c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-				return
-			}
-			if currentMode() != "A" && isWildcardDomainRuleValue(r.Value) {
-				c.JSON(http.StatusBadRequest, gin.H{"error": "wildcard domain rules (*.example.com / **.example.com) only support Mode A; Mode B/C cannot expand them into OSPF static routes"})
-				return
-			}
 		}
 		if r.Policy != "direct" && r.Policy != "block" && !strings.HasPrefix(r.Policy, "proxy") {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid policy"})
 			return
 		}
 
-		if _, err := db.Exec("INSERT INTO rules (type, value, policy) VALUES (?, ?, ?)", r.Type, r.Value, r.Policy); err != nil {
+		groupID := ""
+		if r.Type == "domain" && len(values) > 1 {
+			groupID = newRuleGroupID()
+		}
+		tx, err := db.Begin()
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "db error"})
+			return
+		}
+		for _, value := range values {
+			if _, err := tx.Exec("INSERT INTO rules (type, value, policy, group_id) VALUES (?, ?, ?, ?)", r.Type, value, r.Policy, groupID); err != nil {
+				_ = tx.Rollback()
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "db error"})
+				return
+			}
+		}
+		if err := tx.Commit(); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "db error"})
 			return
 		}
@@ -170,7 +228,36 @@ func registerRuleRoutes(api *gin.RouterGroup) {
 			log.Printf("[WARN] dynamic rule apply failed, fallback to scheduled apply: %v", err)
 			scheduleApplyFallbackIfRuntimeReady(needMosdns)
 		}
-		c.JSON(http.StatusOK, gin.H{"success": true})
+		c.JSON(http.StatusOK, gin.H{"success": true, "count": len(values), "group_id": groupID})
+	})
+
+	api.DELETE("/rules/group/:group_id", func(c *gin.Context) {
+		groupID := strings.TrimSpace(c.Param("group_id"))
+		if groupID == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "group_id required"})
+			return
+		}
+		var domainCount int
+		if err := db.QueryRow("SELECT COUNT(*) FROM rules WHERE group_id=? AND type='domain'", groupID).Scan(&domainCount); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "db error"})
+			return
+		}
+		res, err := db.Exec("DELETE FROM rules WHERE group_id=?", groupID)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "db error"})
+			return
+		}
+		affected, _ := res.RowsAffected()
+		if affected == 0 {
+			c.JSON(http.StatusNotFound, gin.H{"error": "group not found"})
+			return
+		}
+		needMosdns := domainCount > 0
+		if err := applyRuleChangeDynamically(needMosdns); err != nil {
+			log.Printf("[WARN] dynamic rule group delete apply failed, fallback to scheduled apply: %v", err)
+			scheduleApplyFallbackIfRuntimeReady(needMosdns)
+		}
+		c.JSON(http.StatusOK, gin.H{"success": true, "deleted": affected})
 	})
 
 	api.DELETE("/rules/:id", func(c *gin.Context) {

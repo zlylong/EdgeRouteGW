@@ -25,7 +25,7 @@ func setupTestDB(t *testing.T) (*sql.DB, string) {
 	}
 	stmts := []string{
 		`CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT);`,
-		`CREATE TABLE rules (id INTEGER PRIMARY KEY AUTOINCREMENT, type TEXT, value TEXT, policy TEXT);`,
+		`CREATE TABLE rules (id INTEGER PRIMARY KEY AUTOINCREMENT, type TEXT, value TEXT, policy TEXT, group_id TEXT NOT NULL DEFAULT '');`,
 		`CREATE TABLE nodes (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, grp TEXT, type TEXT, address TEXT, port INTEGER, uuid TEXT, params TEXT, active BOOLEAN DEFAULT 1, ping INTEGER DEFAULT 0);`,
 	}
 	for _, s := range stmts {
@@ -171,6 +171,66 @@ func TestRulesAllowWildcardDomainInModeA(t *testing.T) {
 	}
 	if count != 1 {
 		t.Fatalf("unexpected count: %d", count)
+	}
+}
+
+func TestRulesBatchCreateAndDeleteGroup(t *testing.T) {
+	r := setupTestRouter(t)
+	if _, err := db.Exec(`INSERT OR REPLACE INTO settings(key,value) VALUES('mode','A')`); err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest(http.MethodPost, "/api/rules", strings.NewReader(`{"Type":"domain","Value":"a.com, b.com，c.com","Policy":"proxy"}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer test-token")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("want 200 got %d body=%s", w.Code, w.Body.String())
+	}
+	var resp map[string]interface{}
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatal(err)
+	}
+	if int(resp["count"].(float64)) != 3 {
+		t.Fatalf("unexpected count: %v", resp)
+	}
+	groupID, _ := resp["group_id"].(string)
+	if groupID == "" {
+		t.Fatalf("missing group_id: %v", resp)
+	}
+	rows, err := db.Query(`SELECT value, group_id FROM rules WHERE value IN ('a.com','b.com','c.com') ORDER BY value`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	seen := 0
+	for rows.Next() {
+		var value, gotGroup string
+		if err := rows.Scan(&value, &gotGroup); err != nil {
+			t.Fatal(err)
+		}
+		if gotGroup != groupID {
+			t.Fatalf("rule %s unexpected group_id %q want %q", value, gotGroup, groupID)
+		}
+		seen++
+	}
+	if seen != 3 {
+		t.Fatalf("unexpected inserted rows: %d", seen)
+	}
+
+	delReq := httptest.NewRequest(http.MethodDelete, "/api/rules/group/"+groupID, nil)
+	delReq.Header.Set("Authorization", "Bearer test-token")
+	delW := httptest.NewRecorder()
+	r.ServeHTTP(delW, delReq)
+	if delW.Code != http.StatusOK {
+		t.Fatalf("want 200 got %d body=%s", delW.Code, delW.Body.String())
+	}
+	var left int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM rules WHERE group_id=?`, groupID).Scan(&left); err != nil {
+		t.Fatal(err)
+	}
+	if left != 0 {
+		t.Fatalf("group delete failed, left=%d", left)
 	}
 }
 
