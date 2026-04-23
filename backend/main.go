@@ -1668,7 +1668,11 @@ func applyMosdnsConfig() error {
 		for dRows.Next() {
 			var d string
 			if err := dRows.Scan(&d); err == nil {
-				proxyDomains = append(proxyDomains, d)
+				if normalized, ok := mosdnsRuleDomainValue(d); ok {
+					proxyDomains = append(proxyDomains, normalized)
+				} else if strings.Contains(d, "*") {
+					log.Printf("[INFO] skip wildcard domain %q from mosdns proxy_domain set; runtime match still handled by xray", d)
+				}
 			}
 		}
 		if err := dRows.Err(); err != nil {
@@ -1864,8 +1868,16 @@ func applyXrayConfigInternal(restart bool) error {
 			rule["outboundTag"] = policy
 		}
 
-		if rtype == "geosite" || rtype == "domain" {
-			rule["domain"] = []string{rtype + ":" + value}
+		if rtype == "domain" {
+			domainValues, err := buildXrayDomainRuleValues(value)
+			if err != nil {
+				log.Printf("[WARN] skip invalid domain rule %q: %v", value, err)
+				continue
+			}
+			rule["domain"] = domainValues
+			rules = append(rules, rule)
+		} else if rtype == "geosite" {
+			rule["domain"] = []string{"geosite:" + value}
 			rules = append(rules, rule)
 		} else if rtype == "geoip" || rtype == "ip" || rtype == "geolocation" {
 			if rtype == "ip" {

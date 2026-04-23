@@ -127,13 +127,50 @@ func TestRulesAuthorized(t *testing.T) {
 
 func TestLoginRejectWrongPassword(t *testing.T) {
 	r := setupTestRouter(t)
-	body := `{"Password":"wrong"}`
+	body := `{"Password": "***"}`
 	req := httptest.NewRequest(http.MethodPost, "/api/login", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 	if w.Code != http.StatusUnauthorized {
 		t.Fatalf("want 401 got %d", w.Code)
+	}
+}
+
+func TestRulesRejectWildcardDomainOutsideModeA(t *testing.T) {
+	r := setupTestRouter(t)
+	req := httptest.NewRequest(http.MethodPost, "/api/rules", strings.NewReader(`{"Type":"domain","Value":"*.c.com","Policy":"proxy"}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer test-token")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("want 400 got %d body=%s", w.Code, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), "Mode A") {
+		t.Fatalf("unexpected body: %s", w.Body.String())
+	}
+}
+
+func TestRulesAllowWildcardDomainInModeA(t *testing.T) {
+	r := setupTestRouter(t)
+	if _, err := db.Exec(`INSERT OR REPLACE INTO settings(key,value) VALUES('mode','A')`); err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest(http.MethodPost, "/api/rules", strings.NewReader(`{"Type":"domain","Value":"*.c.com","Policy":"proxy"}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer test-token")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("want 200 got %d body=%s", w.Code, w.Body.String())
+	}
+	var count int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM rules WHERE type='domain' AND value='*.c.com'`).Scan(&count); err != nil {
+		t.Fatal(err)
+	}
+	if count != 1 {
+		t.Fatalf("unexpected count: %d", count)
 	}
 }
 

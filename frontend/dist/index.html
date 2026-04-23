@@ -670,52 +670,59 @@ PersistentKeepalive = 25
 
                     <div v-else-if="activeTab === 'rules'" key="rules">
                         
-                        <div class="bg-white p-4 rounded-lg shadow mb-4 flex items-end space-x-4">
-                            <div>
-                                <label class="block text-sm font-medium text-gray-700 mb-1">规则类型</label>
-                                <select v-model="newRule.type" class="border border-gray-300 rounded px-3 py-2 w-40">
-                                    <option value="domain">Domain (域名)</option>
-                                    <option value="geosite">Geosite (站点集)</option>
-                                    <option value="ip">IP (IP地址/CIDR)</option>
-                                    <option value="geoip">GeoIP (IP集)</option>
-                                </select>
+                        <div class="bg-white p-4 rounded-lg shadow mb-4 space-y-3">
+                            <div class="flex items-end space-x-4">
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700 mb-1">规则类型</label>
+                                    <select v-model="newRule.type" class="border border-gray-300 rounded px-3 py-2 w-40">
+                                        <option value="domain">Domain (域名)</option>
+                                        <option value="geosite">Geosite (站点集)</option>
+                                        <option value="ip">IP (IP地址/CIDR)</option>
+                                        <option value="geoip">GeoIP (IP集)</option>
+                                    </select>
+                                </div>
+                                <div class="flex-1">
+                                    <label class="block text-sm font-medium text-gray-700 mb-1">匹配值</label>
+                                    <input v-model="newRule.value" @focus="handleRuleValueFocus" @blur="handleRuleValueBlur" list="ruleSuggestions" type="text" class="border border-gray-300 rounded px-3 py-2 w-full" :placeholder="ruleValuePlaceholder">
+                                    <datalist id="ruleSuggestions">
+                                        <template v-if="newRule.type === 'geosite'">
+                                            <option v-for="tag in categories.geosite" :key="tag" :value="tag">{{ tag }}</option>
+                                        </template>
+                                        <template v-if="newRule.type === 'geoip'">
+                                            <option v-for="tag in categories.geoip" :key="tag" :value="tag">{{ tag }}</option>
+                                        </template>
+                                    </datalist>
+                                </div>
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700 mb-1">路由策略</label>
+                                    <select v-model="newRule.action" class="border border-gray-300 rounded px-3 py-2 w-40">
+                                        <option value="proxy">全局代理 (Proxy)</option>
+                                        <option value="direct">直连 (Direct)</option>
+                                        <option value="block">拦截 (Block)</option>
+                                        <option value="node">指定单节点</option>
+                                        <option value="ha">主备容灾 (HA)</option>
+                                    </select>
+                                </div>
+                                <div v-if="newRule.action === 'node' || newRule.action === 'ha'">
+                                    <label class="block text-sm font-medium text-gray-700 mb-1">主用节点</label>
+                                    <select v-model="newRule.primary" class="border border-gray-300 rounded px-3 py-2 w-40">
+                                        <option v-for="node in nodes" :key="node.id" :value="node.id">{{ node.name }}</option>
+                                    </select>
+                                </div>
+                                <div v-if="newRule.action === 'ha'">
+                                    <label class="block text-sm font-medium text-gray-700 mb-1">备用节点 (Fallback)</label>
+                                    <select v-model="newRule.standby" class="border border-gray-300 rounded px-3 py-2 w-40">
+                                        <option v-for="node in nodes" :key="node.id" :value="node.id">{{ node.name }}</option>
+                                    </select>
+                                </div>
+                                <div>
+                                    <button @click="addRule" :disabled="!!ruleValidationError" class="bg-blue-600 text-white px-4 py-2 rounded shadow hover:bg-blue-700 h-[42px] disabled:opacity-50 disabled:cursor-not-allowed"><i class="fa-solid fa-plus mr-2"></i>添加规则</button>
+                                </div>
                             </div>
-                            <div class="flex-1">
-                                <label class="block text-sm font-medium text-gray-700 mb-1">匹配值 (如 google.com, cn, 8.8.8.8/32)</label>
-                                <input v-model="newRule.value" @focus="handleRuleValueFocus" @blur="handleRuleValueBlur" list="ruleSuggestions" type="text" class="border border-gray-300 rounded px-3 py-2 w-full" placeholder="输入或选择匹配值...">
-                                <datalist id="ruleSuggestions">
-                                    <template v-if="newRule.type === 'geosite'">
-                                        <option v-for="tag in categories.geosite" :key="tag" :value="tag">{{ tag }}</option>
-                                    </template>
-                                    <template v-if="newRule.type === 'geoip'">
-                                        <option v-for="tag in categories.geoip" :key="tag" :value="tag">{{ tag }}</option>
-                                    </template>
-                                </datalist>
-                            </div>
-                            <div>
-                                <label class="block text-sm font-medium text-gray-700 mb-1">路由策略</label>
-                                <select v-model="newRule.action" class="border border-gray-300 rounded px-3 py-2 w-40">
-                                    <option value="proxy">全局代理 (Proxy)</option>
-                                    <option value="direct">直连 (Direct)</option>
-                                    <option value="block">拦截 (Block)</option>
-                                    <option value="node">指定单节点</option>
-                                    <option value="ha">主备容灾 (HA)</option>
-                                </select>
-                            </div>
-                            <div v-if="newRule.action === 'node' || newRule.action === 'ha'">
-                                <label class="block text-sm font-medium text-gray-700 mb-1">主用节点</label>
-                                <select v-model="newRule.primary" class="border border-gray-300 rounded px-3 py-2 w-40">
-                                    <option v-for="node in nodes" :key="node.id" :value="node.id">{{ node.name }}</option>
-                                </select>
-                            </div>
-                            <div v-if="newRule.action === 'ha'">
-                                <label class="block text-sm font-medium text-gray-700 mb-1">备用节点 (Fallback)</label>
-                                <select v-model="newRule.standby" class="border border-gray-300 rounded px-3 py-2 w-40">
-                                    <option v-for="node in nodes" :key="node.id" :value="node.id">{{ node.name }}</option>
-                                </select>
-                            </div>
-                            <div>
-                                <button @click="addRule" class="bg-blue-600 text-white px-4 py-2 rounded shadow hover:bg-blue-700 h-[42px]"><i class="fa-solid fa-plus mr-2"></i>添加规则</button>
+                            <div class="text-xs space-y-1">
+                                <div class="text-gray-500">普通域名 `c.com` = 根域 + 任意层子域；`**.c.com` 与其等价；`*.c.com` = 根域 + 零或一层子域，仅 Mode A 支持。</div>
+                                <div v-if="newRule.type === 'domain' && sysStatus.mode !== 'A'" class="text-amber-600">当前 {{ sysStatus.mode === 'B' ? 'Mode B' : 'Mode C' }} 不允许 wildcard 域名规则，因为无法展开为 OSPF 静态路由。</div>
+                                <div v-if="ruleValidationError" class="text-red-600">{{ ruleValidationError }}</div>
                             </div>
                         </div>
 
@@ -1996,24 +2003,52 @@ Mode C: 纯OSPF (恢复真实IP宣告)`)) {
                 const toggleNode = async (id) => { await apiFetch(`/api/nodes/${id}/toggle`, {method: 'PUT'}); loadData(); };
 
                 const newRule = ref({ type: 'domain', value: '', action: 'proxy', primary: '', standby: '', policy: 'proxy' });
+                const wildcardDomainRulePattern = /^(?:\*\*|\*)\.[a-z0-9.-]+$/i;
+                const ruleValuePlaceholder = computed(() => {
+                    if (newRule.value.type === 'domain') return '如 c.com、**.c.com、*.c.com';
+                    if (newRule.value.type === 'geoip') return '如 cn、!cn';
+                    if (newRule.value.type === 'geosite') return '如 google、gfw';
+                    return '如 8.8.8.8/32';
+                });
+                const ruleValidationError = computed(() => {
+                    const value = (newRule.value.value || '').trim();
+                    if (!value) return '';
+                    if (newRule.value.type === 'domain') {
+                        const normalized = value.replace(/\.+$/, '').toLowerCase();
+                        if (normalized.includes('*') && !wildcardDomainRulePattern.test(normalized)) {
+                            return '域名 wildcard 仅支持 *.example.com 或 **.example.com';
+                        }
+                        if ((normalized.startsWith('*.') || normalized.startsWith('**.')) && sysStatus.value.mode !== 'A') {
+                            return 'wildcard 域名规则仅支持 Mode A';
+                        }
+                    }
+                    return '';
+                });
                 const isRuleValueEditing = ref(false);
                 const handleRuleValueFocus = () => { isRuleValueEditing.value = true; };
                 const handleRuleValueBlur = () => {
                     setTimeout(() => { isRuleValueEditing.value = false; }, 120);
                 };
                 const addRule = async () => {
-                    if(!newRule.value.value) return showToast("匹配值不能为空");
+                    const trimmedValue = (newRule.value.value || '').trim();
+                    if(!trimmedValue) return showToast("匹配值不能为空", 'error');
+                    if(ruleValidationError.value) return showToast(ruleValidationError.value, 'error');
                     let finalPolicy = newRule.value.action;
                     if(finalPolicy === 'node') {
-                        if(!newRule.value.primary) return showToast("请选择指定节点");
+                        if(!newRule.value.primary) return showToast("请选择指定节点", 'error');
                         finalPolicy = 'proxy-' + newRule.value.primary;
                     } else if(finalPolicy === 'ha') {
-                        if(!newRule.value.primary || !newRule.value.standby) return showToast("请选择主备节点");
-                        if(newRule.value.primary === newRule.value.standby) return showToast("主备节点不能相同");
+                        if(!newRule.value.primary || !newRule.value.standby) return showToast("请选择主备节点", 'error');
+                        if(newRule.value.primary === newRule.value.standby) return showToast("主备节点不能相同", 'error');
                         finalPolicy = 'ha-' + newRule.value.primary + '-' + newRule.value.standby;
                     }
-                    await apiFetch('/api/rules', { method: 'POST', body: JSON.stringify({ Type: newRule.value.type, Value: newRule.value.value, Policy: finalPolicy }) });
+                    const res = await apiFetch('/api/rules', { method: 'POST', body: JSON.stringify({ Type: newRule.value.type, Value: trimmedValue, Policy: finalPolicy }) });
+                    if(!res.ok) {
+                        const data = await res.json().catch(() => ({}));
+                        return showToast(data.error || `添加失败: HTTP ${res.status}`, 'error');
+                    }
                     newRule.value.value = '';
+                    showToast('规则已添加');
                     loadData();
                 };
                 const deleteRule = (id) => { customConfirm("删除此分流规则？", async () => { await apiFetch(`/api/rules/${id}`, {method: 'DELETE'}); loadData(); }); };
@@ -2050,7 +2085,7 @@ Mode C: 纯OSPF (恢复真实IP宣告)`)) {
                     showAclModal, aclForm, openAddAcl, saveAcl, deleteAcl, updateLanDefault,
                     currentConfigTab,
                     loadData,
-                    isSubmitting, isLoading, vlessParams, cron, saveCron, showPwdModal, pwdForm, logout, changePwd, toastMsg, toastType, confirmData, doConfirm, isUpdating, token, password, login, categories, geoQuery, showGeoSuggestions, geoSuggestionIndex, filteredGeoSuggestions, handleGeoInput, handleGeoInputBlur, moveGeoSuggestion, confirmGeoSuggestionOrQuery, applyGeoSuggestion, runGeoQuery, xrayConfigStr, mosdnsConfigStr, nftablesConfigStr, frrConfigStr, loadConfigs, newRule, handleRuleValueFocus, handleRuleValueBlur, addRule, activeTab, tabs, currentTabLabel, nodes, rules, dns, dnsLogs, ospf, ospfController, ospfControllerDirty, saveOspfController, sysStatus, applyConfig, toggleMode, changeMode, importNodeUrl, pingNodes, openAddNode, editNode, saveNode, showNodeModal, editingNode, deleteNode, toggleNode, deleteRule, saveDns, updateComp, showMosdnsRollbackModal, mosdnsVersions, selectedMosdnsRollbackVersion, openMosdnsRollbackModal, confirmMosdnsRollback, showRollbackModal, xrayVersions, selectedRollbackVersion, openRollbackModal, confirmRollback, remoteNodes, showRemoteNodeModal, showRemoteDetailsModal, selectedRemoteNode, remoteNodeForm, loadRemoteNodes, openAddRemoteNode, submitRemoteNode, viewRemoteNode, checkRemoteNode, confirmDeleteRemoteNode, copyText, importToLocal, isDeploying, showBatchModal, batchText, submitBatchNodes, showHistoryModal, nodeHistory, setDefaultNode, regenerateNode, loadNodeHistory, rollbackNode }
+                    isSubmitting, isLoading, vlessParams, cron, saveCron, showPwdModal, pwdForm, logout, changePwd, toastMsg, toastType, confirmData, doConfirm, isUpdating, token, password, login, categories, geoQuery, showGeoSuggestions, geoSuggestionIndex, filteredGeoSuggestions, handleGeoInput, handleGeoInputBlur, moveGeoSuggestion, confirmGeoSuggestionOrQuery, applyGeoSuggestion, runGeoQuery, xrayConfigStr, mosdnsConfigStr, nftablesConfigStr, frrConfigStr, loadConfigs, newRule, ruleValuePlaceholder, ruleValidationError, handleRuleValueFocus, handleRuleValueBlur, addRule, activeTab, tabs, currentTabLabel, nodes, rules, dns, dnsLogs, ospf, ospfController, ospfControllerDirty, saveOspfController, sysStatus, applyConfig, toggleMode, changeMode, importNodeUrl, pingNodes, openAddNode, editNode, saveNode, showNodeModal, editingNode, deleteNode, toggleNode, deleteRule, saveDns, updateComp, showMosdnsRollbackModal, mosdnsVersions, selectedMosdnsRollbackVersion, openMosdnsRollbackModal, confirmMosdnsRollback, showRollbackModal, xrayVersions, selectedRollbackVersion, openRollbackModal, confirmRollback, remoteNodes, showRemoteNodeModal, showRemoteDetailsModal, selectedRemoteNode, remoteNodeForm, loadRemoteNodes, openAddRemoteNode, submitRemoteNode, viewRemoteNode, checkRemoteNode, confirmDeleteRemoteNode, copyText, importToLocal, isDeploying, showBatchModal, batchText, submitBatchNodes, showHistoryModal, nodeHistory, setDefaultNode, regenerateNode, loadNodeHistory, rollbackNode }
             }
         }).mount('#app');
     </script>

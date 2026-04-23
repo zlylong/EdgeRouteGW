@@ -123,8 +123,14 @@ func syncXrayRoutingRulesDynamically() error {
 			"outboundTag": outboundTagForPolicy(policy, active, defaultID),
 		}
 		switch rtype {
-		case "domain", "geosite":
-			rule["domain"] = []string{rtype + ":" + value}
+		case "domain":
+			domainValues, err := buildXrayDomainRuleValues(value)
+			if err != nil {
+				continue
+			}
+			rule["domain"] = domainValues
+		case "geosite":
+			rule["domain"] = []string{"geosite:" + value}
 		case "ip":
 			rule["ip"] = []string{value}
 		case "geoip", "geolocation":

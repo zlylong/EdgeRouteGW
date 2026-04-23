@@ -146,6 +146,16 @@ func registerRuleRoutes(api *gin.RouterGroup) {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid ip/cidr rule value"})
 			return
 		}
+		if r.Type == "domain" {
+			if _, err := parseDomainRulePattern(r.Value); err != nil {
+				c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+				return
+			}
+			if currentMode() != "A" && isWildcardDomainRuleValue(r.Value) {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "wildcard domain rules (*.example.com / **.example.com) only support Mode A; Mode B/C cannot expand them into OSPF static routes"})
+				return
+			}
+		}
 		if r.Policy != "direct" && r.Policy != "block" && !strings.HasPrefix(r.Policy, "proxy") {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid policy"})
 			return

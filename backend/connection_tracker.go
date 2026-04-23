@@ -160,15 +160,6 @@ func targetHostOnly(target string) string {
 	return strings.Trim(t, "[]")
 }
 
-func isDomainMatch(host string, pattern string) bool {
-	host = strings.ToLower(strings.TrimSpace(host))
-	pattern = strings.ToLower(strings.TrimSpace(pattern))
-	if host == "" || pattern == "" {
-		return false
-	}
-	return host == pattern || strings.HasSuffix(host, "."+pattern)
-}
-
 func isIPRuleMatch(ipStr string, ruleValue string) bool {
 	ip := net.ParseIP(strings.TrimSpace(ipStr))
 	if ip == nil {
