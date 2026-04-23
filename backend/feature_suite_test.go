@@ -1,6 +1,7 @@
 package main
 
 import (
+	"container/ring"
 	"database/sql"
 	"encoding/base64"
 	"encoding/json"
@@ -503,6 +504,49 @@ func TestFeatureSuite_DNSRulesAndNodes(t *testing.T) {
 		}
 		if deletedCount != 0 {
 			t.Fatalf("expected node 2 deleted, count=%d", deletedCount)
+		}
+	})
+
+	t.Run("connections include matched rule metadata", func(t *testing.T) {
+		res, err := db.Exec("INSERT INTO rules(type, value, policy) VALUES ('domain', 'example.net', 'proxy')")
+		if err != nil {
+			t.Fatal(err)
+		}
+		ruleID64, err := res.LastInsertId()
+		if err != nil {
+			t.Fatal(err)
+		}
+		expectedRuleID := int(ruleID64)
+
+		connRingMutex.Lock()
+		connRing = ring.New(200)
+		connRing.Value = ConnectionRecord{
+			Time:    "2026/04/23 06:00:00",
+			Client:  "192.168.20.10:12345",
+			Network: "tcp",
+			Target:  "www.example.net:443",
+			Policy:  "proxy",
+		}
+		connRing = connRing.Next()
+		connRingMutex.Unlock()
+
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, authedRequest(http.MethodGet, "/api/connections?ip=192.168.20.10"))
+		if w.Code != http.StatusOK {
+			t.Fatalf("want 200 got %d", w.Code)
+		}
+		resp := decodeJSONMap(t, w.Body.Bytes())
+		data := resp["data"].([]interface{})
+		if len(data) != 1 {
+			t.Fatalf("unexpected connections payload: %v", resp)
+		}
+		item := data[0].(map[string]interface{})
+		ruleID, ok := item["rule_id"].(float64)
+		if !ok {
+			t.Fatalf("rule_id missing in connection metadata: %v", item)
+		}
+		if int(ruleID) != expectedRuleID || item["match_value"].(string) != "example.net" {
+			t.Fatalf("unexpected connection rule metadata: %v", item)
 		}
 	})
 
