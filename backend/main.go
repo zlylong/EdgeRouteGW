@@ -1243,16 +1243,6 @@ func initDB() {
 		log.Printf("[WARN] default data insert failed: %v", err)
 	}
 
-	var count int
-	if err := db.QueryRow("SELECT count(*) FROM rules").Scan(&count); err != nil && err != sql.ErrNoRows {
-		log.Printf("[WARN] SELECT count(*) FROM rules err: %v", err)
-	}
-	if count == 0 {
-		db.Exec("INSERT INTO rules (type, value, policy) VALUES ('geosite', 'cn', 'direct')")
-		db.Exec("INSERT INTO rules (type, value, policy) VALUES ('geosite', 'category-ads-all', 'block')")
-		db.Exec("INSERT INTO rules (type, value, policy) VALUES ('geolocation', '!cn', 'proxy')")
-	}
-
 	purgeDirtyRoutesTable()
 	db.Exec("UPDATE routes_table SET status='candidate' WHERE status='published'")
 
