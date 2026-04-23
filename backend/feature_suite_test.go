@@ -369,7 +369,8 @@ func TestFeatureSuite_DNSRulesAndNodes(t *testing.T) {
 		if list.Code != http.StatusOK {
 			t.Fatalf("want 200 got %d", list.Code)
 		}
-		arr := decodeJSONArray(t, list.Body.Bytes())
+		payload := decodeJSONMap(t, list.Body.Bytes())
+		arr := payload["rules"].([]interface{})
 		if len(arr) != 2 {
 			t.Fatalf("want 2 rules got %d", len(arr))
 		}

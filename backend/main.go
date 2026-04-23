@@ -1150,7 +1150,7 @@ func initDB() {
 			id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, grp TEXT, type TEXT, address TEXT, port INTEGER, uuid TEXT, active BOOLEAN DEFAULT 1, ping INTEGER DEFAULT 0
 		);`,
 		`CREATE TABLE IF NOT EXISTS rules (
-			id INTEGER PRIMARY KEY AUTOINCREMENT, type TEXT, value TEXT, policy TEXT, group_id TEXT NOT NULL DEFAULT ''
+			id INTEGER PRIMARY KEY AUTOINCREMENT, type TEXT, value TEXT, policy TEXT, group_id TEXT NOT NULL DEFAULT '', group_name TEXT NOT NULL DEFAULT ''
 		);`,
 		`CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT);`,
 		`CREATE TABLE IF NOT EXISTS lan_acls (
@@ -1201,6 +1201,9 @@ func initDB() {
 		log.Printf("[WARN] ALTER TABLE failed: %v", err)
 	}
 	if _, err := db.Exec("ALTER TABLE rules ADD COLUMN group_id TEXT NOT NULL DEFAULT ''"); err != nil && !strings.Contains(err.Error(), "duplicate column name") {
+		log.Printf("[WARN] ALTER TABLE failed: %v", err)
+	}
+	if _, err := db.Exec("ALTER TABLE rules ADD COLUMN group_name TEXT NOT NULL DEFAULT ''"); err != nil && !strings.Contains(err.Error(), "duplicate column name") {
 		log.Printf("[WARN] ALTER TABLE failed: %v", err)
 	}
 

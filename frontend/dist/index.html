@@ -695,6 +695,10 @@ PersistentKeepalive = 25
                                         </template>
                                     </datalist>
                                 </div>
+                                <div v-if="newRule.type === 'domain'" class="w-52">
+                                    <label class="block text-sm font-medium text-gray-700 mb-1">组备注</label>
+                                    <input v-model="newRule.group_name" type="text" class="border border-gray-300 rounded px-3 py-2 w-full" placeholder="批量添加时可选">
+                                </div>
                                 <div>
                                     <label class="block text-sm font-medium text-gray-700 mb-1">路由策略</label>
                                     <select v-model="newRule.action" class="border border-gray-300 rounded px-3 py-2 w-40">
@@ -721,6 +725,23 @@ PersistentKeepalive = 25
                                     <button @click="addRule" :disabled="!!ruleValidationError" class="bg-blue-600 text-white px-4 py-2 rounded shadow hover:bg-blue-700 h-[42px] disabled:opacity-50 disabled:cursor-not-allowed"><i class="fa-solid fa-plus mr-2"></i>添加规则</button>
                                 </div>
                             </div>
+                            <div class="flex items-end gap-3 flex-wrap border-t pt-3">
+                                <div class="w-56">
+                                    <label class="block text-sm font-medium text-gray-700 mb-1">按组筛选</label>
+                                    <select v-model="selectedRuleGroup" @change="loadRules" class="border border-gray-300 rounded px-3 py-2 w-full">
+                                        <option value="">全部规则</option>
+                                        <option v-for="group in ruleGroups" :key="group.group_id" :value="group.group_id">{{ group.group_name }} ({{ group.rule_count }})</option>
+                                    </select>
+                                </div>
+                                <div v-if="selectedRuleGroup" class="w-56">
+                                    <label class="block text-sm font-medium text-gray-700 mb-1">当前组备注</label>
+                                    <input v-model="editingRuleGroup" type="text" class="border border-gray-300 rounded px-3 py-2 w-full" placeholder="输入组备注">
+                                </div>
+                                <div v-if="selectedRuleGroup" class="flex items-center gap-2">
+                                    <button @click="saveRuleGroupName" class="bg-amber-600 text-white px-4 py-2 rounded shadow hover:bg-amber-700 h-[42px]">保存组备注</button>
+                                    <button @click="deleteRuleGroup(selectedRuleGroup)" class="bg-red-600 text-white px-4 py-2 rounded shadow hover:bg-red-700 h-[42px]">删除当前组</button>
+                                </div>
+                            </div>
                             <div class="text-xs space-y-1">
                                 <div class="text-gray-500">普通域名 `c.com` = 仅匹配根域；`**.c.com` = 根域 + 任意层子域；`*.c.com` = 根域 + 零或一层子域，仅 Mode A 支持。</div>
                                 <div class="text-gray-500">Domain 支持逗号/中文逗号分隔批量添加，系统会自动生成分组，便于整组删除。</div>
@@ -738,6 +759,7 @@ PersistentKeepalive = 25
                                         <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">匹配值</th>
                                         <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">匹配语义</th>
                                         <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">分组</th>
+                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">组备注</th>
                                         <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">策略绑定 (outbound)</th>
                                         <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">操作</th>
                                     </tr>
@@ -755,6 +777,10 @@ PersistentKeepalive = 25
                                             <span v-if="rule.group_id" class="px-2 py-1 rounded bg-amber-100 text-amber-800">{{ shortRuleGroup(rule.group_id) }}</span>
                                             <span v-else class="text-gray-400">—</span>
                                         </td>
+                                        <td class="px-6 py-4 whitespace-nowrap text-xs text-gray-700">
+                                            <span v-if="rule.group_id">{{ rule.group_name || shortRuleGroup(rule.group_id) }}</span>
+                                            <span v-else class="text-gray-400">—</span>
+                                        </td>
                                         <td class="px-6 py-4 whitespace-nowrap">
                                             <span class="px-2 py-1 rounded text-xs font-bold"
                                                   :class="{'bg-green-100 text-green-800': rule.policy==='direct', 'bg-blue-100 text-blue-800': rule.policy==='proxy' || rule.policy.startsWith('proxy-'), 'bg-red-100 text-red-800': rule.policy==='block', 'bg-purple-100 text-purple-800': rule.policy.startsWith('ha-')}">
@@ -770,7 +796,7 @@ PersistentKeepalive = 25
                                             <button @click="deleteRule(rule.id)" class="text-red-600 hover:text-red-900">删除</button>
                                         </td>
                                     </tr>
-                                    <tr v-if="rules.length === 0"><td colspan="7" class="px-6 py-4 text-center text-gray-500">暂无规则数据</td></tr>
+                                    <tr v-if="rules.length === 0"><td colspan="8" class="px-6 py-4 text-center text-gray-500">暂无规则数据</td></tr>
                                 </tbody>
                             </table>
                         </div>
@@ -1516,6 +1542,9 @@ window.onerror = function(msg, url, line, col, error) { alert("JS Error: " + msg
                 const nodes = ref([]);
 
                 const rules = ref([]);
+                const ruleGroups = ref([]);
+                const selectedRuleGroup = ref('');
+                const editingRuleGroup = ref('');
                 const categories = ref({ geosite: [], geoip: [] });
                 const geoQuery = ref({ input: '', loading: false, result: null });
                 const showGeoSuggestions = ref(false);
@@ -1929,7 +1958,7 @@ window.onerror = function(msg, url, line, col, error) { alert("JS Error: " + msg
                     if(token.value && activeTab.value === 'nodes') apiFetch('/api/nodes').then(r=>r.json()).then(d => nodes.value = d);
                     if(token.value && activeTab.value === 'remote_nodes') loadRemoteNodes();
                     if(token.value && (activeTab.value === 'rules' || activeTab.value === 'geo_query')) {
-                        if(activeTab.value === 'rules' && !isRuleValueEditing.value) apiFetch('/api/rules').then(r=>r.json()).then(d => rules.value = d);
+                        if(activeTab.value === 'rules' && !isRuleValueEditing.value) loadRules();
                         if(categories.value.geosite.length===0) apiFetch('/api/rules/categories').then(r=>r.json()).then(d => categories.value = d);
                     }
                     if(token.value && activeTab.value === 'ospf') apiFetch('/api/ospf').then(r=>r.json()).then(d => applyOspfPayload(d));
@@ -2016,9 +2045,29 @@ Mode C: 纯OSPF (恢复真实IP宣告)`)) {
                 const deleteNode = (id) => { customConfirm("删除此节点？", async () => { await apiFetch(`/api/nodes/${id}`, {method: 'DELETE'}); loadData(); }); };
                 const toggleNode = async (id) => { await apiFetch(`/api/nodes/${id}/toggle`, {method: 'PUT'}); loadData(); };
 
-                const newRule = ref({ type: 'domain', value: '', action: 'proxy', primary: '', standby: '', policy: 'proxy' });
+                const newRule = ref({ type: 'domain', value: '', action: 'proxy', primary: '', standby: '', policy: 'proxy', group_name: '' });
                 const wildcardDomainRulePattern = /^(?:\*\*|\*)\.[a-z0-9.-]+$/i;
                 const shortRuleGroup = (groupId) => groupId ? groupId.slice(0, 12) : '—';
+                const syncEditingRuleGroup = () => {
+                    const current = ruleGroups.value.find(group => group.group_id === selectedRuleGroup.value);
+                    editingRuleGroup.value = current ? (current.group_name || '') : '';
+                };
+                const loadRules = async () => {
+                    const suffix = selectedRuleGroup.value ? ('?group_id=' + encodeURIComponent(selectedRuleGroup.value)) : '';
+                    const res = await apiFetch('/api/rules' + suffix);
+                    if (!res.ok) {
+                        const data = await res.json().catch(() => ({}));
+                        showToast(data.error || '加载规则失败', 'error');
+                        return;
+                    }
+                    const data = await res.json().catch(() => ({}));
+                    rules.value = Array.isArray(data.rules) ? data.rules : [];
+                    ruleGroups.value = Array.isArray(data.groups) ? data.groups : [];
+                    if (selectedRuleGroup.value && !ruleGroups.value.some(group => group.group_id === selectedRuleGroup.value)) {
+                        selectedRuleGroup.value = '';
+                    }
+                    syncEditingRuleGroup();
+                };
                 const describeRulePattern = (rule) => {
                     const value = ((rule && rule.value) || '').trim().toLowerCase().replace(/\.+$/, '');
                     if (!value) return '—';
@@ -2067,13 +2116,14 @@ Mode C: 纯OSPF (恢复真实IP宣告)`)) {
                         if(newRule.value.primary === newRule.value.standby) return showToast("主备节点不能相同", 'error');
                         finalPolicy = 'ha-' + newRule.value.primary + '-' + newRule.value.standby;
                     }
-                    const res = await apiFetch('/api/rules', { method: 'POST', body: JSON.stringify({ Type: newRule.value.type, Value: trimmedValue, Policy: finalPolicy }) });
+                    const res = await apiFetch('/api/rules', { method: 'POST', body: JSON.stringify({ Type: newRule.value.type, Value: trimmedValue, Policy: finalPolicy, GroupName: newRule.value.group_name || '' }) });
                     if(!res.ok) {
                         const data = await res.json().catch(() => ({}));
                         return showToast(data.error || `添加失败: HTTP ${res.status}`, 'error');
                     }
                     const data = await res.json().catch(() => ({}));
                     newRule.value.value = '';
+                    newRule.value.group_name = '';
                     if ((data.count || 0) > 1 && data.group_id) {
                         showToast(`已批量添加 ${data.count} 条规则，并自动分组`, 'success');
                     } else {
@@ -2081,8 +2131,9 @@ Mode C: 纯OSPF (恢复真实IP宣告)`)) {
                     }
                     loadData();
                 };
-                const deleteRule = (id) => { customConfirm("删除此分流规则？", async () => { await apiFetch(`/api/rules/${id}`, {method: 'DELETE'}); loadData(); }); };
-                const deleteRuleGroup = (groupId) => { customConfirm(`删除分组 ${shortRuleGroup(groupId)} 下全部规则？`, async () => { const res = await apiFetch(`/api/rules/group/${groupId}`, {method: 'DELETE'}); if(!res.ok) { const data = await res.json().catch(() => ({})); showToast(data.error || '删组失败', 'error'); return; } showToast('分组规则已删除'); loadData(); }); };
+                const deleteRule = (id) => { customConfirm("删除此分流规则？", async () => { await apiFetch(`/api/rules/${id}`, {method: 'DELETE'}); loadRules(); }); };
+                const deleteRuleGroup = (groupId) => { customConfirm(`删除分组 ${shortRuleGroup(groupId)} 下全部规则？`, async () => { const res = await apiFetch(`/api/rules/group/${groupId}`, {method: 'DELETE'}); if(!res.ok) { const data = await res.json().catch(() => ({})); showToast(data.error || '删组失败', 'error'); return; } showToast('分组规则已删除'); if (selectedRuleGroup.value === groupId) selectedRuleGroup.value = ''; loadRules(); }); };
+                const saveRuleGroupName = async () => { if (!selectedRuleGroup.value) return; const res = await apiFetch(`/api/rules/group/${selectedRuleGroup.value}`, { method: 'PUT', body: JSON.stringify({ group_name: editingRuleGroup.value || '' }) }); if(!res.ok) { const data = await res.json().catch(() => ({})); return showToast(data.error || '保存组备注失败', 'error'); } showToast('组备注已保存'); loadRules(); };
 
                 const saveDns = async () => { await apiFetch('/api/dns', { method: 'POST', body: JSON.stringify({ Local: dns.value.local, Remote: dns.value.remote, Lazy: dns.value.lazy, Mode: dns.value.mode }) }); showToast("DNS 配置已保存！"); loadData(); }
                 const updateComp = async (comp) => { 
@@ -2116,7 +2167,7 @@ Mode C: 纯OSPF (恢复真实IP宣告)`)) {
                     showAclModal, aclForm, openAddAcl, saveAcl, deleteAcl, updateLanDefault,
                     currentConfigTab,
                     loadData,
-                    isSubmitting, isLoading, vlessParams, cron, saveCron, showPwdModal, pwdForm, logout, changePwd, toastMsg, toastType, confirmData, doConfirm, isUpdating, token, password, login, categories, geoQuery, showGeoSuggestions, geoSuggestionIndex, filteredGeoSuggestions, handleGeoInput, handleGeoInputBlur, moveGeoSuggestion, confirmGeoSuggestionOrQuery, applyGeoSuggestion, runGeoQuery, xrayConfigStr, mosdnsConfigStr, nftablesConfigStr, frrConfigStr, loadConfigs, newRule, shortRuleGroup, describeRulePattern, ruleValuePlaceholder, ruleValidationError, handleRuleValueFocus, handleRuleValueBlur, addRule, activeTab, tabs, currentTabLabel, nodes, rules, dns, dnsLogs, ospf, ospfController, ospfControllerDirty, saveOspfController, sysStatus, applyConfig, toggleMode, changeMode, importNodeUrl, pingNodes, openAddNode, editNode, saveNode, showNodeModal, editingNode, deleteNode, toggleNode, deleteRule, deleteRuleGroup, saveDns, updateComp, showMosdnsRollbackModal, mosdnsVersions, selectedMosdnsRollbackVersion, openMosdnsRollbackModal, confirmMosdnsRollback, showRollbackModal, xrayVersions, selectedRollbackVersion, openRollbackModal, confirmRollback, remoteNodes, showRemoteNodeModal, showRemoteDetailsModal, selectedRemoteNode, remoteNodeForm, loadRemoteNodes, openAddRemoteNode, submitRemoteNode, viewRemoteNode, checkRemoteNode, confirmDeleteRemoteNode, copyText, importToLocal, isDeploying, showBatchModal, batchText, submitBatchNodes, showHistoryModal, nodeHistory, setDefaultNode, regenerateNode, loadNodeHistory, rollbackNode }
+                    isSubmitting, isLoading, vlessParams, cron, saveCron, showPwdModal, pwdForm, logout, changePwd, toastMsg, toastType, confirmData, doConfirm, isUpdating, token, password, login, categories, geoQuery, showGeoSuggestions, geoSuggestionIndex, filteredGeoSuggestions, handleGeoInput, handleGeoInputBlur, moveGeoSuggestion, confirmGeoSuggestionOrQuery, applyGeoSuggestion, runGeoQuery, xrayConfigStr, mosdnsConfigStr, nftablesConfigStr, frrConfigStr, loadConfigs, newRule, ruleGroups, selectedRuleGroup, editingRuleGroup, shortRuleGroup, describeRulePattern, ruleValuePlaceholder, ruleValidationError, handleRuleValueFocus, handleRuleValueBlur, addRule, loadRules, saveRuleGroupName, activeTab, tabs, currentTabLabel, nodes, rules, dns, dnsLogs, ospf, ospfController, ospfControllerDirty, saveOspfController, sysStatus, applyConfig, toggleMode, changeMode, importNodeUrl, pingNodes, openAddNode, editNode, saveNode, showNodeModal, editingNode, deleteNode, toggleNode, deleteRule, deleteRuleGroup, saveDns, updateComp, showMosdnsRollbackModal, mosdnsVersions, selectedMosdnsRollbackVersion, openMosdnsRollbackModal, confirmMosdnsRollback, showRollbackModal, xrayVersions, selectedRollbackVersion, openRollbackModal, confirmRollback, remoteNodes, showRemoteNodeModal, showRemoteDetailsModal, selectedRemoteNode, remoteNodeForm, loadRemoteNodes, openAddRemoteNode, submitRemoteNode, viewRemoteNode, checkRemoteNode, confirmDeleteRemoteNode, copyText, importToLocal, isDeploying, showBatchModal, batchText, submitBatchNodes, showHistoryModal, nodeHistory, setDefaultNode, regenerateNode, loadNodeHistory, rollbackNode }
             }
         }).mount('#app');
     </script>

@@ -31,6 +31,31 @@ func splitRuleBatchValues(raw string) []string {
 	return values
 }
 
+func collectRuleGroups() []map[string]interface{} {
+	rows, err := db.Query(`SELECT group_id, COALESCE(NULLIF(group_name, ''), group_id) AS display_name, COUNT(*) AS rule_count FROM rules WHERE COALESCE(group_id, '') <> '' GROUP BY group_id, group_name ORDER BY MIN(id) ASC`)
+	if err != nil {
+		return []map[string]interface{}{}
+	}
+	defer rows.Close()
+	groups := make([]map[string]interface{}, 0)
+	for rows.Next() {
+		var groupID, displayName string
+		var ruleCount int
+		if err := rows.Scan(&groupID, &displayName, &ruleCount); err != nil {
+			continue
+		}
+		groups = append(groups, map[string]interface{}{
+			"group_id":   groupID,
+			"group_name": strings.TrimSpace(displayName),
+			"rule_count": ruleCount,
+		})
+	}
+	if groups == nil {
+		return []map[string]interface{}{}
+	}
+	return groups
+}
+
 func newRuleGroupID() string {
 	return fmt.Sprintf("rg-%x", time.Now().UnixNano())
 }
@@ -122,7 +147,15 @@ func registerRuleRoutes(api *gin.RouterGroup) {
 	})
 
 	api.GET("/rules", func(c *gin.Context) {
-		rows, err := db.Query("SELECT id, type, value, policy, COALESCE(group_id, '') FROM rules ORDER BY id ASC")
+		groupFilter := strings.TrimSpace(c.Query("group_id"))
+		query := "SELECT id, type, value, policy, COALESCE(group_id, ''), COALESCE(group_name, '') FROM rules"
+		args := make([]interface{}, 0, 1)
+		if groupFilter != "" {
+			query += " WHERE COALESCE(group_id, '') = ?"
+			args = append(args, groupFilter)
+		}
+		query += " ORDER BY id ASC"
+		rows, err := db.Query(query, args...)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "db query error"})
 			return
@@ -131,11 +164,11 @@ func registerRuleRoutes(api *gin.RouterGroup) {
 		var rules []map[string]interface{}
 		for rows.Next() {
 			var id int
-			var rtype, value, policy, groupID string
-			if err := rows.Scan(&id, &rtype, &value, &policy, &groupID); err != nil {
+			var rtype, value, policy, groupID, groupName string
+			if err := rows.Scan(&id, &rtype, &value, &policy, &groupID, &groupName); err != nil {
 				continue
 			}
-			rules = append(rules, map[string]interface{}{"id": id, "type": rtype, "value": value, "policy": policy, "group_id": groupID})
+			rules = append(rules, map[string]interface{}{"id": id, "type": rtype, "value": value, "policy": policy, "group_id": groupID, "group_name": groupName})
 		}
 		if err := rows.Err(); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "db rows error"})
@@ -148,11 +181,11 @@ func registerRuleRoutes(api *gin.RouterGroup) {
 		if rules == nil {
 			rules = make([]map[string]interface{}, 0)
 		}
-		c.JSON(http.StatusOK, rules)
+		c.JSON(http.StatusOK, gin.H{"rules": rules, "groups": collectRuleGroups()})
 	})
 
 	api.POST("/rules", func(c *gin.Context) {
-		var r struct{ Type, Value, Policy string }
+		var r struct{ Type, Value, Policy, GroupName string }
 		if c.BindJSON(&r) != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "bad request"})
 			return
@@ -161,6 +194,7 @@ func registerRuleRoutes(api *gin.RouterGroup) {
 		r.Type = strings.ToLower(strings.TrimSpace(r.Type))
 		r.Value = strings.TrimSpace(r.Value)
 		r.Policy = strings.ToLower(strings.TrimSpace(r.Policy))
+		r.GroupName = strings.TrimSpace(r.GroupName)
 		if r.Type == "" || r.Value == "" || r.Policy == "" {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "type/value/policy required"})
 			return
@@ -204,8 +238,10 @@ func registerRuleRoutes(api *gin.RouterGroup) {
 		}
 
 		groupID := ""
+		groupName := ""
 		if r.Type == "domain" && len(values) > 1 {
 			groupID = newRuleGroupID()
+			groupName = r.GroupName
 		}
 		tx, err := db.Begin()
 		if err != nil {
@@ -213,7 +249,7 @@ func registerRuleRoutes(api *gin.RouterGroup) {
 			return
 		}
 		for _, value := range values {
-			if _, err := tx.Exec("INSERT INTO rules (type, value, policy, group_id) VALUES (?, ?, ?, ?)", r.Type, value, r.Policy, groupID); err != nil {
+			if _, err := tx.Exec("INSERT INTO rules (type, value, policy, group_id, group_name) VALUES (?, ?, ?, ?, ?)", r.Type, value, r.Policy, groupID, groupName); err != nil {
 				_ = tx.Rollback()
 				c.JSON(http.StatusInternalServerError, gin.H{"error": "db error"})
 				return
@@ -228,7 +264,34 @@ func registerRuleRoutes(api *gin.RouterGroup) {
 			log.Printf("[WARN] dynamic rule apply failed, fallback to scheduled apply: %v", err)
 			scheduleApplyFallbackIfRuntimeReady(needMosdns)
 		}
-		c.JSON(http.StatusOK, gin.H{"success": true, "count": len(values), "group_id": groupID})
+		c.JSON(http.StatusOK, gin.H{"success": true, "count": len(values), "group_id": groupID, "group_name": groupName})
+	})
+
+	api.PUT("/rules/group/:group_id", func(c *gin.Context) {
+		groupID := strings.TrimSpace(c.Param("group_id"))
+		if groupID == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "group_id required"})
+			return
+		}
+		var payload struct {
+			GroupName string `json:"group_name"`
+		}
+		if c.BindJSON(&payload) != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "bad request"})
+			return
+		}
+		payload.GroupName = strings.TrimSpace(payload.GroupName)
+		res, err := db.Exec("UPDATE rules SET group_name=? WHERE group_id=?", payload.GroupName, groupID)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "db error"})
+			return
+		}
+		affected, _ := res.RowsAffected()
+		if affected == 0 {
+			c.JSON(http.StatusNotFound, gin.H{"error": "group not found"})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"success": true, "group_id": groupID, "group_name": payload.GroupName})
 	})
 
 	api.DELETE("/rules/group/:group_id", func(c *gin.Context) {
