@@ -2088,9 +2088,6 @@ Mode C: 纯OSPF (恢复真实IP宣告)`)) {
                             if (normalized.includes('*') && !wildcardDomainRulePattern.test(normalized)) {
                                 return '域名 wildcard 仅支持 *.example.com 或 **.example.com';
                             }
-                            if ((normalized.startsWith('*.') || normalized.startsWith('**.')) && sysStatus.value.mode !== 'A') {
-                                return 'wildcard 域名规则仅支持 Mode A';
-                            }
                         }
                     }
                     return '';
