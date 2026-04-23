@@ -326,6 +326,16 @@ func TestFeatureSuite_AuthConfigAndSystem(t *testing.T) {
 		if len(eventsResp["events"].([]interface{})) == 0 {
 			t.Fatalf("expected non-empty events payload: %v", eventsResp)
 		}
+
+		nftStats := httptest.NewRecorder()
+		r.ServeHTTP(nftStats, authedRequest(http.MethodGet, "/api/nftables/stats"))
+		if nftStats.Code != http.StatusOK {
+			t.Fatalf("want 200 got %d", nftStats.Code)
+		}
+		nftResp := decodeJSONMap(t, nftStats.Body.Bytes())
+		if nftResp["success"] != true {
+			t.Fatalf("unexpected nft stats payload: %v", nftResp)
+		}
 	})
 }
 

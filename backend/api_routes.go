@@ -44,6 +44,7 @@ func registerAPIRoutes(r *gin.Engine) {
 	registerRemoteNodeRoutes(authed)
 	registerSyslogsRoutes(authed)
 	registerEventRoutes(authed)
+	registerNftablesRoutes(authed)
 
 	authed.POST("/apply", func(c *gin.Context) {
 		var req struct {

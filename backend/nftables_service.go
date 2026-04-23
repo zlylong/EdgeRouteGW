@@ -46,22 +46,22 @@ table inet proxygw {
         ip6 daddr { ::1/128, fc00::/7, fe80::/10, ff00::/8 } return
 
         # LAN ACL overrides
-        ether saddr @mac_direct return
-        ip saddr @ip_direct return
-        ip6 saddr @ip6_direct return
+        ether saddr @mac_direct counter comment "acl_mac_direct" return
+        ip saddr @ip_direct counter comment "acl_ip_direct" return
+        ip6 saddr @ip6_direct counter comment "acl_ip6_direct" return
         
-        ether saddr @mac_proxy meta l4proto { tcp, udp } meta nfproto ipv4 mark set 1 tproxy ip to 127.0.0.1:12345 accept
-        ether saddr @mac_proxy meta l4proto { tcp, udp } meta nfproto ipv6 mark set 1 tproxy ip6 to [::1]:12345 accept
+        ether saddr @mac_proxy meta l4proto { tcp, udp } meta nfproto ipv4 counter comment "proxy_acl_mac_v4" mark set 1 tproxy ip to 127.0.0.1:12345 accept
+        ether saddr @mac_proxy meta l4proto { tcp, udp } meta nfproto ipv6 counter comment "proxy_acl_mac_v6" mark set 1 tproxy ip6 to [::1]:12345 accept
         
-        ip saddr @ip_proxy meta l4proto { tcp, udp } mark set 1 tproxy ip to 127.0.0.1:12345 accept
-        ip6 saddr @ip6_proxy meta l4proto { tcp, udp } mark set 1 tproxy ip6 to [::1]:12345 accept
+        ip saddr @ip_proxy meta l4proto { tcp, udp } counter comment "proxy_acl_ip_v4" mark set 1 tproxy ip to 127.0.0.1:12345 accept
+        ip6 saddr @ip6_proxy meta l4proto { tcp, udp } counter comment "proxy_acl_ip_v6" mark set 1 tproxy ip6 to [::1]:12345 accept
 
         # Default policy
         {{if eq .DefaultPolicy "proxy"}}
-        meta l4proto { tcp, udp } meta nfproto ipv4 mark set 1 tproxy ip to 127.0.0.1:12345 accept
-        meta l4proto { tcp, udp } meta nfproto ipv6 mark set 1 tproxy ip6 to [::1]:12345 accept
+        meta l4proto { tcp, udp } meta nfproto ipv4 counter comment "proxy_default_v4" mark set 1 tproxy ip to 127.0.0.1:12345 accept
+        meta l4proto { tcp, udp } meta nfproto ipv6 counter comment "proxy_default_v6" mark set 1 tproxy ip6 to [::1]:12345 accept
         {{else}}
-        return
+        counter comment "default_direct" return
         {{end}}
     }
 

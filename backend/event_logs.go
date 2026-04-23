@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -30,6 +31,11 @@ type gatewayEvent struct {
 	Duration  int64  `json:"duration_ms,omitempty"`
 	Details   string `json:"details,omitempty"`
 }
+
+var (
+	gatewayEventThrottleMu sync.Mutex
+	gatewayEventLastAt     = map[string]time.Time{}
+)
 
 func ensureGatewayEventTable() {
 	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS gateway_events (
@@ -131,6 +137,20 @@ func logGatewayEvent(level, module, eventType, message string, fields map[string
 	); err != nil {
 		log.Printf("[WARN] insert gateway_events failed: %v", err)
 	}
+}
+
+func logGatewayEventThrottled(throttleKey string, minInterval time.Duration, level, module, eventType, message string, fields map[string]interface{}) bool {
+	now := time.Now()
+	gatewayEventThrottleMu.Lock()
+	last, ok := gatewayEventLastAt[throttleKey]
+	if ok && now.Sub(last) < minInterval {
+		gatewayEventThrottleMu.Unlock()
+		return false
+	}
+	gatewayEventLastAt[throttleKey] = now
+	gatewayEventThrottleMu.Unlock()
+	logGatewayEvent(level, module, eventType, message, fields)
+	return true
 }
 
 func newTraceID() string {

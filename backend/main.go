@@ -2216,6 +2216,7 @@ func domainIPUpdater() {
 func main() {
 	initDB()
 	go startTrafficMonitor()
+	go startNftablesMonitor()
 	syncFRRConfig()
 	go ospfController()
 	go cronUpdater()
