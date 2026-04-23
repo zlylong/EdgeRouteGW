@@ -1,0 +1,84 @@
+commit 85e8cb958a62e61fe69f6af0a4f193f2cf7ee5a5
+Author: Hermes Agent <hermes@local>
+Date:   Thu Apr 23 18:12:19 2026 +0000
+
+    fix: match traced connections by resolved domain
+
+diff --git a/backend/connection_tracker.go b/backend/connection_tracker.go
+index 361bd28..2162e3b 100644
+--- a/backend/connection_tracker.go
++++ b/backend/connection_tracker.go
+@@ -241,6 +241,10 @@ func attachRuleMatchMeta(records []ConnectionRecord) []ConnectionRecord {
+ 			continue
+ 		}
+ 		parsedIP := net.ParseIP(host)
++		domainHost := strings.TrimSpace(records[i].TargetDomain)
++		if net.ParseIP(domainHost) != nil {
++			domainHost = ""
++		}
+ 		var geoipTags []string
+ 		var geositeTags []string
+ 		geoipLoaded := false
+@@ -250,7 +254,9 @@ func attachRuleMatchMeta(records []ConnectionRecord) []ConnectionRecord {
+ 			matched := false
+ 			switch rule.rtype {
+ 			case "domain":
+-				matched = isDomainMatch(host, rule.value)
++				if domainHost != "" {
++					matched = isDomainMatch(domainHost, rule.value)
++				}
+ 			case "ip":
+ 				matched = isIPRuleMatch(host, rule.value)
+ 			case "geoip", "geolocation":
+@@ -268,9 +274,9 @@ func attachRuleMatchMeta(records []ConnectionRecord) []ConnectionRecord {
+ 					}
+ 				}
+ 			case "geosite":
+-				if parsedIP == nil {
++				if domainHost != "" {
+ 					if !geositeLoaded {
+-						geositeTags = queryGeoSiteTagsByDomain(geositePath, host)
++						geositeTags = queryGeoSiteTagsByDomain(geositePath, domainHost)
+ 						geositeLoaded = true
+ 					}
+ 					for _, t := range geositeTags {
+diff --git a/backend/feature_suite_test.go b/backend/feature_suite_test.go
+index 4bc5bd7..e9bca46 100644
+--- a/backend/feature_suite_test.go
++++ b/backend/feature_suite_test.go
+@@ -555,7 +555,16 @@ func TestFeatureSuite_DNSRulesAndNodes(t *testing.T) {
+ 	})
+ 
+ 	t.Run("connections prefer mapped domain when target is ip", func(t *testing.T) {
+-		if _, err := db.Exec("INSERT OR REPLACE INTO routes_table(ip, domain, source, first_seen, last_seen, ttl, status, miss_count) VALUES (?, ?, 'static', datetime('now', '-10 seconds'), datetime('now'), 300, 'published', 0)", "203.0.113.9", "mapped.example.net"); err != nil {
++		res, err := db.Exec("INSERT INTO rules(type, value, policy) VALUES ('domain', 'mapped-only.trace.test', 'proxy')")
++		if err != nil {
++			t.Fatalf("insert mapped-domain rule: %v", err)
++		}
++		ruleID64, err := res.LastInsertId()
++		if err != nil {
++			t.Fatalf("last insert id: %v", err)
++		}
++		expectedRuleID := int(ruleID64)
++		if _, err := db.Exec("INSERT OR REPLACE INTO routes_table(ip, domain, source, first_seen, last_seen, ttl, status, miss_count) VALUES (?, ?, 'static', datetime('now', '-10 seconds'), datetime('now'), 300, 'published', 0)", "203.0.113.9", "mapped-only.trace.test"); err != nil {
+ 			t.Fatalf("seed routes_table: %v", err)
+ 		}
+ 		connRingMutex.Lock()
+@@ -581,9 +590,16 @@ func TestFeatureSuite_DNSRulesAndNodes(t *testing.T) {
+ 			t.Fatalf("unexpected connections payload: %v", resp)
+ 		}
+ 		item := data[0].(map[string]interface{})
+-		if item["target_domain"].(string) != "mapped.example.net" {
++		if item["target_domain"].(string) != "mapped-only.trace.test" {
+ 			t.Fatalf("unexpected mapped target_domain: %v", item)
+ 		}
++		ruleID, ok := item["rule_id"].(float64)
++		if !ok {
++			t.Fatalf("mapped rule_id missing: %v", item)
++		}
++		if int(ruleID) != expectedRuleID || item["match_value"].(string) != "mapped-only.trace.test" {
++			t.Fatalf("unexpected mapped connection rule metadata: %v", item)
++		}
+ 	})
+ 
+ 	t.Run("lan acl list returns seeded data", func(t *testing.T) {

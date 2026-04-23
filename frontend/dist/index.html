@@ -266,12 +266,13 @@
                                             <th class="p-3 border-b text-sm font-semibold text-gray-600">局域网客户端</th>
                                             <th class="p-3 border-b text-sm font-semibold text-gray-600">协议</th>
                                             <th class="p-3 border-b text-sm font-semibold text-gray-600">目标地址</th>
-                                            <th class="p-3 border-b text-sm font-semibold text-gray-600">路由策略</th>
+                                            <th class="p-3 border-b text-sm font-semibold text-gray-600">规则编号</th>
+                                            <th class="p-3 border-b text-sm font-semibold text-gray-600">规则匹配值</th>
                                         </tr>
                                     </thead>
                                     <tbody class="text-sm divide-y divide-gray-100">
                                         <tr v-if="filteredConnections.length === 0">
-                                            <td colspan="5" class="p-8 text-center text-gray-400">暂无连接数据...</td>
+                                            <td colspan="6" class="p-8 text-center text-gray-400">暂无连接数据...</td>
                                         </tr>
                                         <tr v-for="(conn, idx) in filteredConnections" :key="idx" class="hover:bg-blue-50 transition-colors">
                                             <td class="p-3 text-gray-500 font-mono text-xs">{{ conn.time }}</td>
@@ -283,20 +284,13 @@
                                                 </span>
                                             </td>
                                             <td class="p-3 text-gray-700 font-mono">{{ conn.target }}</td>
-                                            <td class="p-3">
-                                                <span class="px-2 py-1 rounded text-xs font-bold flex items-center inline-flex"
-                                                    :class="{
-                                                        'bg-green-100 text-green-700': conn.policy.includes('proxy'),
-                                                        'bg-gray-200 text-gray-700': conn.policy.includes('direct'),
-                                                        'bg-red-100 text-red-700': conn.policy.includes('block')
-                                                    }">
-                                                    <i class="fas mr-1" :class="{
-                                                        'fa-paper-plane': conn.policy.includes('proxy'),
-                                                        'fa-arrow-right': conn.policy.includes('direct'),
-                                                        'fa-ban': conn.policy.includes('block')
-                                                    }"></i>
-                                                    {{ conn.policy }}
-                                                </span>
+                                            <td class="p-3 text-blue-600 font-mono text-xs">
+                                                <a v-if="conn.rule_id" href="#" @click.prevent="activeTab='rules'; loadRules()" class="hover:underline">#{{ conn.rule_id }}</a>
+                                                <span v-else>-</span>
+                                            </td>
+                                            <td class="p-3 text-gray-500 font-mono text-xs">
+                                                <div class="font-bold text-gray-700">{{ conn.match_value || "-" }}</div>
+                                                <div v-if="conn.policy" class="text-[10px] text-gray-400">绑定策略: {{ conn.policy }}</div>
                                             </td>
                                         </tr>
                                     </tbody>
