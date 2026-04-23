@@ -266,6 +266,7 @@
                                             <th class="p-3 border-b text-sm font-semibold text-gray-600">局域网客户端</th>
                                             <th class="p-3 border-b text-sm font-semibold text-gray-600">协议</th>
                                             <th class="p-3 border-b text-sm font-semibold text-gray-600">目标地址</th>
+                                            <th class="p-3 border-b text-sm font-semibold text-gray-600">目标域名</th>
                                             <th class="p-3 border-b text-sm font-semibold text-gray-600">路由策略</th>
                                             <th class="p-3 border-b text-sm font-semibold text-gray-600">规则编号</th>
                                             <th class="p-3 border-b text-sm font-semibold text-gray-600">规则匹配值</th>
@@ -273,7 +274,7 @@
                                     </thead>
                                     <tbody class="text-sm divide-y divide-gray-100">
                                         <tr v-if="filteredConnections.length === 0">
-                                            <td colspan="7" class="p-8 text-center text-gray-400">暂无连接数据...</td>
+                                            <td colspan="8" class="p-8 text-center text-gray-400">暂无连接数据...</td>
                                         </tr>
                                         <tr v-for="(conn, idx) in filteredConnections" :key="idx" class="hover:bg-blue-50 transition-colors">
                                             <td class="p-3 text-gray-500 font-mono text-xs">{{ conn.time }}</td>
@@ -285,6 +286,7 @@
                                                 </span>
                                             </td>
                                             <td class="p-3 text-gray-700 font-mono">{{ conn.target }}</td>
+                                            <td class="p-3 text-gray-600 font-mono text-xs">{{ conn.target_domain || '-' }}</td>
                                             <td class="p-3">
                                                 <span class="px-2 py-1 rounded text-xs font-bold flex items-center inline-flex"
                                                     :class="{

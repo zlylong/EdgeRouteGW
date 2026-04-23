@@ -15,14 +15,15 @@ import (
 )
 
 type ConnectionRecord struct {
-	Time       string `json:"time"`
-	Client     string `json:"client"`
-	Network    string `json:"network"`
-	Target     string `json:"target"`
-	Policy     string `json:"policy"`
-	RuleID     int    `json:"rule_id,omitempty"`
-	RuleType   string `json:"rule_type,omitempty"`
-	MatchValue string `json:"match_value,omitempty"`
+	Time         string `json:"time"`
+	Client       string `json:"client"`
+	Network      string `json:"network"`
+	Target       string `json:"target"`
+	TargetDomain string `json:"target_domain,omitempty"`
+	Policy       string `json:"policy"`
+	RuleID       int    `json:"rule_id,omitempty"`
+	RuleType     string `json:"rule_type,omitempty"`
+	MatchValue   string `json:"match_value,omitempty"`
 }
 
 var (
@@ -209,6 +210,7 @@ func attachRuleMatchMeta(records []ConnectionRecord) []ConnectionRecord {
 
 	for i := range records {
 		host := targetHostOnly(records[i].Target)
+		records[i].TargetDomain = host
 		if host == "" {
 			continue
 		}
