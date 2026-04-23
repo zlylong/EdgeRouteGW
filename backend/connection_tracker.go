@@ -3,7 +3,6 @@ package main
 import (
 	"bufio"
 	"container/ring"
-	"net"
 	"net/http"
 	"os"
 	"regexp"
@@ -15,15 +14,11 @@ import (
 )
 
 type ConnectionRecord struct {
-	Time         string `json:"time"`
-	Client       string `json:"client"`
-	Network      string `json:"network"`
-	Target       string `json:"target"`
-	TargetDomain string `json:"target_domain,omitempty"`
-	Policy       string `json:"policy"`
-	RuleID       int    `json:"rule_id,omitempty"`
-	RuleType     string `json:"rule_type,omitempty"`
-	MatchValue   string `json:"match_value,omitempty"`
+	Time    string `json:"time"`
+	Client  string `json:"client"`
+	Network string `json:"network"`
+	Target  string `json:"target"`
+	Policy  string `json:"policy"`
 }
 
 var (
@@ -145,195 +140,6 @@ func StartConnectionTracker() {
 	}()
 }
 
-func targetHostOnly(target string) string {
-	t := strings.TrimSpace(target)
-	if t == "" {
-		return ""
-	}
-	if strings.Contains(t, ":") {
-		if h, _, err := net.SplitHostPort(t); err == nil {
-			return strings.Trim(h, "[]")
-		}
-		if idx := strings.LastIndex(t, ":"); idx > 0 {
-			return strings.Trim(t[:idx], "[]")
-		}
-	}
-	return strings.Trim(t, "[]")
-}
-
-func isIPRuleMatch(ipStr string, ruleValue string) bool {
-	ip := net.ParseIP(strings.TrimSpace(ipStr))
-	if ip == nil {
-		return false
-	}
-	v := strings.TrimSpace(ruleValue)
-	if v == "" {
-		return false
-	}
-	if strings.Contains(v, "/") {
-		_, cidr, err := net.ParseCIDR(v)
-		if err != nil || cidr == nil {
-			return false
-		}
-		return cidr.Contains(ip)
-	}
-	return ip.Equal(net.ParseIP(v))
-}
-
-func lookupRecentDomainByIP(ip string) string {
-	ip = strings.TrimSpace(ip)
-	if ip == "" {
-		return ""
-	}
-	targetIP := net.ParseIP(ip)
-	if targetIP == nil {
-		return ""
-	}
-	rows, err := db.Query("SELECT ip, COALESCE(domain, '') FROM routes_table WHERE COALESCE(domain, '') <> '' ORDER BY last_seen DESC")
-	if err != nil {
-		return ""
-	}
-	defer rows.Close()
-	bestDomain := ""
-	bestPrefix := -1
-	for rows.Next() {
-		var routeKey, domain string
-		if err := rows.Scan(&routeKey, &domain); err != nil {
-			continue
-		}
-		routeKey = strings.TrimSpace(routeKey)
-		domain = strings.TrimSpace(domain)
-		if routeKey == "" || domain == "" {
-			continue
-		}
-		prefix := -1
-		if strings.Contains(routeKey, "/") {
-			_, ipNet, err := net.ParseCIDR(routeKey)
-			if err != nil || ipNet == nil || !ipNet.Contains(targetIP) {
-				continue
-			}
-			prefix, _ = ipNet.Mask.Size()
-		} else {
-			routeIP := net.ParseIP(routeKey)
-			if routeIP == nil || !routeIP.Equal(targetIP) {
-				continue
-			}
-			prefix = 32
-		}
-		if prefix > bestPrefix {
-			bestPrefix = prefix
-			bestDomain = domain
-		}
-	}
-	return bestDomain
-}
-
-func resolveConnectionTargetDomain(target string) string {
-	host := targetHostOnly(target)
-	if host == "" {
-		return ""
-	}
-	if net.ParseIP(host) == nil {
-		return host
-	}
-	if domain := lookupRecentDomainByIP(host); domain != "" {
-		return domain
-	}
-	return host
-}
-
-func attachRuleMatchMeta(records []ConnectionRecord) []ConnectionRecord {
-	rows, err := db.Query("SELECT id, type, value FROM rules ORDER BY id ASC")
-	if err != nil {
-		return records
-	}
-	defer rows.Close()
-	type simpleRule struct {
-		id    int
-		rtype string
-		value string
-	}
-	rules := make([]simpleRule, 0, 128)
-	for rows.Next() {
-		var r simpleRule
-		if err := rows.Scan(&r.id, &r.rtype, &r.value); err != nil {
-			continue
-		}
-		r.rtype = strings.ToLower(strings.TrimSpace(r.rtype))
-		r.value = strings.TrimSpace(r.value)
-		rules = append(rules, r)
-	}
-	if err := rows.Err(); err != nil {
-		return records
-	}
-
-	geoipPath := getPath("core", "mosdns", "geoip.dat")
-	geositePath := getPath("core", "mosdns", "geosite.dat")
-
-	for i := range records {
-		host := targetHostOnly(records[i].Target)
-		records[i].TargetDomain = resolveConnectionTargetDomain(records[i].Target)
-		if host == "" {
-			continue
-		}
-		parsedIP := net.ParseIP(host)
-		domainHost := strings.TrimSpace(records[i].TargetDomain)
-		if net.ParseIP(domainHost) != nil {
-			domainHost = ""
-		}
-		var geoipTags []string
-		var geositeTags []string
-		geoipLoaded := false
-		geositeLoaded := false
-
-		for _, rule := range rules {
-			matched := false
-			switch rule.rtype {
-			case "domain":
-				if domainHost != "" {
-					matched = isDomainMatch(domainHost, rule.value)
-				}
-			case "ip":
-				matched = isIPRuleMatch(host, rule.value)
-			case "geoip", "geolocation":
-				if parsedIP != nil {
-					if !geoipLoaded {
-						geoipTags = queryGeoIPTagsByIP(geoipPath, parsedIP.String())
-						geoipLoaded = true
-					}
-					tag := strings.ToLower(strings.TrimPrefix(strings.ToLower(rule.value), "!"))
-					for _, t := range geoipTags {
-						if strings.EqualFold(t, tag) {
-							matched = true
-							break
-						}
-					}
-				}
-			case "geosite":
-				if domainHost != "" {
-					if !geositeLoaded {
-						geositeTags = queryGeoSiteTagsByDomain(geositePath, domainHost)
-						geositeLoaded = true
-					}
-					for _, t := range geositeTags {
-						if strings.EqualFold(t, rule.value) {
-							matched = true
-							break
-						}
-					}
-				}
-			}
-			if matched {
-				records[i].RuleID = rule.id
-				records[i].RuleType = rule.rtype
-				records[i].MatchValue = rule.value
-				break
-			}
-		}
-	}
-	return records
-}
-
 func registerConnectionRoutes(r *gin.RouterGroup) {
 	r.GET("/connections", func(c *gin.Context) {
 		ip := c.Query("ip")
@@ -353,7 +159,6 @@ func registerConnectionRoutes(r *gin.RouterGroup) {
 				filtered = append(filtered, conn)
 			}
 		}
-		filtered = attachRuleMatchMeta(filtered)
 
 		c.JSON(http.StatusOK, gin.H{
 			"success": true,

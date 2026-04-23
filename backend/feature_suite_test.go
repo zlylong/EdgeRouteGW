@@ -509,16 +509,6 @@ func TestFeatureSuite_DNSRulesAndNodes(t *testing.T) {
 	})
 
 	t.Run("connections include matched rule metadata", func(t *testing.T) {
-		res, err := db.Exec("INSERT INTO rules(type, value, policy) VALUES ('domain', '**.example.net', 'proxy')")
-		if err != nil {
-			t.Fatal(err)
-		}
-		ruleID64, err := res.LastInsertId()
-		if err != nil {
-			t.Fatal(err)
-		}
-		expectedRuleID := int(ruleID64)
-
 		connRingMutex.Lock()
 		connRing = ring.New(200)
 		connRing.Value = ConnectionRecord{
@@ -540,65 +530,6 @@ func TestFeatureSuite_DNSRulesAndNodes(t *testing.T) {
 		data := resp["data"].([]interface{})
 		if len(data) != 1 {
 			t.Fatalf("unexpected connections payload: %v", resp)
-		}
-		item := data[0].(map[string]interface{})
-		ruleID, ok := item["rule_id"].(float64)
-		if !ok {
-			t.Fatalf("rule_id missing in connection metadata: %v", item)
-		}
-		if item["target_domain"].(string) != "www.example.net" {
-			t.Fatalf("unexpected target_domain: %v", item)
-		}
-		if int(ruleID) != expectedRuleID || item["match_value"].(string) != "**.example.net" {
-			t.Fatalf("unexpected connection rule metadata: %v", item)
-		}
-	})
-
-	t.Run("connections prefer most specific cidr domain mapping when target is ip", func(t *testing.T) {
-		res, err := db.Exec("INSERT INTO rules(type, value, policy) VALUES ('domain', 'mapped-only.trace.test', 'proxy')")
-		if err != nil {
-			t.Fatalf("insert mapped-domain rule: %v", err)
-		}
-		ruleID64, err := res.LastInsertId()
-		if err != nil {
-			t.Fatalf("last insert id: %v", err)
-		}
-		expectedRuleID := int(ruleID64)
-		if _, err := db.Exec("INSERT OR REPLACE INTO routes_table(ip, domain, source, first_seen, last_seen, ttl, status, miss_count) VALUES (?, ?, 'static', datetime('now', '-10 seconds'), datetime('now'), 300, 'published', 0)", "203.0.113.0/24", "mapped-only.trace.test"); err != nil {
-			t.Fatalf("seed routes_table: %v", err)
-		}
-		connRingMutex.Lock()
-		connRing = ring.New(200)
-		connRing.Value = ConnectionRecord{
-			Time:    "2026/04/23 06:01:00",
-			Client:  "192.168.20.10:12346",
-			Network: "tcp",
-			Target:  "203.0.113.9:443",
-			Policy:  "proxy",
-		}
-		connRing = connRing.Next()
-		connRingMutex.Unlock()
-
-		w := httptest.NewRecorder()
-		r.ServeHTTP(w, authedRequest(http.MethodGet, "/api/connections?ip=192.168.20.10"))
-		if w.Code != http.StatusOK {
-			t.Fatalf("want 200 got %d", w.Code)
-		}
-		resp := decodeJSONMap(t, w.Body.Bytes())
-		data := resp["data"].([]interface{})
-		if len(data) != 1 {
-			t.Fatalf("unexpected connections payload: %v", resp)
-		}
-		item := data[0].(map[string]interface{})
-		if item["target_domain"].(string) != "mapped-only.trace.test" {
-			t.Fatalf("unexpected mapped target_domain: %v", item)
-		}
-		ruleID, ok := item["rule_id"].(float64)
-		if !ok {
-			t.Fatalf("mapped rule_id missing: %v", item)
-		}
-		if int(ruleID) != expectedRuleID || item["match_value"].(string) != "mapped-only.trace.test" {
-			t.Fatalf("unexpected mapped connection rule metadata: %v", item)
 		}
 	})
 
