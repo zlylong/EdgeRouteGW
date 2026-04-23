@@ -64,3 +64,51 @@ func TestSyncStaticRoutesToOSPF_GeositeFallsBackToGeoIPAndDomainResolution(t *te
 		}
 	}
 }
+
+func TestSyncStaticRoutesToOSPF_ModeBOnlyAnnouncesGeoIPForRules(t *testing.T) {
+	setupFeatureSuiteRouter(t)
+	writeTestGeoData(t)
+
+	if _, err := db.Exec("DELETE FROM rules"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec("DELETE FROM routes_table"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec("INSERT INTO rules(type, value, policy) VALUES ('domain', 'should-not-resolve.example', 'proxy')"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec("INSERT INTO rules(type, value, policy) VALUES ('geosite', 'gfw', 'proxy')"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec("INSERT INTO rules(type, value, policy) VALUES ('geoip', 'google', 'proxy')"); err != nil {
+		t.Fatal(err)
+	}
+
+	syncStaticRoutesToOSPF("B")
+
+	rows, err := db.Query("SELECT ip FROM routes_table WHERE source='static' ORDER BY ip")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	var ips []string
+	for rows.Next() {
+		var ip string
+		if err := rows.Scan(&ip); err != nil {
+			t.Fatal(err)
+		}
+		ips = append(ips, ip)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
+	}
+
+	expected := []string{"8.8.8.0/24"}
+	if len(ips) != len(expected) {
+		t.Fatalf("unexpected static route count in mode B: got=%v want=%v", ips, expected)
+	}
+	if ips[0] != expected[0] {
+		t.Fatalf("unexpected static routes in mode B: got=%v want=%v", ips, expected)
+	}
+}

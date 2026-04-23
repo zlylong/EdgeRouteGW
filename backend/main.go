@@ -533,7 +533,7 @@ func collectStaticRoutesForMode(mode string, protected map[string]struct{}) (map
 		geoipRows.Close()
 	}
 
-	if mode == "B" || mode == "C" {
+	if mode == "C" {
 		geositeRows, err := db.Query("SELECT value, policy FROM rules WHERE type='geosite' AND (policy LIKE 'proxy%' OR policy LIKE 'direct%')")
 		if err != nil {
 			log.Printf("[OSPF] geosite rule query failed: %v", err)
@@ -2206,8 +2206,8 @@ func domainIPUpdater() {
 		if err := db.QueryRow("SELECT value FROM settings WHERE key='mode'").Scan(&mode); err != nil {
 			mode = "A"
 		}
-		if mode == "B" || mode == "C" {
-			// Periodically sync to catch DNS/CDN IP changes
+		if mode == "C" {
+			// Only Mode C needs periodic domain/geosite DNS-driven OSPF materialization.
 			scheduleStaticRouteSync(mode)
 		}
 	}
