@@ -11,7 +11,7 @@ func TestParseDomainRulePattern(t *testing.T) {
 		wantErr      bool
 		wantWildcard bool
 	}{
-		{name: "plain suffix", input: "c.com", wantKind: domainRulePatternSuffix, wantBase: "c.com"},
+		{name: "plain exact", input: "c.com", wantKind: domainRulePatternFull, wantBase: "c.com"},
 		{name: "double star suffix", input: "**.c.com", wantKind: domainRulePatternSuffix, wantBase: "c.com", wantWildcard: true},
 		{name: "single star one level", input: "*.c.com", wantKind: domainRulePatternSingleLevel, wantBase: "c.com", wantWildcard: true},
 		{name: "invalid star position", input: "foo.*.c.com", wantErr: true},
@@ -45,7 +45,7 @@ func TestIsDomainMatchSupportsWildcardSemantics(t *testing.T) {
 		want    bool
 	}{
 		{name: "plain root", host: "c.com", pattern: "c.com", want: true},
-		{name: "plain any level", host: "bar.foo.c.com", pattern: "c.com", want: true},
+		{name: "plain subdomain no longer matches", host: "bar.foo.c.com", pattern: "c.com", want: false},
 		{name: "double star root", host: "c.com", pattern: "**.c.com", want: true},
 		{name: "double star any level", host: "bar.foo.c.com", pattern: "**.c.com", want: true},
 		{name: "single star root", host: "c.com", pattern: "*.c.com", want: true},
@@ -58,6 +58,28 @@ func TestIsDomainMatchSupportsWildcardSemantics(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			if got := isDomainMatch(tt.host, tt.pattern); got != tt.want {
 				t.Fatalf("isDomainMatch(%q, %q)=%v want %v", tt.host, tt.pattern, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestMosdnsRuleDomainValue(t *testing.T) {
+	tests := []struct {
+		name   string
+		input  string
+		want   string
+		wantOK bool
+	}{
+		{name: "plain exact", input: "c.com", want: "full:c.com", wantOK: true},
+		{name: "double star suffix", input: "**.c.com", want: "domain:c.com", wantOK: true},
+		{name: "single star skipped", input: "*.c.com", wantOK: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, ok := mosdnsRuleDomainValue(tt.input)
+			if ok != tt.wantOK || got != tt.want {
+				t.Fatalf("mosdnsRuleDomainValue(%q)=(%q,%v) want (%q,%v)", tt.input, got, ok, tt.want, tt.wantOK)
 			}
 		})
 	}

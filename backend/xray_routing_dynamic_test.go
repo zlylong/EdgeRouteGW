@@ -14,7 +14,7 @@ func TestBuildXrayDomainRuleValues(t *testing.T) {
 		want    []string
 		wantErr bool
 	}{
-		{name: "plain suffix", value: "c.com", want: []string{"domain:c.com"}},
+		{name: "plain exact", value: "c.com", want: []string{"full:c.com"}},
 		{name: "double star suffix", value: "**.c.com", want: []string{"domain:c.com"}},
 		{name: "single star regex", value: "*.c.com", want: []string{`regexp:^(?:([^.]+\.)?c\.com)$`}},
 		{name: "invalid pattern", value: "foo.*.c.com", wantErr: true},

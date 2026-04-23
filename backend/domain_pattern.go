@@ -7,6 +7,7 @@ import (
 )
 
 const (
+	domainRulePatternFull        = "full"
 	domainRulePatternSuffix      = "suffix"
 	domainRulePatternSingleLevel = "single_level"
 )
@@ -26,9 +27,10 @@ func parseDomainRulePattern(input string) (domainRulePattern, error) {
 		return domainRulePattern{}, fmt.Errorf("domain rule value is empty")
 	}
 
-	pattern := domainRulePattern{Raw: raw, Kind: domainRulePatternSuffix, Base: raw}
+	pattern := domainRulePattern{Raw: raw, Kind: domainRulePatternFull, Base: raw}
 	switch {
 	case strings.HasPrefix(raw, "**."):
+		pattern.Kind = domainRulePatternSuffix
 		pattern.Base = strings.TrimPrefix(raw, "**.")
 		pattern.IsWildcard = true
 	case strings.HasPrefix(raw, "*."):
@@ -76,6 +78,8 @@ func isDomainMatch(host string, pattern string) bool {
 		return false
 	}
 	switch parsed.Kind {
+	case domainRulePatternFull:
+		return host == parsed.Base
 	case domainRulePatternSuffix:
 		return host == parsed.Base || strings.HasSuffix(host, "."+parsed.Base)
 	case domainRulePatternSingleLevel:
@@ -98,6 +102,8 @@ func buildXrayDomainRuleValues(value string) ([]string, error) {
 		return nil, err
 	}
 	switch pattern.Kind {
+	case domainRulePatternFull:
+		return []string{"full:" + pattern.Base}, nil
 	case domainRulePatternSuffix:
 		return []string{"domain:" + pattern.Base}, nil
 	case domainRulePatternSingleLevel:
@@ -113,8 +119,12 @@ func mosdnsRuleDomainValue(value string) (string, bool) {
 	if err != nil {
 		return "", false
 	}
-	if pattern.Kind != domainRulePatternSuffix {
+	switch pattern.Kind {
+	case domainRulePatternFull:
+		return "full:" + pattern.Base, true
+	case domainRulePatternSuffix:
+		return "domain:" + pattern.Base, true
+	default:
 		return "", false
 	}
-	return pattern.Base, true
 }

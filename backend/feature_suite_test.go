@@ -508,7 +508,7 @@ func TestFeatureSuite_DNSRulesAndNodes(t *testing.T) {
 	})
 
 	t.Run("connections include matched rule metadata", func(t *testing.T) {
-		res, err := db.Exec("INSERT INTO rules(type, value, policy) VALUES ('domain', 'example.net', 'proxy')")
+		res, err := db.Exec("INSERT INTO rules(type, value, policy) VALUES ('domain', '**.example.net', 'proxy')")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -545,7 +545,7 @@ func TestFeatureSuite_DNSRulesAndNodes(t *testing.T) {
 		if !ok {
 			t.Fatalf("rule_id missing in connection metadata: %v", item)
 		}
-		if int(ruleID) != expectedRuleID || item["match_value"].(string) != "example.net" {
+		if int(ruleID) != expectedRuleID || item["match_value"].(string) != "**.example.net" {
 			t.Fatalf("unexpected connection rule metadata: %v", item)
 		}
 	})
