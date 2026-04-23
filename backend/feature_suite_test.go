@@ -554,6 +554,38 @@ func TestFeatureSuite_DNSRulesAndNodes(t *testing.T) {
 		}
 	})
 
+	t.Run("connections prefer mapped domain when target is ip", func(t *testing.T) {
+		if _, err := db.Exec("INSERT OR REPLACE INTO routes_table(ip, domain, source, first_seen, last_seen, ttl, status, miss_count) VALUES (?, ?, 'static', datetime('now', '-10 seconds'), datetime('now'), 300, 'published', 0)", "203.0.113.9", "mapped.example.net"); err != nil {
+			t.Fatalf("seed routes_table: %v", err)
+		}
+		connRingMutex.Lock()
+		connRing = ring.New(200)
+		connRing.Value = ConnectionRecord{
+			Time:    "2026/04/23 06:01:00",
+			Client:  "192.168.20.10:12346",
+			Network: "tcp",
+			Target:  "203.0.113.9:443",
+			Policy:  "proxy",
+		}
+		connRing = connRing.Next()
+		connRingMutex.Unlock()
+
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, authedRequest(http.MethodGet, "/api/connections?ip=192.168.20.10"))
+		if w.Code != http.StatusOK {
+			t.Fatalf("want 200 got %d", w.Code)
+		}
+		resp := decodeJSONMap(t, w.Body.Bytes())
+		data := resp["data"].([]interface{})
+		if len(data) != 1 {
+			t.Fatalf("unexpected connections payload: %v", resp)
+		}
+		item := data[0].(map[string]interface{})
+		if item["target_domain"].(string) != "mapped.example.net" {
+			t.Fatalf("unexpected mapped target_domain: %v", item)
+		}
+	})
+
 	t.Run("lan acl list returns seeded data", func(t *testing.T) {
 		w := httptest.NewRecorder()
 		r.ServeHTTP(w, authedRequest(http.MethodGet, "/api/lan_acls"))

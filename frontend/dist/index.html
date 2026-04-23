@@ -735,7 +735,7 @@ PersistentKeepalive = 25
                                 </div>
                                 <div v-if="selectedRuleGroup" class="w-56">
                                     <label class="block text-sm font-medium text-gray-700 mb-1">当前组备注</label>
-                                    <input v-model="editingRuleGroup" type="text" class="border border-gray-300 rounded px-3 py-2 w-full" placeholder="输入组备注">
+                                    <input v-model="editingRuleGroup" @focus="handleRuleGroupFocus" @blur="handleRuleGroupBlur" type="text" class="border border-gray-300 rounded px-3 py-2 w-full" placeholder="输入组备注">
                                 </div>
                                 <div v-if="selectedRuleGroup" class="flex items-center gap-2">
                                     <button @click="saveRuleGroupName" class="bg-amber-600 text-white px-4 py-2 rounded shadow hover:bg-amber-700 h-[42px]">保存组备注</button>
@@ -1958,7 +1958,7 @@ window.onerror = function(msg, url, line, col, error) { alert("JS Error: " + msg
                     if(token.value && activeTab.value === 'nodes') apiFetch('/api/nodes').then(r=>r.json()).then(d => nodes.value = d);
                     if(token.value && activeTab.value === 'remote_nodes') loadRemoteNodes();
                     if(token.value && (activeTab.value === 'rules' || activeTab.value === 'geo_query')) {
-                        if(activeTab.value === 'rules' && !isRuleValueEditing.value) loadRules();
+                        if(activeTab.value === 'rules' && !isRuleValueEditing.value && !isRuleGroupEditing.value) loadRules();
                         if(categories.value.geosite.length===0) apiFetch('/api/rules/categories').then(r=>r.json()).then(d => categories.value = d);
                     }
                     if(token.value && activeTab.value === 'ospf') apiFetch('/api/ospf').then(r=>r.json()).then(d => applyOspfPayload(d));
@@ -2048,9 +2048,18 @@ Mode C: 纯OSPF (恢复真实IP宣告)`)) {
                 const newRule = ref({ type: 'domain', value: '', action: 'proxy', primary: '', standby: '', policy: 'proxy', group_name: '' });
                 const wildcardDomainRulePattern = /^(?:\*\*|\*)\.[a-z0-9.-]+$/i;
                 const shortRuleGroup = (groupId) => groupId ? groupId.slice(0, 12) : '—';
+                const isRuleGroupEditing = ref(false);
                 const syncEditingRuleGroup = () => {
+                    if (isRuleGroupEditing.value) return;
                     const current = ruleGroups.value.find(group => group.group_id === selectedRuleGroup.value);
                     editingRuleGroup.value = current ? (current.group_name || '') : '';
+                };
+                const handleRuleGroupFocus = () => { isRuleGroupEditing.value = true; };
+                const handleRuleGroupBlur = () => {
+                    setTimeout(() => {
+                        isRuleGroupEditing.value = false;
+                        syncEditingRuleGroup();
+                    }, 120);
                 };
                 const loadRules = async () => {
                     const suffix = selectedRuleGroup.value ? ('?group_id=' + encodeURIComponent(selectedRuleGroup.value)) : '';

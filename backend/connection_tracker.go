@@ -180,6 +180,32 @@ func isIPRuleMatch(ipStr string, ruleValue string) bool {
 	return ip.Equal(net.ParseIP(v))
 }
 
+func lookupRecentDomainByIP(ip string) string {
+	ip = strings.TrimSpace(ip)
+	if ip == "" {
+		return ""
+	}
+	var domain string
+	if err := db.QueryRow("SELECT COALESCE(domain, '') FROM routes_table WHERE ip=? AND COALESCE(domain, '') <> '' ORDER BY datetime(last_seen) DESC LIMIT 1", ip).Scan(&domain); err == nil {
+		return strings.TrimSpace(domain)
+	}
+	return ""
+}
+
+func resolveConnectionTargetDomain(target string) string {
+	host := targetHostOnly(target)
+	if host == "" {
+		return ""
+	}
+	if net.ParseIP(host) == nil {
+		return host
+	}
+	if domain := lookupRecentDomainByIP(host); domain != "" {
+		return domain
+	}
+	return host
+}
+
 func attachRuleMatchMeta(records []ConnectionRecord) []ConnectionRecord {
 	rows, err := db.Query("SELECT id, type, value FROM rules ORDER BY id ASC")
 	if err != nil {
@@ -210,7 +236,7 @@ func attachRuleMatchMeta(records []ConnectionRecord) []ConnectionRecord {
 
 	for i := range records {
 		host := targetHostOnly(records[i].Target)
-		records[i].TargetDomain = host
+		records[i].TargetDomain = resolveConnectionTargetDomain(records[i].Target)
 		if host == "" {
 			continue
 		}
