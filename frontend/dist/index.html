@@ -733,6 +733,7 @@ PersistentKeepalive = 25
                                         <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">编号</th>
                                         <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">规则类别</th>
                                         <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">匹配值</th>
+                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">匹配语义</th>
                                         <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">策略绑定 (outbound)</th>
                                         <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">操作</th>
                                     </tr>
@@ -742,6 +743,10 @@ PersistentKeepalive = 25
                                         <td class="px-6 py-4 whitespace-nowrap font-mono text-sm text-gray-500">#{{ rule.id }}</td>
                                         <td class="px-6 py-4 whitespace-nowrap font-mono text-sm">{{ rule.type }}</td>
                                         <td class="px-6 py-4 whitespace-nowrap font-mono text-sm">{{ rule.value }}</td>
+                                        <td class="px-6 py-4 whitespace-nowrap text-xs">
+                                            <span v-if="rule.type === 'domain'" class="px-2 py-1 rounded bg-slate-100 text-slate-700">{{ describeRulePattern(rule) }}</span>
+                                            <span v-else class="text-gray-400">—</span>
+                                        </td>
                                         <td class="px-6 py-4 whitespace-nowrap">
                                             <span class="px-2 py-1 rounded text-xs font-bold"
                                                   :class="{'bg-green-100 text-green-800': rule.policy==='direct', 'bg-blue-100 text-blue-800': rule.policy==='proxy' || rule.policy.startsWith('proxy-'), 'bg-red-100 text-red-800': rule.policy==='block', 'bg-purple-100 text-purple-800': rule.policy.startsWith('ha-')}">
@@ -756,7 +761,7 @@ PersistentKeepalive = 25
                                             <button @click="deleteRule(rule.id)" class="text-red-600 hover:text-red-900">删除</button>
                                         </td>
                                     </tr>
-                                    <tr v-if="rules.length === 0"><td colspan="5" class="px-6 py-4 text-center text-gray-500">暂无规则数据</td></tr>
+                                    <tr v-if="rules.length === 0"><td colspan="6" class="px-6 py-4 text-center text-gray-500">暂无规则数据</td></tr>
                                 </tbody>
                             </table>
                         </div>
@@ -2004,6 +2009,13 @@ Mode C: 纯OSPF (恢复真实IP宣告)`)) {
 
                 const newRule = ref({ type: 'domain', value: '', action: 'proxy', primary: '', standby: '', policy: 'proxy' });
                 const wildcardDomainRulePattern = /^(?:\*\*|\*)\.[a-z0-9.-]+$/i;
+                const describeRulePattern = (rule) => {
+                    const value = ((rule && rule.value) || '').trim().toLowerCase().replace(/\.+$/, '');
+                    if (!value) return '—';
+                    if (value.startsWith('*.')) return '根域 + 0/1 层子域';
+                    if (value.startsWith('**.')) return '根域 + 任意层子域';
+                    return '根域 + 任意层子域';
+                };
                 const ruleValuePlaceholder = computed(() => {
                     if (newRule.value.type === 'domain') return '如 c.com、**.c.com、*.c.com';
                     if (newRule.value.type === 'geoip') return '如 cn、!cn';
@@ -2085,7 +2097,7 @@ Mode C: 纯OSPF (恢复真实IP宣告)`)) {
                     showAclModal, aclForm, openAddAcl, saveAcl, deleteAcl, updateLanDefault,
                     currentConfigTab,
                     loadData,
-                    isSubmitting, isLoading, vlessParams, cron, saveCron, showPwdModal, pwdForm, logout, changePwd, toastMsg, toastType, confirmData, doConfirm, isUpdating, token, password, login, categories, geoQuery, showGeoSuggestions, geoSuggestionIndex, filteredGeoSuggestions, handleGeoInput, handleGeoInputBlur, moveGeoSuggestion, confirmGeoSuggestionOrQuery, applyGeoSuggestion, runGeoQuery, xrayConfigStr, mosdnsConfigStr, nftablesConfigStr, frrConfigStr, loadConfigs, newRule, ruleValuePlaceholder, ruleValidationError, handleRuleValueFocus, handleRuleValueBlur, addRule, activeTab, tabs, currentTabLabel, nodes, rules, dns, dnsLogs, ospf, ospfController, ospfControllerDirty, saveOspfController, sysStatus, applyConfig, toggleMode, changeMode, importNodeUrl, pingNodes, openAddNode, editNode, saveNode, showNodeModal, editingNode, deleteNode, toggleNode, deleteRule, saveDns, updateComp, showMosdnsRollbackModal, mosdnsVersions, selectedMosdnsRollbackVersion, openMosdnsRollbackModal, confirmMosdnsRollback, showRollbackModal, xrayVersions, selectedRollbackVersion, openRollbackModal, confirmRollback, remoteNodes, showRemoteNodeModal, showRemoteDetailsModal, selectedRemoteNode, remoteNodeForm, loadRemoteNodes, openAddRemoteNode, submitRemoteNode, viewRemoteNode, checkRemoteNode, confirmDeleteRemoteNode, copyText, importToLocal, isDeploying, showBatchModal, batchText, submitBatchNodes, showHistoryModal, nodeHistory, setDefaultNode, regenerateNode, loadNodeHistory, rollbackNode }
+                    isSubmitting, isLoading, vlessParams, cron, saveCron, showPwdModal, pwdForm, logout, changePwd, toastMsg, toastType, confirmData, doConfirm, isUpdating, token, password, login, categories, geoQuery, showGeoSuggestions, geoSuggestionIndex, filteredGeoSuggestions, handleGeoInput, handleGeoInputBlur, moveGeoSuggestion, confirmGeoSuggestionOrQuery, applyGeoSuggestion, runGeoQuery, xrayConfigStr, mosdnsConfigStr, nftablesConfigStr, frrConfigStr, loadConfigs, newRule, describeRulePattern, ruleValuePlaceholder, ruleValidationError, handleRuleValueFocus, handleRuleValueBlur, addRule, activeTab, tabs, currentTabLabel, nodes, rules, dns, dnsLogs, ospf, ospfController, ospfControllerDirty, saveOspfController, sysStatus, applyConfig, toggleMode, changeMode, importNodeUrl, pingNodes, openAddNode, editNode, saveNode, showNodeModal, editingNode, deleteNode, toggleNode, deleteRule, saveDns, updateComp, showMosdnsRollbackModal, mosdnsVersions, selectedMosdnsRollbackVersion, openMosdnsRollbackModal, confirmMosdnsRollback, showRollbackModal, xrayVersions, selectedRollbackVersion, openRollbackModal, confirmRollback, remoteNodes, showRemoteNodeModal, showRemoteDetailsModal, selectedRemoteNode, remoteNodeForm, loadRemoteNodes, openAddRemoteNode, submitRemoteNode, viewRemoteNode, checkRemoteNode, confirmDeleteRemoteNode, copyText, importToLocal, isDeploying, showBatchModal, batchText, submitBatchNodes, showHistoryModal, nodeHistory, setDefaultNode, regenerateNode, loadNodeHistory, rollbackNode }
             }
         }).mount('#app');
     </script>
