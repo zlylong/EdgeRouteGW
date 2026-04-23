@@ -286,7 +286,7 @@ systemctl restart proxygw mosdns xray || true
 # Wait for the database and bootstrap password to be initialized by the backend
 echo "Waiting for ProxyGW to initialize..."
 for i in {1..15}; do
-    if [ -f "/config/bootstrap_password.txt" ]; then
+    if [ -f "$REPO_DIR/config/bootstrap_password.txt" ]; then
         break
     fi
     sleep 1

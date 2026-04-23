@@ -17,7 +17,7 @@ systemctl daemon-reload
 echo "[3/5] Removing routing and iptables rules..."
 ip rule del fwmark 1 table tproxy 2>/dev/null || true
 ip route flush table tproxy 2>/dev/null || true
-sed -i /100 tproxy/d /etc/iproute2/rt_tables || true
+sed -i '/100 tproxy/d' /etc/iproute2/rt_tables || true
 nft flush table inet proxygw 2>/dev/null || true
 nft delete table inet proxygw 2>/dev/null || true
 rm -f /etc/nftables.conf
