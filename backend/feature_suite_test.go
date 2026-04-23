@@ -89,6 +89,7 @@ func setupFeatureSuiteRouter(t *testing.T) *gin.Engine {
 		`CREATE TABLE remote_node_logs (id INTEGER PRIMARY KEY AUTOINCREMENT, node_id INTEGER, action TEXT, status TEXT, log_text TEXT, created_at DATETIME DEFAULT CURRENT_TIMESTAMP);`,
 		`CREATE TABLE traffic_history (ts DATETIME, up_bytes INTEGER, down_bytes INTEGER);`,
 		`CREATE TABLE node_traffic_history (ts DATETIME, node_id INTEGER, up_bytes INTEGER, down_bytes INTEGER);`,
+		`CREATE TABLE gateway_events (id INTEGER PRIMARY KEY AUTOINCREMENT, ts DATETIME DEFAULT CURRENT_TIMESTAMP, level TEXT, module TEXT, event_type TEXT, message TEXT, trace_id TEXT, source_ip TEXT, method TEXT, path TEXT, status INTEGER, duration_ms INTEGER, details_json TEXT);`,
 		`CREATE TABLE routes_table (ip TEXT PRIMARY KEY, domain TEXT, source TEXT, first_seen DATETIME, last_seen DATETIME, ttl INTEGER, status TEXT, miss_count INTEGER DEFAULT 0);`,
 		`CREATE TABLE geosite_expand_cache (tag TEXT NOT NULL, geodata_ver TEXT NOT NULL, domains_json TEXT NOT NULL, skipped_count INTEGER NOT NULL DEFAULT 0, updated_at DATETIME DEFAULT CURRENT_TIMESTAMP, PRIMARY KEY (tag, geodata_ver));`,
 		`CREATE TABLE domain_resolve_cache (domain TEXT PRIMARY KEY, ips_json TEXT NOT NULL, dns_ttl INTEGER NOT NULL DEFAULT 300, resolved_at DATETIME NOT NULL, expire_at DATETIME NOT NULL, last_error TEXT NOT NULL DEFAULT '', fail_count INTEGER NOT NULL DEFAULT 0, geodata_ver TEXT NOT NULL DEFAULT '');`,
@@ -311,6 +312,19 @@ func TestFeatureSuite_AuthConfigAndSystem(t *testing.T) {
 		ospfReloadResp := decodeJSONMap(t, ospfReload.Body.Bytes())
 		if ospfReloadResp["push_batch_limit"].(float64) != 77 || ospfReloadResp["push_interval_seconds"].(float64) != 13 {
 			t.Fatalf("unexpected ospf controller payload after update: %v", ospfReloadResp)
+		}
+
+		events := httptest.NewRecorder()
+		r.ServeHTTP(events, authedRequest(http.MethodGet, "/api/events?limit=5"))
+		if events.Code != http.StatusOK {
+			t.Fatalf("want 200 got %d", events.Code)
+		}
+		eventsResp := decodeJSONMap(t, events.Body.Bytes())
+		if eventsResp["success"] != true {
+			t.Fatalf("unexpected events payload: %v", eventsResp)
+		}
+		if len(eventsResp["events"].([]interface{})) == 0 {
+			t.Fatalf("expected non-empty events payload: %v", eventsResp)
 		}
 	})
 }

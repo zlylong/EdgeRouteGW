@@ -23,12 +23,12 @@ type trafficBytes struct {
 }
 
 var (
-	trafficMutex     sync.Mutex
-	currentSpeedUp   int64
-	currentSpeedDown int64
-
-	lastTotalUp   int64
-	lastTotalDown int64
+	trafficMutex         sync.Mutex
+	currentSpeedUp       int64
+	currentSpeedDown     int64
+	lastTotalUp          int64
+	lastTotalDown        int64
+	xrayStatsUnavailable bool
 )
 
 func initTrafficDB() {
@@ -78,12 +78,24 @@ func startTrafficMonitor() {
 				lastTotalUp = 0
 				lastTotalDown = 0
 				lastNodeTotals = map[int]trafficBytes{}
+				if !xrayStatsUnavailable {
+					xrayStatsUnavailable = true
+					logGatewayEvent("warn", "xray", "stats_unavailable", "Xray statsquery failed", map[string]interface{}{"reason": err.Error()})
+				}
 				trafficMutex.Unlock()
 				continue
 			}
 
+			trafficMutex.Lock()
+			if xrayStatsUnavailable {
+				xrayStatsUnavailable = false
+				logGatewayEvent("info", "xray", "stats_recovered", "Xray statsquery recovered", nil)
+			}
+			trafficMutex.Unlock()
+
 			var stats XrayStat
 			if err := json.Unmarshal(out, &stats); err != nil {
+				logGatewayEvent("warn", "xray", "stats_decode_failed", "decode Xray stats failed", map[string]interface{}{"reason": err.Error()})
 				continue
 			}
 

@@ -1185,6 +1185,7 @@ func initDB() {
 			log.Fatalf("[FATAL] failed to create table: %v", err)
 		}
 	}
+	ensureGatewayEventTable()
 
 	if _, err := db.Exec("ALTER TABLE nodes ADD COLUMN params TEXT DEFAULT '{}'"); err != nil && !strings.Contains(err.Error(), "duplicate column name") {
 		log.Printf("[WARN] ALTER TABLE failed: %v", err)

@@ -1028,6 +1028,7 @@ PersistentKeepalive = 25
                             <button @click="currentLogTab = 'proxygw'; fetchSyslogs('proxygw')" :class="{'border-blue-500 text-blue-600': currentLogTab === 'proxygw', 'border-transparent text-gray-500 hover:text-gray-700': currentLogTab !== 'proxygw'}" class="whitespace-nowrap py-2 px-4 border-b-2 font-medium text-sm transition-colors focus:outline-none">ProxyGW (控制面)</button>
                             <button @click="currentLogTab = 'xray'; fetchSyslogs('xray')" :class="{'border-blue-500 text-blue-600': currentLogTab === 'xray', 'border-transparent text-gray-500 hover:text-gray-700': currentLogTab !== 'xray'}" class="whitespace-nowrap py-2 px-4 border-b-2 font-medium text-sm transition-colors focus:outline-none">Xray-Core (转发面)</button>
                             <button @click="currentLogTab = 'mosdns'; fetchSyslogs('mosdns')" :class="{'border-blue-500 text-blue-600': currentLogTab === 'mosdns', 'border-transparent text-gray-500 hover:text-gray-700': currentLogTab !== 'mosdns'}" class="whitespace-nowrap py-2 px-4 border-b-2 font-medium text-sm transition-colors focus:outline-none">Mosdns (解析面)</button>
+                            <button @click="currentLogTab = 'events'; fetchSyslogs('events')" :class="{'border-blue-500 text-blue-600': currentLogTab === 'events', 'border-transparent text-gray-500 hover:text-gray-700': currentLogTab !== 'events'}" class="whitespace-nowrap py-2 px-4 border-b-2 font-medium text-sm transition-colors focus:outline-none">网关事件流</button>
                         </div>
 
                         <div class="bg-[#1e1e1e] text-[#00ff00] font-mono p-4 rounded-lg flex-1 overflow-y-auto text-xs shadow-inner" ref="syslogsContainer" style="min-height: 400px; white-space: pre-wrap;">{{ syslogs[currentLogTab] || 'Loading logs...' }}</div>
@@ -1071,24 +1072,34 @@ window.onerror = function(msg, url, line, col, error) { alert("JS Error: " + msg
                 const editingNode = ref({ id: null, name: '', type: 'Vmess', address: '', port: 443, uuid: '', params: '{}' });
                 const vlessParams = ref({ type: 'tcp', security: 'none', sni: '', pbk: '', fp: 'chrome', sid: '', flow: '', method: 'aes-256-gcm' });
                 
-                const syslogs = ref({ proxygw: '', xray: '', mosdns: '' });
+                const syslogs = ref({ proxygw: '', xray: '', mosdns: '', events: '' });
                 const currentLogTab = ref('proxygw');
                 const syslogsContainer = ref(null);
 
                 const fetchSyslogs = async (service) => {
                     try {
-                        const res = await fetch(`/api/logs/${service}`, { headers: { 'Authorization': 'Bearer ' + localStorage.getItem('token') } });
-                        if (res.ok) {
-                            const data = await res.json();
-                            if (data.success) {
-                                syslogs.value[service] = data.logs;
-                                setTimeout(() => {
-                                    if (syslogsContainer.value) {
-                                        syslogsContainer.value.scrollTop = syslogsContainer.value.scrollHeight;
-                                    }
-                                }, 50);
+                        if (service === 'events') {
+                            const res = await fetch('/api/events?limit=200', { headers: { 'Authorization': 'Bearer ' + localStorage.getItem('token') } });
+                            if (res.ok) {
+                                const data = await res.json();
+                                if (data.success && Array.isArray(data.events)) {
+                                    syslogs.value.events = data.events.map(ev => `[${ev.ts}] [${String(ev.level || '').toUpperCase()}] [${ev.module}/${ev.event_type}] ${ev.message}${ev.trace_id ? ' trace=' + ev.trace_id : ''}${ev.path ? ' path=' + ev.path : ''}${ev.status ? ' status=' + ev.status : ''}${ev.duration_ms ? ' cost=' + ev.duration_ms + 'ms' : ''}${ev.details ? ' details=' + ev.details : ''}`).join('\n');
+                                }
+                            }
+                        } else {
+                            const res = await fetch(`/api/logs/${service}`, { headers: { 'Authorization': 'Bearer ' + localStorage.getItem('token') } });
+                            if (res.ok) {
+                                const data = await res.json();
+                                if (data.success) {
+                                    syslogs.value[service] = data.logs;
+                                }
                             }
                         }
+                        setTimeout(() => {
+                            if (syslogsContainer.value) {
+                                syslogsContainer.value.scrollTop = syslogsContainer.value.scrollHeight;
+                            }
+                        }, 50);
                     } catch (e) {}
                 };
 

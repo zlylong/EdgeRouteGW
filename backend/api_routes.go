@@ -29,6 +29,8 @@ func registerAPIRoutes(r *gin.Engine) {
 
 	authed := api.Group("")
 	authed.Use(authMiddleware)
+	authed.Use(requestTraceMiddleware)
+	authed.Use(auditEventMiddleware)
 	registerAuthRoutes(api, authed)
 
 	registerConfigRoutes(authed)
@@ -41,6 +43,7 @@ func registerAPIRoutes(r *gin.Engine) {
 	registerUpdateRoutes(authed)
 	registerRemoteNodeRoutes(authed)
 	registerSyslogsRoutes(authed)
+	registerEventRoutes(authed)
 
 	authed.POST("/apply", func(c *gin.Context) {
 		var req struct {
