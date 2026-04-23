@@ -72,7 +72,7 @@ func TestMosdnsRuleDomainValue(t *testing.T) {
 	}{
 		{name: "plain exact", input: "c.com", want: "full:c.com", wantOK: true},
 		{name: "double star suffix", input: "**.c.com", want: "domain:c.com", wantOK: true},
-		{name: "single star skipped", input: "*.c.com", wantOK: false},
+		{name: "single star regex", input: "*.c.com", want: "regexp:^([^.]+\\.)?c\\.com$", wantOK: true},
 	}
 
 	for _, tt := range tests {

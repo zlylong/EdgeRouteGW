@@ -124,6 +124,9 @@ func mosdnsRuleDomainValue(value string) (string, bool) {
 		return "full:" + pattern.Base, true
 	case domainRulePatternSuffix:
 		return "domain:" + pattern.Base, true
+	case domainRulePatternSingleLevel:
+		quoted := strings.ReplaceAll(pattern.Base, ".", "\\.")
+		return "regexp:^([^.]+\\.)?" + quoted + "$", true
 	default:
 		return "", false
 	}
