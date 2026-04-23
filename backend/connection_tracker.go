@@ -317,7 +317,7 @@ func registerConnectionRoutes(r *gin.RouterGroup) {
 				filtered = append(filtered, conn)
 			}
 		}
-		filtered = attachRuleMatchMeta(filtered)
+		// filtered = attachRuleMatchMeta(filtered)
 
 		c.JSON(http.StatusOK, gin.H{
 			"success": true,
