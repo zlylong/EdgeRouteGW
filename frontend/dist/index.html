@@ -882,22 +882,7 @@ PersistentKeepalive = 25
                                         <span class="text-sm text-gray-600">域名解析并发数</span>
                                         <input type="number" min="1" max="128" v-model.number="ospfController.resolve_workers" @input="ospfControllerDirty = true" class="mt-1 w-full border rounded px-3 py-2 text-sm focus:outline-blue-500">
                                     </label>
-                                    <label class="block min-w-[12rem]">
-                                        <span class="text-sm text-gray-600">允许 /32</span>
-                                        <select v-model="ospfController.allow_slash32" @change="ospfControllerDirty = true" class="mt-1 w-full border rounded px-3 py-2 text-sm focus:outline-blue-500">
-                                            <option :value="true">允许</option>
-                                            <option :value="false">禁止</option>
-                                        </select>
-                                    </label>
-                                    <label class="block min-w-[12rem]">
-                                        <span class="text-sm text-gray-600">最细前缀上限（/x）</span>
-                                        <input type="number" min="0" max="32" v-model.number="ospfController.max_specific_prefix" @input="ospfControllerDirty = true" class="mt-1 w-full border rounded px-3 py-2 text-sm focus:outline-blue-500">
-                                    </label>
-                                    <label class="block min-w-[12rem]">
-                                        <span class="text-sm text-gray-600">LRU 路由上限（0=关闭）</span>
-                                        <input type="number" min="0" max="1000000" v-model.number="ospfController.lru_max_routes" @input="ospfControllerDirty = true" class="mt-1 w-full border rounded px-3 py-2 text-sm focus:outline-blue-500">
-                                    </label>
-                                    <div class="text-xs text-gray-500 xl:pb-2">当前：每批 {{ ospfController.push_batch_limit }} 条 / 最短间隔 {{ ospfController.push_interval_seconds }} 秒 / 解析并发 {{ ospfController.resolve_workers }} / /32 {{ ospfController.allow_slash32 ? '允许' : '禁止' }} / 最细前缀 /{{ ospfController.max_specific_prefix }} / LRU {{ ospfController.lru_max_routes === 0 ? '关闭' : ('上限 '+ospfController.lru_max_routes) }}</div>
+                                    <div class="text-xs text-gray-500 xl:pb-2">当前：每批 {{ ospfController.push_batch_limit }} 条 / 最短间隔 {{ ospfController.push_interval_seconds }} 秒 / 解析并发 {{ ospfController.resolve_workers }}</div>
                                     <button @click="saveOspfController" :disabled="!ospfControllerDirty" class="bg-blue-600 text-white px-4 py-2 rounded text-sm hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed xl:mb-[1px]">保存推送控制</button>
                                 </div>
                             </div>
@@ -1532,7 +1517,7 @@ window.onerror = function(msg, url, line, col, error) { alert("JS Error: " + msg
                 const dns = ref({ local: '', remote: '', lazy: true, mode: 'smart' });
                 const dnsLogs = ref([]);
                 const ospf = ref({ neighbors: 0, published: 0, pending: 0, logs: [] });
-                const ospfController = ref({ push_batch_limit: 500, push_interval_seconds: 10, resolve_workers: 16, allow_slash32: true, max_specific_prefix: 32, lru_max_routes: 0 });
+                const ospfController = ref({ push_batch_limit: 500, push_interval_seconds: 10, resolve_workers: 16 });
                 const ospfControllerDirty = ref(false);
                 const applyOspfPayload = (data) => {
                     ospf.value = {
@@ -1545,22 +1530,14 @@ window.onerror = function(msg, url, line, col, error) { alert("JS Error: " + msg
                         ospfController.value.push_batch_limit = data?.push_batch_limit || 500;
                         ospfController.value.push_interval_seconds = data?.push_interval_seconds || 10;
                         ospfController.value.resolve_workers = data?.resolve_workers || 16;
-                        ospfController.value.allow_slash32 = data?.allow_slash32 !== false;
-                        ospfController.value.max_specific_prefix = Number.isFinite(Number(data?.max_specific_prefix)) ? Number(data.max_specific_prefix) : 32;
-                        ospfController.value.lru_max_routes = Number.isFinite(Number(data?.lru_max_routes)) ? Number(data.lru_max_routes) : 0;
                     }
                 };
                 const saveOspfController = async () => {
                     const payload = {
                         push_batch_limit: parseInt(ospfController.value.push_batch_limit, 10) || 1,
                         push_interval_seconds: parseInt(ospfController.value.push_interval_seconds, 10) || 1,
-                        resolve_workers: parseInt(ospfController.value.resolve_workers, 10) || 1,
-                        allow_slash32: !!ospfController.value.allow_slash32,
-                        max_specific_prefix: parseInt(ospfController.value.max_specific_prefix, 10),
-                        lru_max_routes: parseInt(ospfController.value.lru_max_routes, 10)
+                        resolve_workers: parseInt(ospfController.value.resolve_workers, 10) || 1
                     };
-                    if (!Number.isFinite(payload.max_specific_prefix)) payload.max_specific_prefix = 32;
-                    if (!Number.isFinite(payload.lru_max_routes)) payload.lru_max_routes = 0;
                     const res = await apiFetch('/api/ospf/settings', { method: 'POST', body: JSON.stringify(payload) });
                     if (!res.ok) {
                         showToast('OSPF 推送控制保存失败', 'error');
@@ -1570,9 +1547,6 @@ window.onerror = function(msg, url, line, col, error) { alert("JS Error: " + msg
                     ospfController.value.push_batch_limit = data.push_batch_limit || payload.push_batch_limit;
                     ospfController.value.push_interval_seconds = data.push_interval_seconds || payload.push_interval_seconds;
                     ospfController.value.resolve_workers = data.resolve_workers || payload.resolve_workers;
-                    ospfController.value.allow_slash32 = data.allow_slash32 !== false;
-                    ospfController.value.max_specific_prefix = Number.isFinite(Number(data.max_specific_prefix)) ? Number(data.max_specific_prefix) : payload.max_specific_prefix;
-                    ospfController.value.lru_max_routes = Number.isFinite(Number(data.lru_max_routes)) ? Number(data.lru_max_routes) : payload.lru_max_routes;
                     ospfControllerDirty.value = false;
                     showToast('OSPF 推送控制已保存');
                     loadData();
