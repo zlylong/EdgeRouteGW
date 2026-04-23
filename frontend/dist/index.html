@@ -1029,6 +1029,7 @@ PersistentKeepalive = 25
                             <button @click="currentLogTab = 'xray'; fetchSyslogs('xray')" :class="{'border-blue-500 text-blue-600': currentLogTab === 'xray', 'border-transparent text-gray-500 hover:text-gray-700': currentLogTab !== 'xray'}" class="whitespace-nowrap py-2 px-4 border-b-2 font-medium text-sm transition-colors focus:outline-none">Xray-Core (转发面)</button>
                             <button @click="currentLogTab = 'mosdns'; fetchSyslogs('mosdns')" :class="{'border-blue-500 text-blue-600': currentLogTab === 'mosdns', 'border-transparent text-gray-500 hover:text-gray-700': currentLogTab !== 'mosdns'}" class="whitespace-nowrap py-2 px-4 border-b-2 font-medium text-sm transition-colors focus:outline-none">Mosdns (解析面)</button>
                             <button @click="currentLogTab = 'events'; fetchSyslogs('events')" :class="{'border-blue-500 text-blue-600': currentLogTab === 'events', 'border-transparent text-gray-500 hover:text-gray-700': currentLogTab !== 'events'}" class="whitespace-nowrap py-2 px-4 border-b-2 font-medium text-sm transition-colors focus:outline-none">网关事件流</button>
+                            <button @click="currentLogTab = 'alerts'; fetchSyslogs('alerts')" :class="{'border-blue-500 text-blue-600': currentLogTab === 'alerts', 'border-transparent text-gray-500 hover:text-gray-700': currentLogTab !== 'alerts'}" class="whitespace-nowrap py-2 px-4 border-b-2 font-medium text-sm transition-colors focus:outline-none">告警事件流</button>
                             <button @click="currentLogTab = 'nft'; fetchSyslogs('nft')" :class="{'border-blue-500 text-blue-600': currentLogTab === 'nft', 'border-transparent text-gray-500 hover:text-gray-700': currentLogTab !== 'nft'}" class="whitespace-nowrap py-2 px-4 border-b-2 font-medium text-sm transition-colors focus:outline-none">TProxy 命中计数</button>
                         </div>
 
@@ -1073,7 +1074,7 @@ window.onerror = function(msg, url, line, col, error) { alert("JS Error: " + msg
                 const editingNode = ref({ id: null, name: '', type: 'Vmess', address: '', port: 443, uuid: '', params: '{}' });
                 const vlessParams = ref({ type: 'tcp', security: 'none', sni: '', pbk: '', fp: 'chrome', sid: '', flow: '', method: 'aes-256-gcm' });
                 
-                const syslogs = ref({ proxygw: '', xray: '', mosdns: '', events: '', nft: '' });
+                const syslogs = ref({ proxygw: '', xray: '', mosdns: '', events: '', alerts: '', nft: '' });
                 const currentLogTab = ref('proxygw');
                 const syslogsContainer = ref(null);
 
@@ -1085,6 +1086,14 @@ window.onerror = function(msg, url, line, col, error) { alert("JS Error: " + msg
                                 const data = await res.json();
                                 if (data.success && Array.isArray(data.events)) {
                                     syslogs.value.events = data.events.map(ev => `[${ev.ts}] [${String(ev.level || '').toUpperCase()}] [${ev.module}/${ev.event_type}] ${ev.message}${ev.trace_id ? ' trace=' + ev.trace_id : ''}${ev.path ? ' path=' + ev.path : ''}${ev.status ? ' status=' + ev.status : ''}${ev.duration_ms ? ' cost=' + ev.duration_ms + 'ms' : ''}${ev.details ? ' details=' + ev.details : ''}`).join('\n');
+                                }
+                            }
+                        } else if (service === 'alerts') {
+                            const res = await fetch('/api/events?limit=200&level=warn', { headers: { 'Authorization': 'Bearer ' + localStorage.getItem('token') } });
+                            if (res.ok) {
+                                const data = await res.json();
+                                if (data.success && Array.isArray(data.events)) {
+                                    syslogs.value.alerts = data.events.map(ev => `[${ev.ts}] [${String(ev.level || '').toUpperCase()}] [${ev.module}/${ev.event_type}] ${ev.message}${ev.trace_id ? ' trace=' + ev.trace_id : ''}${ev.path ? ' path=' + ev.path : ''}${ev.status ? ' status=' + ev.status : ''}${ev.duration_ms ? ' cost=' + ev.duration_ms + 'ms' : ''}${ev.details ? ' details=' + ev.details : ''}`).join('\n');
                                 }
                             }
                         } else if (service === 'nft') {
