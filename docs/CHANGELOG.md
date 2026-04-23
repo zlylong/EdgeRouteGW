@@ -1,5 +1,21 @@
 # ProxyGW Changelog
 
+## [1.6.3] - 2026-04-23
+### 🚀 稳定版发布 (Stable)
+- 发布 `v1.6.3 Stable`，聚焦域名规则处理链路文档化与 OSPF 热路径开销优化。
+
+### ⚡ 性能优化 (Performance)
+- **Route Cache 表初始化去重**：`ensureRouteCacheTables()` 改为“每个 DB 实例仅初始化一次”，移除同步热路径中的重复 DDL/迁移触发。
+- **GeoData 版本读取缓存**：`getGeoDataVersion()` 增加内存缓存与文件签名检测，仅在 `geodata.ver` / `geosite.dat` 变化时刷新，降低频繁文件 I/O。
+- **FRR 对齐降频**：`reconcilePublishedRoutesWithFRR()` 周期从 `15s` 调整为 `45s`，减少 `show running-config` 全量读取开销。
+
+### 🐞 修复 (Bug Fixes)
+- **默认分流规则移除**：初始化阶段不再自动注入 `geosite:cn` / `geosite:category-ads-all` / `!cn`，新实例规则列表默认空白，避免隐式策略污染。
+
+### 📝 文档 (Docs)
+- **域名处理算法文档更新**：`docs/DEVELOPER.md` 新增 Mode B/C 下 `domain/geosite` 从解析缓存、GeoIP 提升、锁定、全局裁剪到 OSPF 下发/FRR 对齐的完整链路说明。
+- **规则使用文档更新**：`docs/ROUTING_RULES_GUIDE.md` 明确 `v1.6.3` 起不再注入默认规则，规则由用户显式定义。
+
 ## [1.6.2] - 2026-04-22
 ### 🚀 稳定版发布 (Stable)
 - 发布 `v1.6.2 Stable`，合并 `rc.1~rc.3` 与后续优化修复。
