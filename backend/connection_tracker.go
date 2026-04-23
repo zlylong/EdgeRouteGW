@@ -241,6 +241,10 @@ func attachRuleMatchMeta(records []ConnectionRecord) []ConnectionRecord {
 			continue
 		}
 		parsedIP := net.ParseIP(host)
+		domainHost := strings.TrimSpace(records[i].TargetDomain)
+		if net.ParseIP(domainHost) != nil {
+			domainHost = ""
+		}
 		var geoipTags []string
 		var geositeTags []string
 		geoipLoaded := false
@@ -250,7 +254,9 @@ func attachRuleMatchMeta(records []ConnectionRecord) []ConnectionRecord {
 			matched := false
 			switch rule.rtype {
 			case "domain":
-				matched = isDomainMatch(host, rule.value)
+				if domainHost != "" {
+					matched = isDomainMatch(domainHost, rule.value)
+				}
 			case "ip":
 				matched = isIPRuleMatch(host, rule.value)
 			case "geoip", "geolocation":
@@ -268,9 +274,9 @@ func attachRuleMatchMeta(records []ConnectionRecord) []ConnectionRecord {
 					}
 				}
 			case "geosite":
-				if parsedIP == nil {
+				if domainHost != "" {
 					if !geositeLoaded {
-						geositeTags = queryGeoSiteTagsByDomain(geositePath, host)
+						geositeTags = queryGeoSiteTagsByDomain(geositePath, domainHost)
 						geositeLoaded = true
 					}
 					for _, t := range geositeTags {

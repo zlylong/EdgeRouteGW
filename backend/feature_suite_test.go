@@ -555,7 +555,16 @@ func TestFeatureSuite_DNSRulesAndNodes(t *testing.T) {
 	})
 
 	t.Run("connections prefer mapped domain when target is ip", func(t *testing.T) {
-		if _, err := db.Exec("INSERT OR REPLACE INTO routes_table(ip, domain, source, first_seen, last_seen, ttl, status, miss_count) VALUES (?, ?, 'static', datetime('now', '-10 seconds'), datetime('now'), 300, 'published', 0)", "203.0.113.9", "mapped.example.net"); err != nil {
+		res, err := db.Exec("INSERT INTO rules(type, value, policy) VALUES ('domain', 'mapped-only.trace.test', 'proxy')")
+		if err != nil {
+			t.Fatalf("insert mapped-domain rule: %v", err)
+		}
+		ruleID64, err := res.LastInsertId()
+		if err != nil {
+			t.Fatalf("last insert id: %v", err)
+		}
+		expectedRuleID := int(ruleID64)
+		if _, err := db.Exec("INSERT OR REPLACE INTO routes_table(ip, domain, source, first_seen, last_seen, ttl, status, miss_count) VALUES (?, ?, 'static', datetime('now', '-10 seconds'), datetime('now'), 300, 'published', 0)", "203.0.113.9", "mapped-only.trace.test"); err != nil {
 			t.Fatalf("seed routes_table: %v", err)
 		}
 		connRingMutex.Lock()
@@ -581,8 +590,15 @@ func TestFeatureSuite_DNSRulesAndNodes(t *testing.T) {
 			t.Fatalf("unexpected connections payload: %v", resp)
 		}
 		item := data[0].(map[string]interface{})
-		if item["target_domain"].(string) != "mapped.example.net" {
+		if item["target_domain"].(string) != "mapped-only.trace.test" {
 			t.Fatalf("unexpected mapped target_domain: %v", item)
+		}
+		ruleID, ok := item["rule_id"].(float64)
+		if !ok {
+			t.Fatalf("mapped rule_id missing: %v", item)
+		}
+		if int(ruleID) != expectedRuleID || item["match_value"].(string) != "mapped-only.trace.test" {
+			t.Fatalf("unexpected mapped connection rule metadata: %v", item)
 		}
 	})
 
