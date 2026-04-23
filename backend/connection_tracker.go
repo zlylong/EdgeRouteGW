@@ -185,11 +185,47 @@ func lookupRecentDomainByIP(ip string) string {
 	if ip == "" {
 		return ""
 	}
-	var domain string
-	if err := db.QueryRow("SELECT COALESCE(domain, '') FROM routes_table WHERE ip=? AND COALESCE(domain, '') <> '' ORDER BY datetime(last_seen) DESC LIMIT 1", ip).Scan(&domain); err == nil {
-		return strings.TrimSpace(domain)
+	targetIP := net.ParseIP(ip)
+	if targetIP == nil {
+		return ""
 	}
-	return ""
+	rows, err := db.Query("SELECT ip, COALESCE(domain, '') FROM routes_table WHERE COALESCE(domain, '') <> '' ORDER BY last_seen DESC")
+	if err != nil {
+		return ""
+	}
+	defer rows.Close()
+	bestDomain := ""
+	bestPrefix := -1
+	for rows.Next() {
+		var routeKey, domain string
+		if err := rows.Scan(&routeKey, &domain); err != nil {
+			continue
+		}
+		routeKey = strings.TrimSpace(routeKey)
+		domain = strings.TrimSpace(domain)
+		if routeKey == "" || domain == "" {
+			continue
+		}
+		prefix := -1
+		if strings.Contains(routeKey, "/") {
+			_, ipNet, err := net.ParseCIDR(routeKey)
+			if err != nil || ipNet == nil || !ipNet.Contains(targetIP) {
+				continue
+			}
+			prefix, _ = ipNet.Mask.Size()
+		} else {
+			routeIP := net.ParseIP(routeKey)
+			if routeIP == nil || !routeIP.Equal(targetIP) {
+				continue
+			}
+			prefix = 32
+		}
+		if prefix > bestPrefix {
+			bestPrefix = prefix
+			bestDomain = domain
+		}
+	}
+	return bestDomain
 }
 
 func resolveConnectionTargetDomain(target string) string {
