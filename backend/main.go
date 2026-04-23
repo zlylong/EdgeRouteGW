@@ -2223,6 +2223,9 @@ func main() {
 	go domainIPUpdater()
 	applyMosdnsConfig()
 	applyXrayConfig()
+	if err := applyNftablesConfig(); err != nil {
+		log.Printf("[WARN] applyNftablesConfig on startup failed: %v", err)
+	}
 
 	// Init connection tracking
 	os.MkdirAll("/run/proxygw", 0755)
