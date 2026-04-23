@@ -88,6 +88,7 @@ func setupFeatureSuiteRouter(t *testing.T) *gin.Engine {
 		`CREATE TABLE remote_node_history (id INTEGER PRIMARY KEY AUTOINCREMENT, node_id INTEGER, type TEXT, params TEXT, created_at DATETIME DEFAULT CURRENT_TIMESTAMP);`,
 		`CREATE TABLE remote_node_logs (id INTEGER PRIMARY KEY AUTOINCREMENT, node_id INTEGER, action TEXT, status TEXT, log_text TEXT, created_at DATETIME DEFAULT CURRENT_TIMESTAMP);`,
 		`CREATE TABLE traffic_history (ts DATETIME, up_bytes INTEGER, down_bytes INTEGER);`,
+		`CREATE TABLE node_traffic_history (ts DATETIME, node_id INTEGER, up_bytes INTEGER, down_bytes INTEGER);`,
 		`CREATE TABLE routes_table (ip TEXT PRIMARY KEY, domain TEXT, source TEXT, first_seen DATETIME, last_seen DATETIME, ttl INTEGER, status TEXT, miss_count INTEGER DEFAULT 0);`,
 		`CREATE TABLE geosite_expand_cache (tag TEXT NOT NULL, geodata_ver TEXT NOT NULL, domains_json TEXT NOT NULL, skipped_count INTEGER NOT NULL DEFAULT 0, updated_at DATETIME DEFAULT CURRENT_TIMESTAMP, PRIMARY KEY (tag, geodata_ver));`,
 		`CREATE TABLE domain_resolve_cache (domain TEXT PRIMARY KEY, ips_json TEXT NOT NULL, dns_ttl INTEGER NOT NULL DEFAULT 300, resolved_at DATETIME NOT NULL, expire_at DATETIME NOT NULL, last_error TEXT NOT NULL DEFAULT '', fail_count INTEGER NOT NULL DEFAULT 0, geodata_ver TEXT NOT NULL DEFAULT '');`,
@@ -120,6 +121,8 @@ func setupFeatureSuiteRouter(t *testing.T) *gin.Engine {
 		`INSERT INTO remote_node_logs(node_id, action, status, log_text) VALUES (2, 'deploy', 'success', 'Deployment successful')`,
 		`INSERT INTO traffic_history(ts, up_bytes, down_bytes) VALUES (datetime('now', '-1 hour'), 100, 200)`,
 		`INSERT INTO traffic_history(ts, up_bytes, down_bytes) VALUES (datetime('now', '-2 hour'), 300, 400)`,
+		`INSERT INTO node_traffic_history(ts, node_id, up_bytes, down_bytes) VALUES (datetime('now', '-3 hour'), 1, 120, 180)`,
+		`INSERT INTO node_traffic_history(ts, node_id, up_bytes, down_bytes) VALUES (datetime('now', '-4 hour'), 2, 50, 70)`,
 		`INSERT INTO routes_table(ip, domain, source, first_seen, last_seen, ttl, status, miss_count) VALUES ('8.8.8.8/32', 'google.com', 'seed', datetime('now'), datetime('now'), 300, 'published', 0)`,
 		`INSERT INTO routes_table(ip, domain, source, first_seen, last_seen, ttl, status, miss_count) VALUES ('1.1.1.1/32', 'cloudflare.com', 'seed', datetime('now'), datetime('now'), 300, 'candidate', 0)`,
 	}
@@ -268,9 +271,17 @@ func TestFeatureSuite_AuthConfigAndSystem(t *testing.T) {
 			t.Fatalf("want 200 got %d", traffic.Code)
 		}
 		trafficResp := decodeJSONMap(t, traffic.Body.Bytes())
-		total24h := trafficResp["total_24h"].(map[string]interface{})
-		if total24h["up"].(float64) != 400 || total24h["down"].(float64) != 600 {
+		totalMonth := trafficResp["total_month"].(map[string]interface{})
+		if totalMonth["up"].(float64) != 400 || totalMonth["down"].(float64) != 600 {
 			t.Fatalf("unexpected traffic totals: %v", trafficResp)
+		}
+		ranking := trafficResp["node_ranking"].([]interface{})
+		if len(ranking) != 2 {
+			t.Fatalf("unexpected node ranking count: %v", trafficResp)
+		}
+		top := ranking[0].(map[string]interface{})
+		if top["node_id"].(float64) != 1 || top["total_bytes"].(float64) != 300 {
+			t.Fatalf("unexpected top node ranking: %v", top)
 		}
 
 		ospf := httptest.NewRecorder()

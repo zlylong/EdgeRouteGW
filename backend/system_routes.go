@@ -352,18 +352,59 @@ func registerSystemRoutes(api *gin.RouterGroup) {
 		downSpeed := currentSpeedDown
 		trafficMutex.Unlock()
 
-		rows, err := db.Query("SELECT SUM(up_bytes), SUM(down_bytes) FROM traffic_history WHERE ts >= datetime('now', '-24 hours')")
-		var totalUp24, totalDown24 sql.NullInt64
-		if err == nil {
-			defer rows.Close()
-			if rows.Next() {
-				rows.Scan(&totalUp24, &totalDown24)
+		var totalMonthUp, totalMonthDown sql.NullInt64
+		if err := db.QueryRow(`
+			SELECT COALESCE(SUM(up_bytes), 0), COALESCE(SUM(down_bytes), 0)
+			FROM traffic_history
+			WHERE datetime(ts, 'localtime') >= datetime('now', 'localtime', 'start of month')
+		`).Scan(&totalMonthUp, &totalMonthDown); err != nil && err != sql.ErrNoRows {
+			log.Printf("[WARN] query traffic_history monthly summary failed: %v", err)
+		}
+
+		nodeRows, err := db.Query(`
+			SELECT n.id,
+			       n.name,
+			       COALESCE(SUM(h.up_bytes), 0)   AS up_bytes,
+			       COALESCE(SUM(h.down_bytes), 0) AS down_bytes,
+			       COALESCE(SUM(h.up_bytes), 0) + COALESCE(SUM(h.down_bytes), 0) AS total_bytes
+			FROM nodes n
+			LEFT JOIN node_traffic_history h
+			       ON h.node_id = n.id
+			      AND datetime(h.ts, 'localtime') >= datetime('now', 'localtime', 'start of month')
+			GROUP BY n.id, n.name
+			HAVING total_bytes > 0
+			ORDER BY total_bytes DESC
+			LIMIT 10
+		`)
+		nodeRanking := make([]gin.H, 0)
+		if err != nil {
+			log.Printf("[WARN] query node_traffic_history monthly ranking failed: %v", err)
+		} else {
+			defer nodeRows.Close()
+			for nodeRows.Next() {
+				var nodeID int
+				var nodeName string
+				var upBytes, downBytes, totalBytes int64
+				if scanErr := nodeRows.Scan(&nodeID, &nodeName, &upBytes, &downBytes, &totalBytes); scanErr != nil {
+					continue
+				}
+				nodeRanking = append(nodeRanking, gin.H{
+					"node_id":     nodeID,
+					"node_name":   nodeName,
+					"up":          upBytes,
+					"down":        downBytes,
+					"total_bytes": totalBytes,
+				})
+			}
+			if rowsErr := nodeRows.Err(); rowsErr != nil {
+				log.Printf("[WARN] iterate node_traffic_history monthly ranking failed: %v", rowsErr)
 			}
 		}
 
 		c.JSON(200, gin.H{
-			"speed":     gin.H{"up": upSpeed, "down": downSpeed},
-			"total_24h": gin.H{"up": totalUp24.Int64, "down": totalDown24.Int64},
+			"speed":        gin.H{"up": upSpeed, "down": downSpeed},
+			"total_month":  gin.H{"up": totalMonthUp.Int64, "down": totalMonthDown.Int64},
+			"node_ranking": nodeRanking,
 		})
 	})
 
