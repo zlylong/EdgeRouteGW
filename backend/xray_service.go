@@ -11,7 +11,7 @@ func buildBaseXrayConfig(mode string) map[string]interface{} {
 				"port": 12345, "listen": "::", "protocol": "dokodemo-door",
 				"settings":       map[string]interface{}{"network": "tcp,udp", "followRedirect": true},
 				"streamSettings": map[string]interface{}{"sockopt": map[string]string{"tproxy": "tproxy"}},
-				"sniffing":       map[string]interface{}{"enabled": true, "destOverride": []string{"http", "tls"}, "routeOnly": true},
+				"sniffing":       map[string]interface{}{"enabled": true, "destOverride": []string{"http", "tls", "quic"}, "routeOnly": true},
 				"tag":            "tproxy_in",
 			},
 			{
@@ -45,7 +45,7 @@ func buildBaseXrayConfig(mode string) map[string]interface{} {
 		}
 
 		inbounds := config["inbounds"].([]map[string]interface{})
-		inbounds[0]["sniffing"].(map[string]interface{})["destOverride"] = []string{"http", "tls", "fakedns"}
+		inbounds[0]["sniffing"].(map[string]interface{})["destOverride"] = []string{"http", "tls", "quic", "fakedns"}
 
 		inbounds = append(inbounds, map[string]interface{}{
 			"port": 5353, "listen": "127.0.0.1", "protocol": "dokodemo-door",
