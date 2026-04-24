@@ -1,3 +1,12 @@
+## [1.6.10] - 2026-04-24
+### 🚀 稳定版发布 (Stable)
+- 发布 `v1.6.10 Stable`，按用户目标修正 Mode A 默认行为：仅命中规则流量走代理，其余默认直连。
+
+### 🐛 修复 (Fixes)
+- **Mode A 兜底策略修正**：`default-fallback` 在 Mode A 下默认固定为 `direct`（仅 `lan_default_policy=block` 时为 `block`），避免把未命中规则流量整体送代理。
+- **规则语义对齐**：保留 geosite/domain 命中代理能力（如 `geosite:anthropic -> proxy-3`），同时无规则流量按直连处理，符合“只代理已配置规则”预期。
+- **回归测试**：新增并覆盖 Mode A/Mode B 兜底行为测试，防止后续回归到全量代理。
+
 ## [1.6.9] - 2026-04-24
 ### 🚀 稳定版发布 (Stable)
 - 发布 `v1.6.9 Stable`，修复 Mode A 下 Xray 未命中规则时默认回落 direct 导致 `anthropic.com` 等站点直连的问题。
