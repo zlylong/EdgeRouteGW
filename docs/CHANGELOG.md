@@ -1,3 +1,11 @@
+## [1.6.8] - 2026-04-24
+### 🚀 稳定版发布 (Stable)
+- 发布 `v1.6.8 Stable`，修复 Mode A 下 geosite 规则（如 anthropic）未进入 Mosdns 代理域集导致未走代理的问题。
+
+### 🐛 修复 (Fixes)
+- **Mosdns/Xray 对接修复（Mode A）**：将 `geosite` 且 `policy=proxy` 的规则同步展开到 `core/mosdns/proxy_domains.txt`，确保 DNS 分流与 Xray 路由一致。
+- **动态应用修复**：新增/删除 `geosite` 规则时，和 `domain` 一样触发 Mosdns 配置应用，避免规则生效不完整。
+
 ## [1.6.7] - 2026-04-24
 ### 🚀 稳定版发布 (Stable)
 - 发布 v1.6.7 Stable，优化透明代理嗅探策略。
