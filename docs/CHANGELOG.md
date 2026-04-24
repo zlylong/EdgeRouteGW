@@ -1,3 +1,12 @@
+## [1.6.11] - 2026-04-24
+### 🚀 稳定版发布 (Stable)
+- 发布 `v1.6.11 Stable`，修复 Mode A 下 `www.anthropic.com` 等 HTTP/3(QUIC) 流量未命中 geosite 规则的问题。
+
+### 🐛 修复 (Fixes)
+- **QUIC 嗅探补齐（Mode A）**：`tproxy_in.sniffing.destOverride` 增加 `quic`，避免 UDP/443 流量仅按 IP 落入 `default-fallback=direct`。
+- **Mode B 同步一致性**：Mode B 的 sniffing 同步补齐 `quic`（保留 `fakedns`），避免模式切换后行为不一致。
+- **回归测试**：新增 base xray 配置测试，校验 Mode A/Mode B 均包含 QUIC sniffing。
+
 ## [1.6.10] - 2026-04-24
 ### 🚀 稳定版发布 (Stable)
 - 发布 `v1.6.10 Stable`，按用户目标修正 Mode A 默认行为：仅命中规则流量走代理，其余默认直连。
