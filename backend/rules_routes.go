@@ -259,7 +259,7 @@ func registerRuleRoutes(api *gin.RouterGroup) {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "db error"})
 			return
 		}
-		needMosdns := r.Type == "domain"
+		needMosdns := r.Type == "domain" || r.Type == "geosite"
 		if err := applyRuleChangeDynamically(needMosdns); err != nil {
 			log.Printf("[WARN] dynamic rule apply failed, fallback to scheduled apply: %v", err)
 			scheduleApplyFallbackIfRuntimeReady(needMosdns)
@@ -333,7 +333,7 @@ func registerRuleRoutes(api *gin.RouterGroup) {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "db error"})
 			return
 		}
-		needMosdns := strings.EqualFold(strings.TrimSpace(ruleType), "domain")
+		needMosdns := strings.EqualFold(strings.TrimSpace(ruleType), "domain") || strings.EqualFold(strings.TrimSpace(ruleType), "geosite")
 		if err := applyRuleChangeDynamically(needMosdns); err != nil {
 			log.Printf("[WARN] dynamic rule delete apply failed, fallback to scheduled apply: %v", err)
 			scheduleApplyFallbackIfRuntimeReady(needMosdns)
