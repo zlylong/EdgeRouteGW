@@ -554,7 +554,7 @@ func TestFeatureSuite_DNSRulesAndNodes(t *testing.T) {
 		}
 	})
 
-	t.Run("connections prefer mapped domain when target is ip", func(t *testing.T) {
+	t.Run("connections prefer mapped domain when target is ip and routes_table stores /32", func(t *testing.T) {
 		res, err := db.Exec("INSERT INTO rules(type, value, policy) VALUES ('domain', 'mapped-only.trace.test', 'proxy')")
 		if err != nil {
 			t.Fatalf("insert mapped-domain rule: %v", err)
@@ -564,7 +564,7 @@ func TestFeatureSuite_DNSRulesAndNodes(t *testing.T) {
 			t.Fatalf("last insert id: %v", err)
 		}
 		expectedRuleID := int(ruleID64)
-		if _, err := db.Exec("INSERT OR REPLACE INTO routes_table(ip, domain, source, first_seen, last_seen, ttl, status, miss_count) VALUES (?, ?, 'static', datetime('now', '-10 seconds'), datetime('now'), 300, 'published', 0)", "203.0.113.9", "mapped-only.trace.test"); err != nil {
+		if _, err := db.Exec("INSERT OR REPLACE INTO routes_table(ip, domain, source, first_seen, last_seen, ttl, status, miss_count) VALUES (?, ?, 'static', datetime('now', '-10 seconds'), datetime('now'), 300, 'published', 0)", "203.0.113.9/32", "mapped-only.trace.test"); err != nil {
 			t.Fatalf("seed routes_table: %v", err)
 		}
 		connRingMutex.Lock()

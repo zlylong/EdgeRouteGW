@@ -186,7 +186,10 @@ func lookupRecentDomainByIP(ip string) string {
 		return ""
 	}
 	var domain string
-	if err := db.QueryRow("SELECT COALESCE(domain, '') FROM routes_table WHERE ip=? AND COALESCE(domain, '') <> '' ORDER BY datetime(last_seen) DESC LIMIT 1", ip).Scan(&domain); err == nil {
+	if err := db.QueryRow(
+		"SELECT COALESCE(domain, '') FROM routes_table WHERE (ip=? OR ip=? || '/32') AND COALESCE(domain, '') <> '' ORDER BY CASE WHEN ip=? THEN 0 ELSE 1 END, datetime(last_seen) DESC LIMIT 1",
+		ip, ip, ip,
+	).Scan(&domain); err == nil {
 		return strings.TrimSpace(domain)
 	}
 	return ""
