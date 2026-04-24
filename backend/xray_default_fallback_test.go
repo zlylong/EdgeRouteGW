@@ -89,3 +89,65 @@ func TestApplyXrayConfigModeBFallbackRespectsProxyPolicy(t *testing.T) {
 		t.Fatalf("mode B fallback outboundTag want proxy-3-out got %#v", last["outboundTag"])
 	}
 }
+
+func findRuleByTag(rules []any, tag string) (map[string]any, int) {
+	for i, raw := range rules {
+		r, ok := raw.(map[string]any)
+		if !ok {
+			continue
+		}
+		if rt, _ := r["ruleTag"].(string); rt == tag {
+			return r, i
+		}
+	}
+	return nil, -1
+}
+
+func TestApplyXrayConfigModeAAddsQuicBlockRule(t *testing.T) {
+	cfg := renderXrayConfigForFallbackTest(t, "A", "proxy")
+	rules := cfg["routing"].(map[string]any)["rules"].([]any)
+
+	qrule, qidx := findRuleByTag(rules, "mode-a-disable-quic")
+	if qrule == nil {
+		t.Fatal("mode-a-disable-quic rule missing")
+	}
+	if qrule["outboundTag"] != "block" {
+		t.Fatalf("mode-a-disable-quic outboundTag want block got %#v", qrule["outboundTag"])
+	}
+	if qrule["network"] != "udp" {
+		t.Fatalf("mode-a-disable-quic network want udp got %#v", qrule["network"])
+	}
+	if qrule["port"] != "443" {
+		t.Fatalf("mode-a-disable-quic port want 443 got %#v", qrule["port"])
+	}
+	if qidx <= 0 {
+		t.Fatalf("mode-a-disable-quic should be before db rules, idx=%d", qidx)
+	}
+
+	didx := -1
+	for i, raw := range rules {
+		r, ok := raw.(map[string]any)
+		if !ok {
+			continue
+		}
+		rt, _ := r["ruleTag"].(string)
+		if len(rt) > len("db-rule-") && rt[:len("db-rule-")] == "db-rule-" {
+			didx = i
+			break
+		}
+	}
+	if didx == -1 {
+		t.Fatal("db-rule-* missing")
+	}
+	if qidx >= didx {
+		t.Fatalf("mode-a-disable-quic should be before first db-rule, got qidx=%d didx=%d", qidx, didx)
+	}
+}
+
+func TestApplyXrayConfigModeBNoQuicBlockRule(t *testing.T) {
+	cfg := renderXrayConfigForFallbackTest(t, "B", "proxy")
+	rules := cfg["routing"].(map[string]any)["rules"].([]any)
+	if r, _ := findRuleByTag(rules, "mode-a-disable-quic"); r != nil {
+		t.Fatalf("mode B should not include mode-a-disable-quic: %#v", r)
+	}
+}

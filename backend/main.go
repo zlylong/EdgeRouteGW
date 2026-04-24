@@ -1921,6 +1921,17 @@ func applyXrayConfigInternal(restart bool) error {
 	}
 	defer rRows.Close()
 	rules := config["routing"].(map[string]interface{})["rules"].([]map[string]interface{})
+	if mode == "A" {
+		// Force QUIC fallback to TCP in Mode A to keep geosite/domain routing deterministic.
+		rules = append(rules, map[string]interface{}{
+			"type":        "field",
+			"ruleTag":     "mode-a-disable-quic",
+			"inboundTag":  []string{"tproxy_in"},
+			"network":     "udp",
+			"port":        "443",
+			"outboundTag": "block",
+		})
+	}
 	for rRows.Next() {
 		var id int
 		var rtype, value, policy string
