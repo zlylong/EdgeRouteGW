@@ -394,6 +394,18 @@ func TestFeatureSuite_DNSRulesAndNodes(t *testing.T) {
 			t.Fatalf("expected inserted rule, count=%d", ruleCount)
 		}
 
+		haCreate := httptest.NewRecorder()
+		r.ServeHTTP(haCreate, authedJSONRequest(http.MethodPost, "/api/rules", `{"Type":"domain","Value":"ha-check.example","Policy":"ha-1-2"}`))
+		if haCreate.Code != http.StatusOK {
+			t.Fatalf("ha policy create should be accepted, got %d body=%s", haCreate.Code, haCreate.Body.String())
+		}
+		if err := db.QueryRow("SELECT COUNT(*) FROM rules WHERE value='ha-check.example' AND policy='ha-1-2'").Scan(&ruleCount); err != nil {
+			t.Fatal(err)
+		}
+		if ruleCount != 1 {
+			t.Fatalf("expected inserted ha rule, count=%d", ruleCount)
+		}
+
 		remove := httptest.NewRecorder()
 		r.ServeHTTP(remove, authedRequest(http.MethodDelete, "/api/rules/1"))
 		if remove.Code != http.StatusOK {

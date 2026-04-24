@@ -232,7 +232,7 @@ func registerRuleRoutes(api *gin.RouterGroup) {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid ip/cidr rule value"})
 			return
 		}
-		if r.Policy != "direct" && r.Policy != "block" && !strings.HasPrefix(r.Policy, "proxy") {
+		if r.Policy != "direct" && r.Policy != "block" && !strings.HasPrefix(r.Policy, "proxy") && !strings.HasPrefix(r.Policy, "ha-") {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid policy"})
 			return
 		}
