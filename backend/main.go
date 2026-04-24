@@ -1999,17 +1999,27 @@ func applyXrayConfigInternal(restart bool) error {
 		"network": "tcp,udp",
 		"ruleTag": "default-fallback",
 	}
-	switch strings.ToLower(strings.TrimSpace(defaultPolicy)) {
-	case "proxy":
-		if len(proxyTags) > 0 {
-			catchAllRule["balancerTag"] = "proxy-balancer"
+	policy := strings.ToLower(strings.TrimSpace(defaultPolicy))
+	if mode == "A" {
+		// Mode A should only proxy traffic that explicitly matches proxy rules.
+		if policy == "block" {
+			catchAllRule["outboundTag"] = "block"
 		} else {
 			catchAllRule["outboundTag"] = "direct"
 		}
-	case "block":
-		catchAllRule["outboundTag"] = "block"
-	default:
-		catchAllRule["outboundTag"] = "direct"
+	} else {
+		switch policy {
+		case "proxy":
+			if len(proxyTags) > 0 {
+				catchAllRule["balancerTag"] = "proxy-balancer"
+			} else {
+				catchAllRule["outboundTag"] = "direct"
+			}
+		case "block":
+			catchAllRule["outboundTag"] = "block"
+		default:
+			catchAllRule["outboundTag"] = "direct"
+		}
 	}
 	rules = append(rules, catchAllRule)
 

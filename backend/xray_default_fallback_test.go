@@ -7,15 +7,16 @@ import (
 	"testing"
 )
 
-func TestApplyXrayConfigAddsDefaultFallbackByLanPolicy(t *testing.T) {
+func renderXrayConfigForFallbackTest(t *testing.T, mode, lanPolicy string) map[string]any {
+	t.Helper()
 	tdb, _ := setupTestDB(t)
 	db = tdb
 	t.Cleanup(func() { db.Close() })
 
-	if _, err := db.Exec(`INSERT OR REPLACE INTO settings(key,value) VALUES ('mode','A')`); err != nil {
+	if _, err := db.Exec(`INSERT OR REPLACE INTO settings(key,value) VALUES ('mode',?)`, mode); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := db.Exec(`INSERT OR REPLACE INTO settings(key,value) VALUES ('lan_default_policy','proxy')`); err != nil {
+	if _, err := db.Exec(`INSERT OR REPLACE INTO settings(key,value) VALUES ('lan_default_policy',?)`, lanPolicy); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := db.Exec(`INSERT OR REPLACE INTO settings(key,value) VALUES ('default_node_id','3')`); err != nil {
@@ -56,10 +57,12 @@ func TestApplyXrayConfigAddsDefaultFallbackByLanPolicy(t *testing.T) {
 	if err := json.Unmarshal(payload, &cfg); err != nil {
 		t.Fatal(err)
 	}
+	return cfg
+}
+
+func TestApplyXrayConfigModeADefaultFallbackDirect(t *testing.T) {
+	cfg := renderXrayConfigForFallbackTest(t, "A", "proxy")
 	rules := cfg["routing"].(map[string]any)["rules"].([]any)
-	if len(rules) < 2 {
-		t.Fatalf("unexpected rules len: %d", len(rules))
-	}
 	last := rules[len(rules)-1].(map[string]any)
 	if last["ruleTag"] != "default-fallback" {
 		t.Fatalf("last ruleTag want default-fallback got %#v", last["ruleTag"])
@@ -67,10 +70,22 @@ func TestApplyXrayConfigAddsDefaultFallbackByLanPolicy(t *testing.T) {
 	if last["network"] != "tcp,udp" {
 		t.Fatalf("last network want tcp,udp got %#v", last["network"])
 	}
-	if last["outboundTag"] != "proxy-3-out" {
-		t.Fatalf("last outboundTag want proxy-3-out got %#v", last["outboundTag"])
+	if last["outboundTag"] != "direct" {
+		t.Fatalf("mode A fallback outboundTag want direct got %#v", last["outboundTag"])
 	}
 	if _, ok := last["balancerTag"]; ok {
-		t.Fatalf("last rule should not keep balancerTag: %#v", last)
+		t.Fatalf("mode A fallback should not keep balancerTag: %#v", last)
+	}
+}
+
+func TestApplyXrayConfigModeBFallbackRespectsProxyPolicy(t *testing.T) {
+	cfg := renderXrayConfigForFallbackTest(t, "B", "proxy")
+	rules := cfg["routing"].(map[string]any)["rules"].([]any)
+	last := rules[len(rules)-1].(map[string]any)
+	if last["ruleTag"] != "default-fallback" {
+		t.Fatalf("last ruleTag want default-fallback got %#v", last["ruleTag"])
+	}
+	if last["outboundTag"] != "proxy-3-out" {
+		t.Fatalf("mode B fallback outboundTag want proxy-3-out got %#v", last["outboundTag"])
 	}
 }
