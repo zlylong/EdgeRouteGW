@@ -96,6 +96,7 @@ func GenerateVlessRealityInstallScript(port int, uuid, privateKey, shortId, serv
 				"sniffing": map[string]interface{}{
 					"enabled":      true,
 					"destOverride": []string{"http", "tls", "quic"},
+					"routeOnly":    true,
 				},
 			},
 		},

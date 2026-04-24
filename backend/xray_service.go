@@ -11,7 +11,7 @@ func buildBaseXrayConfig(mode string) map[string]interface{} {
 				"port": 12345, "listen": "::", "protocol": "dokodemo-door",
 				"settings":       map[string]interface{}{"network": "tcp,udp", "followRedirect": true},
 				"streamSettings": map[string]interface{}{"sockopt": map[string]string{"tproxy": "tproxy"}},
-				"sniffing":       map[string]interface{}{"enabled": true, "destOverride": []string{"http", "tls"}},
+				"sniffing":       map[string]interface{}{"enabled": true, "destOverride": []string{"http", "tls"}, "routeOnly": true},
 				"tag":            "tproxy_in",
 			},
 			{
