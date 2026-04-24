@@ -1,3 +1,12 @@
+## [1.6.9] - 2026-04-24
+### 🚀 稳定版发布 (Stable)
+- 发布 `v1.6.9 Stable`，修复 Mode A 下 Xray 未命中规则时默认回落 direct 导致 `anthropic.com` 等站点直连的问题。
+
+### 🐛 修复 (Fixes)
+- **Xray 默认兜底路由修复（Mode A）**：在动态生成路由规则末尾追加 `default-fallback`（`network: tcp,udp`），按 `lan_default_policy` 决定默认出口，避免未命中时回落到 outbounds 首项 `direct`。
+- **策略一致性**：当 `lan_default_policy=proxy` 且存在可用代理节点时，兜底流量默认进入 `proxy-*`（单节点时固定到默认节点），确保与网关策略一致。
+- **回归测试**：新增 `TestApplyXrayConfigAddsDefaultFallbackByLanPolicy`，覆盖兜底规则生成与出站选择逻辑，防止回归。
+
 ## [1.6.8] - 2026-04-24
 ### 🚀 稳定版发布 (Stable)
 - 发布 `v1.6.8 Stable`，修复 Mode A 下 geosite 规则（如 anthropic）未进入 Mosdns 代理域集导致未走代理的问题。
