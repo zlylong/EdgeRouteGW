@@ -1,3 +1,12 @@
+## [1.6.12] - 2026-04-24
+### 🚀 稳定版发布 (Stable)
+- 发布 `v1.6.12 Stable`，按用户选择启用 Mode A 的“禁用 QUIC 以稳定 geosite 命中”策略。
+
+### 🐛 修复 (Fixes)
+- **Mode A 禁用 QUIC（UDP/443）**：新增高优先级路由规则 `mode-a-disable-quic`，将 `tproxy_in` 的 UDP/443 流量拦截，强制客户端回落 TCP/TLS。
+- **稳定性提升**：避免 `geosite:anthropic` 在 QUIC 场景下因域名不可见导致落入 `default-fallback=direct` 的抖动现象。
+- **回归测试**：新增 Mode A/Mode B 规则断言，确保仅 Mode A 注入 QUIC 阻断规则且顺序正确。
+
 ## [1.6.11] - 2026-04-24
 ### 🚀 稳定版发布 (Stable)
 - 发布 `v1.6.11 Stable`，修复 Mode A 下 `www.anthropic.com` 等 HTTP/3(QUIC) 流量未命中 geosite 规则的问题。
