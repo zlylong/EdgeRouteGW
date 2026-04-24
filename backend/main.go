@@ -1990,6 +1990,29 @@ func applyXrayConfigInternal(restart bool) error {
 		log.Printf("[WARN] rRows err: %v", err)
 	}
 
+	defaultPolicy := "proxy"
+	if err := db.QueryRow("SELECT value FROM settings WHERE key='lan_default_policy'").Scan(&defaultPolicy); err != nil || strings.TrimSpace(defaultPolicy) == "" {
+		defaultPolicy = "proxy"
+	}
+	catchAllRule := map[string]interface{}{
+		"type":    "field",
+		"network": "tcp,udp",
+		"ruleTag": "default-fallback",
+	}
+	switch strings.ToLower(strings.TrimSpace(defaultPolicy)) {
+	case "proxy":
+		if len(proxyTags) > 0 {
+			catchAllRule["balancerTag"] = "proxy-balancer"
+		} else {
+			catchAllRule["outboundTag"] = "direct"
+		}
+	case "block":
+		catchAllRule["outboundTag"] = "block"
+	default:
+		catchAllRule["outboundTag"] = "direct"
+	}
+	rules = append(rules, catchAllRule)
+
 	if len(proxyTags) > 0 {
 		config["observatory"] = map[string]interface{}{
 			"subjectSelector": []string{"proxy-"},
