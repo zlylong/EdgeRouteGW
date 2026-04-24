@@ -1,3 +1,11 @@
+## [1.6.7] - 2026-04-24
+### 🚀 稳定版发布 (Stable)
+- 发布 v1.6.7 Stable，优化透明代理嗅探策略。
+
+### ⚡ 性能与优化 (Optimizations)
+- **嗅探优化 (Xray Sniffing)**：在 Mode A (TProxy) 模式下开启 `routeOnly: true`。Xray 将仅使用嗅探出的域名进行路由分流决策（如 geosite 匹配），不再强行改写原始目标地址，显著提升透明代理环境下的连接稳定性。
+- **远程节点同步**：同步更新远程节点部署脚本，为其 VLESS Reality 入站配置开启 `routeOnly: true`，确保内外环境行为一致。
+
 
 ## [1.6.6] - 2026-04-24
 ### 🚀 稳定版发布 (Stable)
