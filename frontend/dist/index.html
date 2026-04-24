@@ -285,11 +285,12 @@
                                             </td>
                                             <td class="p-3 text-gray-700 font-mono">{{ conn.target }}</td>
                                             <td class="p-3 text-blue-600 font-mono text-xs">
-                                                <a v-if="conn.rule_id" href="#" @click.prevent="activeTab='rules'; loadRules()" class="hover:underline">#{{ conn.rule_id }}</a>
+                                                <a v-if="conn.rule_id" href="#" @click.prevent="goToRule(conn.rule_id)" class="hover:underline">#{{ conn.rule_id }}</a>
                                                 <span v-else>-</span>
                                             </td>
                                             <td class="p-3 text-gray-500 font-mono text-xs">
-                                                <div class="font-bold text-gray-700">{{ conn.match_value || "-" }}</div>
+                                                <a v-if="conn.rule_id && conn.match_value" href="#" @click.prevent="goToRule(conn.rule_id)" class="font-bold text-gray-700 hover:underline">{{ conn.match_value }}</a>
+                                                <div v-else class="font-bold text-gray-700">{{ conn.match_value || "-" }}</div>
                                                 <div v-if="conn.policy" class="text-[10px] text-gray-400">绑定策略: {{ conn.policy }}</div>
                                             </td>
                                         </tr>
@@ -671,13 +672,6 @@ PersistentKeepalive = 25
                                         <option value="geoip">GeoIP (IP集)</option>
                                     </select>
                                 </div>
-                                <div class="w-56">
-                                    <label class="block text-sm font-medium text-gray-700 mb-1">按组筛选</label>
-                                    <select v-model="selectedRuleGroup" @change="loadRules" class="border border-gray-300 rounded px-3 py-2 w-full">
-                                        <option value="">全部规则</option>
-                                        <option v-for="group in ruleGroups" :key="group.group_id" :value="group.group_id">{{ group.group_name }} ({{ group.rule_count }})</option>
-                                    </select>
-                                </div>
                                 <div class="flex-1">
                                     <label class="block text-sm font-medium text-gray-700 mb-1">匹配值</label>
                                     <input v-model="newRule.value" @focus="handleRuleValueFocus" @blur="handleRuleValueBlur" list="ruleSuggestions" type="text" class="border border-gray-300 rounded px-3 py-2 w-full" :placeholder="ruleValuePlaceholder">
@@ -721,7 +715,14 @@ PersistentKeepalive = 25
                                 </div>
                             </div>
                             <div class="flex items-end gap-3 flex-wrap border-t pt-3">
-                                <div v-if="selectedRuleGroup" class="w-56">
+                                <div class="w-72">
+                                    <label class="block text-sm font-medium text-gray-700 mb-1">组备注（筛选）</label>
+                                    <select v-model="selectedRuleGroup" @change="ruleSearchId=''; loadRules()" class="border border-gray-300 rounded px-3 py-2 w-full h-[42px]">
+                                        <option value="">全部规则</option>
+                                        <option v-for="group in ruleGroups" :key="group.group_id" :value="group.group_id">{{ group.group_name || shortRuleGroup(group.group_id) }} ({{ group.rule_count }})</option>
+                                    </select>
+                                </div>
+                                <div v-if="selectedRuleGroup" class="w-64">
                                     <label class="block text-sm font-medium text-gray-700 mb-1">当前组备注</label>
                                     <input v-model="editingRuleGroup" @focus="handleRuleGroupFocus" @blur="handleRuleGroupBlur" type="text" class="border border-gray-300 rounded px-3 py-2 w-full" placeholder="输入组备注">
                                 </div>
@@ -738,6 +739,10 @@ PersistentKeepalive = 25
                             </div>
                         </div>
 
+                        <div v-if="ruleSearchId" class="mb-3 px-4 py-2 rounded border border-blue-200 bg-blue-50 text-sm text-blue-700 flex items-center justify-between">
+                            <span>已按连接追踪定位规则 #{{ ruleSearchId }}</span>
+                            <button @click="ruleSearchId=''; loadRules()" class="text-blue-700 hover:text-blue-900 underline">清除定位</button>
+                        </div>
                         <div class="bg-white rounded-lg shadow overflow-hidden">
                             <table class="min-w-full divide-y divide-gray-200">
                                 <thead class="bg-gray-50">
@@ -752,7 +757,7 @@ PersistentKeepalive = 25
                                     </tr>
                                 </thead>
                                 <tbody class="bg-white divide-y divide-gray-200">
-                                    <tr v-for="rule in rules" :key="rule.id">
+                                    <tr v-for="rule in filteredRules" :key="rule.id">
                                         <td class="px-6 py-4 whitespace-nowrap font-mono text-sm text-gray-500">#{{ rule.id }}</td>
                                         <td class="px-6 py-4 whitespace-nowrap font-mono text-sm">{{ rule.type }}</td>
                                         <td class="px-6 py-4 whitespace-nowrap font-mono text-sm">{{ rule.value }}</td>
@@ -779,7 +784,7 @@ PersistentKeepalive = 25
                                             <button @click="deleteRule(rule.id)" class="text-red-600 hover:text-red-900">删除</button>
                                         </td>
                                     </tr>
-                                    <tr v-if="rules.length === 0"><td colspan="7" class="px-6 py-4 text-center text-gray-500">暂无规则数据</td></tr>
+                                    <tr v-if="filteredRules.length === 0"><td colspan="7" class="px-6 py-4 text-center text-gray-500">暂无规则数据</td></tr>
                                 </tbody>
                             </table>
                         </div>
@@ -1527,6 +1532,7 @@ window.onerror = function(msg, url, line, col, error) { alert("JS Error: " + msg
                 const rules = ref([]);
                 const ruleGroups = ref([]);
                 const selectedRuleGroup = ref('');
+                const ruleSearchId = ref('');
                 const editingRuleGroup = ref('');
                 const categories = ref({ geosite: [], geoip: [] });
                 const geoQuery = ref({ input: '', loading: false, result: null });
@@ -2060,6 +2066,17 @@ Mode C: 纯OSPF (恢复真实IP宣告)`)) {
                     }
                     syncEditingRuleGroup();
                 };
+                const filteredRules = computed(() => {
+                    if (!ruleSearchId.value) return rules.value;
+                    return rules.value.filter(rule => String(rule.id) === String(ruleSearchId.value));
+                });
+                const goToRule = (ruleId) => {
+                    if (!ruleId) return;
+                    activeTab.value = 'rules';
+                    selectedRuleGroup.value = '';
+                    ruleSearchId.value = String(ruleId);
+                    loadRules();
+                };
                 const describeRulePattern = (rule) => {
                     const value = ((rule && rule.value) || '').trim().toLowerCase().replace(/\.+$/, '');
                     if (!value) return '—';
@@ -2152,11 +2169,11 @@ Mode C: 纯OSPF (恢复真实IP宣告)`)) {
                 onMounted(() => { loadData(true); setInterval(() => loadData(false), 2000); });
 
                                 return { syslogs, currentLogTab, syslogsContainer, fetchSyslogs, traffic, formatBytes,
-                    connections, connSearch, filteredConnections, lanAcls, defaultLanPolicy,
+                    connections, connSearch, filteredConnections, lanAcls, defaultLanPolicy, goToRule,
                     showAclModal, aclForm, openAddAcl, saveAcl, deleteAcl, updateLanDefault,
                     currentConfigTab,
                     loadData,
-                    isSubmitting, isLoading, vlessParams, cron, saveCron, showPwdModal, pwdForm, logout, changePwd, toastMsg, toastType, confirmData, doConfirm, isUpdating, token, password, login, categories, geoQuery, showGeoSuggestions, geoSuggestionIndex, filteredGeoSuggestions, handleGeoInput, handleGeoInputBlur, moveGeoSuggestion, confirmGeoSuggestionOrQuery, applyGeoSuggestion, runGeoQuery, xrayConfigStr, mosdnsConfigStr, nftablesConfigStr, frrConfigStr, loadConfigs, newRule, ruleGroups, selectedRuleGroup, editingRuleGroup, shortRuleGroup, describeRulePattern, ruleValuePlaceholder, ruleValidationError, handleRuleValueFocus, handleRuleValueBlur, addRule, loadRules, saveRuleGroupName, activeTab, tabs, currentTabLabel, nodes, rules, dns, dnsLogs, ospf, ospfController, ospfControllerDirty, saveOspfController, sysStatus, applyConfig, toggleMode, changeMode, importNodeUrl, pingNodes, openAddNode, editNode, saveNode, showNodeModal, editingNode, deleteNode, toggleNode, deleteRule, deleteRuleGroup, saveDns, updateComp, showMosdnsRollbackModal, mosdnsVersions, selectedMosdnsRollbackVersion, openMosdnsRollbackModal, confirmMosdnsRollback, showRollbackModal, xrayVersions, selectedRollbackVersion, openRollbackModal, confirmRollback, remoteNodes, showRemoteNodeModal, showRemoteDetailsModal, selectedRemoteNode, remoteNodeForm, loadRemoteNodes, openAddRemoteNode, submitRemoteNode, viewRemoteNode, checkRemoteNode, confirmDeleteRemoteNode, copyText, importToLocal, isDeploying, showBatchModal, batchText, submitBatchNodes, showHistoryModal, nodeHistory, setDefaultNode, regenerateNode, loadNodeHistory, rollbackNode }
+                    isSubmitting, isLoading, vlessParams, cron, saveCron, showPwdModal, pwdForm, logout, changePwd, toastMsg, toastType, confirmData, doConfirm, isUpdating, token, password, login, categories, geoQuery, showGeoSuggestions, geoSuggestionIndex, filteredGeoSuggestions, handleGeoInput, handleGeoInputBlur, moveGeoSuggestion, confirmGeoSuggestionOrQuery, applyGeoSuggestion, runGeoQuery, xrayConfigStr, mosdnsConfigStr, nftablesConfigStr, frrConfigStr, loadConfigs, newRule, ruleGroups, selectedRuleGroup, ruleSearchId, filteredRules, editingRuleGroup, shortRuleGroup, describeRulePattern, ruleValuePlaceholder, ruleValidationError, handleRuleValueFocus, handleRuleValueBlur, addRule, loadRules, saveRuleGroupName, activeTab, tabs, currentTabLabel, nodes, rules, dns, dnsLogs, ospf, ospfController, ospfControllerDirty, saveOspfController, sysStatus, applyConfig, toggleMode, changeMode, importNodeUrl, pingNodes, openAddNode, editNode, saveNode, showNodeModal, editingNode, deleteNode, toggleNode, deleteRule, deleteRuleGroup, saveDns, updateComp, showMosdnsRollbackModal, mosdnsVersions, selectedMosdnsRollbackVersion, openMosdnsRollbackModal, confirmMosdnsRollback, showRollbackModal, xrayVersions, selectedRollbackVersion, openRollbackModal, confirmRollback, remoteNodes, showRemoteNodeModal, showRemoteDetailsModal, selectedRemoteNode, remoteNodeForm, loadRemoteNodes, openAddRemoteNode, submitRemoteNode, viewRemoteNode, checkRemoteNode, confirmDeleteRemoteNode, copyText, importToLocal, isDeploying, showBatchModal, batchText, submitBatchNodes, showHistoryModal, nodeHistory, setDefaultNode, regenerateNode, loadNodeHistory, rollbackNode }
             }
         }).mount('#app');
     </script>

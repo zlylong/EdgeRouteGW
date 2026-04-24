@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"container/ring"
+	"fmt"
 	"net"
 	"net/http"
 	"os"
@@ -209,25 +210,53 @@ func resolveConnectionTargetDomain(target string) string {
 	return host
 }
 
+func policyMatchesConnection(rulePolicy, connPolicy string) bool {
+	rp := strings.ToLower(strings.TrimSpace(rulePolicy))
+	cp := strings.ToLower(strings.TrimSpace(connPolicy))
+	if rp == "" || cp == "" {
+		return true
+	}
+	switch {
+	case rp == "direct" || rp == "block":
+		return cp == rp
+	case rp == "proxy":
+		return cp == "proxy" || (strings.HasPrefix(cp, "proxy-") && strings.HasSuffix(cp, "-out"))
+	case strings.HasPrefix(rp, "proxy-"):
+		return cp == rp || cp == rp+"-out"
+	case strings.HasPrefix(rp, "ha-"):
+		parts := strings.Split(strings.TrimPrefix(rp, "ha-"), "-")
+		if len(parts) != 2 {
+			return false
+		}
+		primary := fmt.Sprintf("proxy-%s-out", parts[0])
+		standby := fmt.Sprintf("proxy-%s-out", parts[1])
+		return cp == primary || cp == standby
+	default:
+		return cp == rp || cp == rp+"-out"
+	}
+}
+
 func attachRuleMatchMeta(records []ConnectionRecord) []ConnectionRecord {
-	rows, err := db.Query("SELECT id, type, value FROM rules ORDER BY id ASC")
+	rows, err := db.Query("SELECT id, type, value, policy FROM rules ORDER BY id ASC")
 	if err != nil {
 		return records
 	}
 	defer rows.Close()
 	type simpleRule struct {
-		id    int
-		rtype string
-		value string
+		id     int
+		rtype  string
+		value  string
+		policy string
 	}
 	rules := make([]simpleRule, 0, 128)
 	for rows.Next() {
 		var r simpleRule
-		if err := rows.Scan(&r.id, &r.rtype, &r.value); err != nil {
+		if err := rows.Scan(&r.id, &r.rtype, &r.value, &r.policy); err != nil {
 			continue
 		}
 		r.rtype = strings.ToLower(strings.TrimSpace(r.rtype))
 		r.value = strings.TrimSpace(r.value)
+		r.policy = strings.TrimSpace(r.policy)
 		rules = append(rules, r)
 	}
 	if err := rows.Err(); err != nil {
@@ -254,6 +283,9 @@ func attachRuleMatchMeta(records []ConnectionRecord) []ConnectionRecord {
 		geositeLoaded := false
 
 		for _, rule := range rules {
+			if !policyMatchesConnection(rule.policy, records[i].Policy) {
+				continue
+			}
 			matched := false
 			switch rule.rtype {
 			case "domain":

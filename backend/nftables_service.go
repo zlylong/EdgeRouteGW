@@ -56,6 +56,11 @@ table inet proxygw {
         ip saddr @ip_proxy meta l4proto { tcp, udp } mark set 1 tproxy ip to 127.0.0.1:12345 counter accept comment "proxy_acl_ip_v4"
         ip6 saddr @ip6_proxy meta l4proto { tcp, udp } mark set 1 tproxy ip6 to [::1]:12345 counter accept comment "proxy_acl_ip_v6"
 
+        {{if eq .Mode "A"}}
+        # Mode A: reject QUIC (UDP/443) immediately to force fast TCP fallback
+        meta l4proto udp th dport 443 counter reject with icmpx type port-unreachable comment "mode_a_quic_reject"
+        {{end}}
+
         # Default policy
         {{if eq .DefaultPolicy "proxy"}}
         meta l4proto { tcp, udp } meta nfproto ipv4 mark set 1 tproxy ip to 127.0.0.1:12345 counter accept comment "proxy_default_v4"
@@ -150,6 +155,7 @@ func applyNftablesConfig() error {
 		IP6Proxy      string
 		IP6Direct     string
 		DefaultPolicy string
+		Mode          string
 	}{
 		MacProxy:      macProxy,
 		MacDirect:     macDirect,
@@ -158,6 +164,7 @@ func applyNftablesConfig() error {
 		IP6Proxy:      ip6Proxy,
 		IP6Direct:     ip6Direct,
 		DefaultPolicy: defaultPolicy,
+		Mode:          mode,
 	}
 
 	tmpl, err := template.New("nftables").Parse(nftablesTmpl)
