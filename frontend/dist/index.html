@@ -291,6 +291,7 @@
                                             <td class="p-3 text-gray-500 font-mono text-xs">
                                                 <a v-if="conn.rule_id && conn.match_value" href="#" @click.prevent="goToRule(conn.rule_id)" class="font-bold text-gray-700 hover:underline">{{ conn.match_value }}</a>
                                                 <div v-else class="font-bold text-gray-700">{{ conn.match_value || "-" }}</div>
+                                                <div v-if="!conn.rule_id && conn.unmatched_reason" class="text-[10px] text-amber-600">未关联原因: {{ conn.unmatched_reason }}</div>
                                                 <div v-if="conn.policy" class="text-[10px] text-gray-400">绑定策略: {{ conn.policy }}</div>
                                             </td>
                                         </tr>

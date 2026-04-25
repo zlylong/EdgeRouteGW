@@ -28,9 +28,13 @@ func TestModeConfigs_MatchRoutingExpectations(t *testing.T) {
 			}
 
 			mosdnsCfg := renderMosdnsConfig("223.5.5.5", "1.1.1.1", true, tc.mode)
-			hasFakeIP := strings.Contains(mosdnsCfg, "exec: $forward_fakeip")
-			if hasFakeIP != tc.wantFakeIPInMosdns {
-				t.Fatalf("mode %s fakeIP mismatch: got %v want %v", tc.mode, hasFakeIP, tc.wantFakeIPInMosdns)
+			hasFakeIPExec := strings.Contains(mosdnsCfg, "exec: $forward_fakeip")
+			hasFakeIPForward := strings.Contains(mosdnsCfg, "tag: forward_fakeip")
+			if hasFakeIPExec != tc.wantFakeIPInMosdns {
+				t.Fatalf("mode %s fakeIP exec mismatch: got %v want %v", tc.mode, hasFakeIPExec, tc.wantFakeIPInMosdns)
+			}
+			if hasFakeIPForward != tc.wantFakeIPInMosdns {
+				t.Fatalf("mode %s fakeIP forward plugin mismatch: got %v want %v", tc.mode, hasFakeIPForward, tc.wantFakeIPInMosdns)
 			}
 		})
 	}

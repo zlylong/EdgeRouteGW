@@ -11,8 +11,10 @@ func renderMosdnsConfig(local, remote string, lazy bool, mode string) string {
 	}
 
 	proxyDomainExec := "exec: $forward_remote"
+	fakeIPForwardPlugin := ""
 	if mode == "B" {
 		proxyDomainExec = "exec: $forward_fakeip"
+		fakeIPForwardPlugin = "  - tag: forward_fakeip\n    type: forward\n    args: { upstreams: [{ addr: \"127.0.0.1:5353\" }] }\n"
 	}
 
 	configStr := `log:
@@ -35,10 +37,7 @@ plugins:
   - tag: forward_remote
     type: forward
     args: { upstreams: %s }
-  - tag: forward_fakeip
-    type: forward
-    args: { upstreams: [{ addr: "127.0.0.1:5353" }] }
-
+%s
   - tag: main_sequence
     type: sequence
     args:
@@ -65,6 +64,7 @@ plugins:
 		lazyCache,
 		formatUpstreams(local, false),
 		formatUpstreams(remote, true),
+		fakeIPForwardPlugin,
 		lazyExec,
 		proxyDomainExec,
 	)

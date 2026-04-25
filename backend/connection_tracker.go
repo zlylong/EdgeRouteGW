@@ -16,15 +16,16 @@ import (
 )
 
 type ConnectionRecord struct {
-	Time         string `json:"time"`
-	Client       string `json:"client"`
-	Network      string `json:"network"`
-	Target       string `json:"target"`
-	TargetDomain string `json:"target_domain,omitempty"`
-	Policy       string `json:"policy"`
-	RuleID       int    `json:"rule_id,omitempty"`
-	RuleType     string `json:"rule_type,omitempty"`
-	MatchValue   string `json:"match_value,omitempty"`
+	Time            string `json:"time"`
+	Client          string `json:"client"`
+	Network         string `json:"network"`
+	Target          string `json:"target"`
+	TargetDomain    string `json:"target_domain,omitempty"`
+	Policy          string `json:"policy"`
+	RuleID          int    `json:"rule_id,omitempty"`
+	RuleType        string `json:"rule_type,omitempty"`
+	MatchValue      string `json:"match_value,omitempty"`
+	UnmatchedReason string `json:"unmatched_reason,omitempty"`
 }
 
 var (
@@ -315,7 +316,9 @@ func attachRuleMatchMeta(records []ConnectionRecord) []ConnectionRecord {
 	for i := range records {
 		host := targetHostOnly(records[i].Target)
 		records[i].TargetDomain = resolveConnectionTargetDomain(records[i].Target)
+		records[i].UnmatchedReason = ""
 		if host == "" {
+			records[i].UnmatchedReason = "目标地址为空或格式无效"
 			continue
 		}
 		parsedIP := net.ParseIP(host)
@@ -327,21 +330,30 @@ func attachRuleMatchMeta(records []ConnectionRecord) []ConnectionRecord {
 		var geositeTags []string
 		geoipLoaded := false
 		geositeLoaded := false
+		hasPolicyMatch := false
+		hasTypeCandidate := false
+		hasValueMismatch := false
 
 		for _, rule := range rules {
 			if !policyMatchesConnection(rule.policy, records[i].Policy) {
 				continue
 			}
+			hasPolicyMatch = true
 			matched := false
 			switch rule.rtype {
 			case "domain":
 				if domainHost != "" {
+					hasTypeCandidate = true
 					matched = isDomainMatch(domainHost, rule.value)
 				}
 			case "ip":
-				matched = isIPRuleMatch(host, rule.value)
+				if parsedIP != nil {
+					hasTypeCandidate = true
+					matched = isIPRuleMatch(host, rule.value)
+				}
 			case "geoip", "geolocation":
 				if parsedIP != nil {
+					hasTypeCandidate = true
 					if !geoipLoaded {
 						geoipTags = queryGeoIPTagsByIP(geoipPath, parsedIP.String())
 						geoipLoaded = true
@@ -356,6 +368,7 @@ func attachRuleMatchMeta(records []ConnectionRecord) []ConnectionRecord {
 				}
 			case "geosite":
 				if domainHost != "" {
+					hasTypeCandidate = true
 					if !geositeLoaded {
 						geositeTags = queryGeoSiteTagsByDomain(geositePath, domainHost)
 						geositeLoaded = true
@@ -372,7 +385,26 @@ func attachRuleMatchMeta(records []ConnectionRecord) []ConnectionRecord {
 				records[i].RuleID = rule.id
 				records[i].RuleType = rule.rtype
 				records[i].MatchValue = rule.value
+				records[i].UnmatchedReason = ""
 				break
+			}
+			if hasTypeCandidate {
+				hasValueMismatch = true
+			}
+		}
+
+		if records[i].RuleID == 0 {
+			switch {
+			case !hasPolicyMatch:
+				records[i].UnmatchedReason = "无策略一致的规则"
+			case !hasTypeCandidate && parsedIP != nil && domainHost == "":
+				records[i].UnmatchedReason = "目标为IP且无域名回填，无法匹配域名/Geosite规则"
+			case !hasTypeCandidate:
+				records[i].UnmatchedReason = "无可匹配的规则类型"
+			case hasValueMismatch:
+				records[i].UnmatchedReason = "存在同策略规则，但匹配值未命中"
+			default:
+				records[i].UnmatchedReason = "未命中可关联规则"
 			}
 		}
 	}
