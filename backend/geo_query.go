@@ -93,9 +93,22 @@ type geoIPMatcher struct {
 	tags    map[string]struct{}
 }
 
+type geoSiteCompiledEntry struct {
+	Type  string
+	Value string
+	Regex *regexp.Regexp
+}
+
+type geoSiteMatcher struct {
+	version string
+	tags    map[string][]geoSiteCompiledEntry
+}
+
 const (
 	geoIPTagLookupCacheTTL        = 10 * time.Minute
 	geoIPTagLookupCacheMaxEntries = 200000
+	geoSiteTagMatchCacheTTL       = 10 * time.Minute
+	geoSiteTagMatchCacheMaxEntry  = 200000
 )
 
 type geoIPTagCacheEntry struct {
@@ -115,6 +128,19 @@ type geoIPCacheKey struct {
 	ip       uint32
 }
 
+type geoSiteTagMatchCacheKey struct {
+	filename string
+	version  string
+	tag      string
+	domain   string
+}
+
+type geoSiteTagMatchCacheEntry struct {
+	key       geoSiteTagMatchCacheKey
+	matched   bool
+	expiresAt time.Time
+}
+
 var (
 	geoIPMatcherMu         sync.RWMutex
 	geoIPMatcherCache      = map[string]*geoIPMatcher{}
@@ -128,6 +154,13 @@ var (
 
 	geoIPLookupCallMu sync.Mutex
 	geoIPLookupCalls  = map[geoIPCacheKey]*geoIPLookupCall{}
+
+	geoSiteMatcherMu    sync.RWMutex
+	geoSiteMatcherCache = map[string]*geoSiteMatcher{}
+
+	geoSiteTagMatchCacheMu   sync.Mutex
+	geoSiteTagMatchCacheList = list.New()
+	geoSiteTagMatchCacheMap  = map[geoSiteTagMatchCacheKey]*list.Element{}
 )
 
 func cloneStringSlice(in []string) []string {
@@ -344,6 +377,155 @@ func buildGeoIPMatcher(filename string, version string) (*geoIPMatcher, error) {
 		matcher.buckets[i] = bucket
 	}
 	return matcher, nil
+}
+
+func geoSiteTagMatchCacheGet(key geoSiteTagMatchCacheKey) (bool, bool) {
+	geoSiteTagMatchCacheMu.Lock()
+	defer geoSiteTagMatchCacheMu.Unlock()
+	ele := geoSiteTagMatchCacheMap[key]
+	if ele == nil {
+		return false, false
+	}
+	entry, _ := ele.Value.(*geoSiteTagMatchCacheEntry)
+	if entry == nil || time.Now().After(entry.expiresAt) {
+		geoSiteTagMatchCacheList.Remove(ele)
+		delete(geoSiteTagMatchCacheMap, key)
+		return false, false
+	}
+	geoSiteTagMatchCacheList.MoveToFront(ele)
+	return entry.matched, true
+}
+
+func geoSiteTagMatchCacheSet(key geoSiteTagMatchCacheKey, matched bool) {
+	geoSiteTagMatchCacheMu.Lock()
+	defer geoSiteTagMatchCacheMu.Unlock()
+	if ele := geoSiteTagMatchCacheMap[key]; ele != nil {
+		if entry, _ := ele.Value.(*geoSiteTagMatchCacheEntry); entry != nil {
+			entry.matched = matched
+			entry.expiresAt = time.Now().Add(geoSiteTagMatchCacheTTL)
+			geoSiteTagMatchCacheList.MoveToFront(ele)
+			return
+		}
+	}
+	entry := &geoSiteTagMatchCacheEntry{key: key, matched: matched, expiresAt: time.Now().Add(geoSiteTagMatchCacheTTL)}
+	ele := geoSiteTagMatchCacheList.PushFront(entry)
+	geoSiteTagMatchCacheMap[key] = ele
+	for len(geoSiteTagMatchCacheMap) > geoSiteTagMatchCacheMaxEntry {
+		last := geoSiteTagMatchCacheList.Back()
+		if last == nil {
+			break
+		}
+		lastEntry, _ := last.Value.(*geoSiteTagMatchCacheEntry)
+		geoSiteTagMatchCacheList.Remove(last)
+		if lastEntry != nil {
+			delete(geoSiteTagMatchCacheMap, lastEntry.key)
+		}
+	}
+}
+
+func loadGeoSiteMatcher(filename string) *geoSiteMatcher {
+	ver := fastGeoDataVersion()
+	geoSiteMatcherMu.RLock()
+	cached := geoSiteMatcherCache[filename]
+	geoSiteMatcherMu.RUnlock()
+	if cached != nil && cached.version == ver {
+		return cached
+	}
+
+	geoSiteMatcherMu.Lock()
+	defer geoSiteMatcherMu.Unlock()
+	cached = geoSiteMatcherCache[filename]
+	if cached != nil && cached.version == ver {
+		return cached
+	}
+	matcher, err := buildGeoSiteMatcher(filename, ver)
+	if err != nil {
+		log.Printf("[WARN] build geosite matcher failed: %v", err)
+		return nil
+	}
+	geoSiteMatcherCache[filename] = matcher
+	return matcher
+}
+
+func buildGeoSiteMatcher(filename string, version string) (*geoSiteMatcher, error) {
+	matcher := &geoSiteMatcher{version: version, tags: make(map[string][]geoSiteCompiledEntry, 1024)}
+	err := scanGeoSiteEntriesE(filename, func(tag string, entries []geoSiteDomainEntry) {
+		if tag == "" || len(entries) == 0 {
+			return
+		}
+		tag = strings.ToLower(strings.TrimSpace(tag))
+		if tag == "" {
+			return
+		}
+		compiled := make([]geoSiteCompiledEntry, 0, len(entries))
+		for _, entry := range entries {
+			v := strings.TrimSpace(entry.Value)
+			if v == "" {
+				continue
+			}
+			ce := geoSiteCompiledEntry{Type: strings.ToLower(strings.TrimSpace(entry.Type)), Value: strings.ToLower(v)}
+			if ce.Type == "regex" {
+				re, err := regexp.Compile(v)
+				if err != nil {
+					continue
+				}
+				ce.Regex = re
+			}
+			compiled = append(compiled, ce)
+		}
+		if len(compiled) > 0 {
+			matcher.tags[tag] = compiled
+		}
+	})
+	if err != nil {
+		return nil, err
+	}
+	return matcher, nil
+}
+
+func matchGeoSiteCompiledEntry(domain string, entry geoSiteCompiledEntry) bool {
+	switch entry.Type {
+	case "full":
+		return domain == strings.TrimSuffix(entry.Value, ".")
+	case "domain":
+		value := strings.TrimSuffix(entry.Value, ".")
+		return domain == value || strings.HasSuffix(domain, "."+value)
+	case "keyword":
+		return strings.Contains(domain, entry.Value)
+	case "regex":
+		if entry.Regex == nil {
+			return false
+		}
+		return entry.Regex.MatchString(domain)
+	default:
+		return false
+	}
+}
+
+func geoSiteTagMatchesDomain(filename, tag, input string) bool {
+	domain := strings.TrimSuffix(strings.ToLower(strings.TrimSpace(input)), ".")
+	tag = strings.ToLower(strings.TrimSpace(tag))
+	if domain == "" || tag == "" {
+		return false
+	}
+	matcher := loadGeoSiteMatcher(filename)
+	if matcher == nil {
+		return false
+	}
+	key := geoSiteTagMatchCacheKey{filename: filename, version: matcher.version, tag: tag, domain: domain}
+	if cached, ok := geoSiteTagMatchCacheGet(key); ok {
+		return cached
+	}
+	entries := matcher.tags[tag]
+	matched := false
+	for _, entry := range entries {
+		if matchGeoSiteCompiledEntry(domain, entry) {
+			matched = true
+			break
+		}
+	}
+	geoSiteTagMatchCacheSet(key, matched)
+	return matched
 }
 
 func queryGeoIPTagsByIP(filename, input string) []string {
@@ -563,15 +745,19 @@ func queryGeoSiteTagsByDomain(filename, input string) []string {
 	if domain == "" {
 		return nil
 	}
-	matches := make([]string, 0)
-	scanGeoSiteEntries(filename, func(tag string, entries []geoSiteDomainEntry) {
+	matcher := loadGeoSiteMatcher(filename)
+	if matcher == nil {
+		return nil
+	}
+	matches := make([]string, 0, 8)
+	for tag, entries := range matcher.tags {
 		for _, entry := range entries {
-			if matchGeoSiteDomain(domain, entry) {
+			if matchGeoSiteCompiledEntry(domain, entry) {
 				matches = append(matches, tag)
-				return
+				break
 			}
 		}
-	})
+	}
 	sort.Strings(matches)
 	return matches
 }

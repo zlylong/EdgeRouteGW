@@ -327,12 +327,12 @@ func attachRuleMatchMeta(records []ConnectionRecord) []ConnectionRecord {
 			domainHost = ""
 		}
 		var geoipTags []string
-		var geositeTags []string
 		geoipLoaded := false
-		geositeLoaded := false
 		hasPolicyMatch := false
 		hasTypeCandidate := false
 		hasValueMismatch := false
+		geositeMatchCache := make(map[string]bool)
+		geositeMatchChecked := make(map[string]bool)
 
 		for _, rule := range rules {
 			if !policyMatchesConnection(rule.policy, records[i].Policy) {
@@ -369,15 +369,13 @@ func attachRuleMatchMeta(records []ConnectionRecord) []ConnectionRecord {
 			case "geosite":
 				if domainHost != "" {
 					hasTypeCandidate = true
-					if !geositeLoaded {
-						geositeTags = queryGeoSiteTagsByDomain(geositePath, domainHost)
-						geositeLoaded = true
-					}
-					for _, t := range geositeTags {
-						if strings.EqualFold(t, rule.value) {
-							matched = true
-							break
+					tag := strings.ToLower(strings.TrimSpace(rule.value))
+					if tag != "" {
+						if !geositeMatchChecked[tag] {
+							geositeMatchCache[tag] = geoSiteTagMatchesDomain(geositePath, tag, domainHost)
+							geositeMatchChecked[tag] = true
 						}
+						matched = geositeMatchCache[tag]
 					}
 				}
 			}

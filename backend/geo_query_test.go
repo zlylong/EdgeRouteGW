@@ -1,6 +1,7 @@
 package main
 
 import (
+	"container/list"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -109,6 +110,24 @@ func writeTestGeoData(t *testing.T) {
 	cachedGeoip = nil
 	cachedGeosite = nil
 	cacheMutex.Unlock()
+
+	geoIPMatcherMu.Lock()
+	geoIPMatcherCache = map[string]*geoIPMatcher{}
+	geoIPMatcherMu.Unlock()
+
+	geoSiteMatcherMu.Lock()
+	geoSiteMatcherCache = map[string]*geoSiteMatcher{}
+	geoSiteMatcherMu.Unlock()
+
+	geoIPTagCacheMu.Lock()
+	geoIPTagCacheList = list.New()
+	geoIPTagCacheMap = map[geoIPCacheKey]*list.Element{}
+	geoIPTagCacheMu.Unlock()
+
+	geoSiteTagMatchCacheMu.Lock()
+	geoSiteTagMatchCacheList = list.New()
+	geoSiteTagMatchCacheMap = map[geoSiteTagMatchCacheKey]*list.Element{}
+	geoSiteTagMatchCacheMu.Unlock()
 }
 
 func TestGeoQueryLookupAndExpand(t *testing.T) {
@@ -196,4 +215,23 @@ func TestGeoQueryLookupAndExpand(t *testing.T) {
 			t.Fatalf("unexpected geosite extracted values: %v", resp)
 		}
 	})
+}
+
+func TestGeoSiteTagMatchesDomain(t *testing.T) {
+	writeTestGeoData(t)
+	geositePath := getPath("core", "mosdns", "geosite.dat")
+
+	if !geoSiteTagMatchesDomain(geositePath, "gfw", "www.google.com") {
+		t.Fatalf("expected gfw tag to match www.google.com")
+	}
+	if !geoSiteTagMatchesDomain(geositePath, "gfw", "youtube.com") {
+		t.Fatalf("expected gfw tag to match full youtube.com rule")
+	}
+	if geoSiteTagMatchesDomain(geositePath, "cn", "www.google.com") {
+		t.Fatalf("did not expect cn tag to match www.google.com")
+	}
+	// second pass verifies hot-path cache lookup correctness
+	if !geoSiteTagMatchesDomain(geositePath, "gfw", "www.google.com") {
+		t.Fatalf("expected cached gfw tag match to remain true")
+	}
 }
