@@ -5,6 +5,12 @@
 
 set -euo pipefail
 
+# NOTE:
+# Xray/Mosdns 运行时配置由 backend 按模式动态生成并下发。
+# - Mode A / Mode C: 禁用 FakeDNS/FakeIP
+# - Mode B: 仅此模式启用 FakeDNS/FakeIP
+# 请勿在部署脚本内写死模式相关业务配置，避免与运行态冲突。
+
 echo "=== ProxyGW Deployment Script ==="
 
 # OS and Architecture Check

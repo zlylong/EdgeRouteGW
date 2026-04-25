@@ -1,3 +1,9 @@
+## [Unreleased]
+### Changed
+- 文档统一更新：补充 `domain` 规则语义（`c.com`/`**.c.com`/`*.c.com`）并明确当前模式约束。
+- 明确三模式 Xray/Mosdns 关系：仅 Mode B 启用 FakeDNS/FakeIP；Mode A/Mode C 禁用。
+- 开发者文档修正 Mode B/C OSPF 说明：Mode B 不做 `domain/geosite` DNS->OSPF 展开，Mode C 才执行域名解析同步。
+
 ## [1.6.12] - 2026-04-24
 ### 🚀 稳定版发布 (Stable)
 - 发布 `v1.6.12 Stable`，按用户选择启用 Mode A 的“禁用 QUIC 以稳定 geosite 命中”策略。

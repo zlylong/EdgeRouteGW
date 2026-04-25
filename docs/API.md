@@ -58,6 +58,17 @@ Base URL: `http://<host>/api`
 - POST `/rules`
 - DELETE `/rules/:id`
 
+### POST /rules（域名规则约束）
+
+当 `type=domain` 时，输入语义如下：
+- `c.com` => 仅根域（`full:c.com`）
+- `**.c.com` => 根域 + 任意层子域（`domain:c.com`）
+- `*.c.com` => 根域 + 零或一层子域（regexp）
+
+模式约束：
+- Mode A：支持以上三种输入。
+- Mode B/C：拒绝 `*.` / `**.` 通配域名，返回 400。
+
 ## DNS
 
 - GET `/dns`

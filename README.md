@@ -67,6 +67,16 @@ ProxyGW 设计了三种物理隔离的网络接管模式，以适应不同级别
 **注意防环路**：由于 OSPF 会播报真实的海外网段，如果您的代理节点 IP 刚好在这个网段里，就会形成死循环断网！您必须在主路由器上配置 **源地址绕过 (PBR 策略路由)**：让来自 ProxyGW IP 的流量强制走外网，无视 OSPF 路由。
 *(👉 ROS v7 示例：新建一个 `bypass_proxy` 路由表指向公网 WAN 口，然后执行 `/routing rule add src-address=<ProxyGW_IP>/32 action=lookup-only-in-table table=bypass_proxy`，详见[运维文档](./docs/OPERATIONS.md))*
 
+### 🧩 域名规则语义（与 Xray 官方语义保持一致）
+
+- `c.com`：仅匹配根域（等价 `full:c.com`），**不匹配** `www.c.com`。
+- `**.c.com`：匹配根域 + 任意层子域（等价 `domain:c.com`）。
+- `*.c.com`：匹配根域 + 零或一层子域（等价正则）。
+
+**模式限制（当前实现）**：
+- `*.` / `**.` 通配域名规则仅允许在 **Mode A** 添加。
+- Mode B / Mode C 仅允许普通域名（如 `c.com`），因为 OSPF 静态路由无法安全表达 wildcard 语义。
+
 
 ## 📈 全面性能测试（2026-04-21）
 

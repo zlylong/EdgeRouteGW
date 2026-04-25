@@ -27,42 +27,53 @@ ProxyGW 是一个高度整合的网络系统。开发者坚信 **原生至上 (N
 3. **Sniffing 嗅探**：Xray 开启了强大的流量嗅探（http, tls, fakedns）。它不仅能从自己的内置映射表中找回假 IP 对应的真实域名，还能从 TLS 的 SNI 字段中提取出真实的请求域名（如 `youtube.com`）。
 4. **规则出站**：Xray 拿到真实域名后，内部根据分流规则直接将流量打包发往远端代理节点，全程无需在本地等待真实 IP 解析。
 
-**附：Mode B/C 域名处理链路与算法（当前实现）**
+**附：Mode B / Mode C 的域名与 OSPF 链路（当前实现）**
 
-当规则包含 `domain` / `geosite` 时，后端在 `collectStaticRoutesForMode()` 中按以下顺序构建 OSPF 候选路由：
+### 模式总览（关键约束）
+
+- **Mode A**：
+  - Xray / Mosdns 都不启用 FakeDNS/FakeIP。
+  - `domain` 匹配只在 Xray 运行时处理，不做 DNS->OSPF 展开。
+- **Mode B（Hybrid FakeIP）**：
+  - 仅 Mode B 启用 Xray `fakedns` 与 Mosdns `forward_fakeip`。
+  - OSPF 仅发布 `198.18.0.0/16` + `ip/geoip` 静态路由。
+  - `domain/geosite` 不做 DNS->OSPF 展开。
+- **Mode C（纯 OSPF）**：
+  - 禁用 FakeDNS/FakeIP。
+  - `domain` 规则会做 DNS 解析并同步为 OSPF 候选静态路由。
+  - `geosite` 仍优先走 geoip 提升与缓存链路，最终落为 CIDR。
+
+### Mode C 域名/地理规则展开链路
+
+当规则包含 `domain` / `geosite` 时，后端在 `collectStaticRoutesForMode()` + `syncStaticRoutesToOSPF()` 中按以下顺序构建候选路由：
 
 1. **geosite 同名 geoip 优先直提 CIDR**
    - 先检查 `hasGeoIPTag(geoip.dat, <tag>)`。
-   - 命中时直接展开对应 CIDR（无需 DNS 解析），这条路径最稳定、成本最低。
+   - 命中时直接展开对应 CIDR（无需 DNS 解析），路径最稳定。
 
-2. **无同名 geoip 时走 geosite 域名展开**
-   - 从 `geosite_expand_cache(tag, geodata_ver)` 读取可解析种子域名（仅 `domain/full`，`keyword/regex` 跳过）。
+2. **无同名 geoip 时走 geosite 域名展开缓存**
+   - 从 `geosite_expand_cache(tag, geodata_ver)` 读取可解析种子域名（仅 `domain/full`，跳过 `keyword/regex`）。
    - 缓存 miss 时解析 `geosite.dat` 并回填缓存。
 
 3. **域名解析缓存（按 resolver_group 分组）**
-   - `domain_resolve_cache` 的 key 为 `remote:<domain>` / `local:<domain>`。
-   - 解析优先 `host -t A -v` 提取 ANSWER SECTION 最小 TTL，失败回退 Go resolver。
-   - TTL 强制 clamp 到 `300~3600s`；刷新失败但有旧缓存时走 stale fallback，避免抖动删路由。
+   - `domain_resolve_cache` key：`remote:<domain>` / `local:<domain>`。
+   - 优先 `host -t A -v` 提取 ANSWER SECTION TTL，失败回退 Go resolver。
+   - TTL clamp 到 `300~3600s`；刷新失败有旧缓存时走 stale fallback。
 
 4. **domain -> CIDR 提升与锁定**
-   - 对解析得到的 IP 并发执行 `queryGeoIPBestCIDRsByIP()`。
-   - 匹配策略是**高位优先**：`/8 -> /16 -> /24 -> /32`，命中高位后短路低位。
-   - 同一 domain 内先做 `reduceCIDRsPreferBroad()`，仅保留更广网段。
-   - 若产生 CIDR，写入 `domain_geoip_lock(domain,resolver_group,geodata_ver)`，后续同版本直接复用，降低 DNS 波动导致的路由抖动。
+   - 对解析出的 IP 并发执行 `queryGeoIPBestCIDRsByIP()`。
+   - 匹配策略是**高位优先**：命中更高位前缀后不再继续低位。
+   - 同一 domain 先做 `reduceCIDRsPreferBroad()`；有结果则写入 `domain_geoip_lock(...)` 复用。
 
-5. **全局路由收敛与下发**
-   - 所有静态候选路由在 `syncStaticRoutesToOSPF()` 中做全局 `pruneStaticRoutesPreferBroad()`。
-   - 被上级网段覆盖的低位前缀会被剔除，再写入 `routes_table` 进入 OSPF 增量下发。
+5. **全局收敛与下发**
+   - 在 `syncStaticRoutesToOSPF()` 做全局 `pruneStaticRoutesPreferBroad()`。
+   - 被更广网段覆盖的低位前缀会被剔除，再写入 `routes_table` 并增量下发 FRR。
 
-6. **DB/FRR 状态对齐**
-   - `reconcilePublishedRoutesWithFRR()` 周期读取 FRR `tag 100` 路由并回写 `routes_table.status`。
-   - 当前对齐周期默认 `45s`，避免高频全量读取 `running-config` 带来的额外 CPU/IO 压力。
+6. **DB/FRR 状态对齐与热路径优化**
+   - `reconcilePublishedRoutesWithFRR()` 周期对齐 `routes_table.status`（默认 45s）。
+   - `ensureRouteCacheTables()` 与 `getGeoDataVersion()` 已做去重与缓存，减少热路径 IO。
 
-7. **热路径 IO 优化（v1.6.3）**
-   - `ensureRouteCacheTables()` 改为每个 DB 实例仅初始化一次（进程级去重）。
-   - `getGeoDataVersion()` 增加内存缓存与文件签名检测，仅在 `geodata.ver/geosite.dat` 变化时刷新。
-
-> 说明：OSPF 是三层路由协议，无法直接广播域名对象；上述算法本质是“域名规则 -> 稳定 CIDR 集”的映射与收敛过程。对共享 CDN 场景仍存在天然物理边界。
+> 说明：OSPF 是三层协议，无法直接广播域名对象；Mode C 的本质是把域名规则稳定映射为 CIDR 集。
 ## 🧹 OSPF 脏路由过滤与清理机制（v1.5.19）
 
 为避免将无效前缀注入 FRR/OSPF（引发黑洞、回环或无意义路由），后端对 `routes_table` 与静态路由同步链路实施了统一过滤策略。
