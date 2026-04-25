@@ -1,8 +1,17 @@
 ## [Unreleased]
-### Changed
-- 文档统一更新：补充 `domain` 规则语义（`c.com`/`**.c.com`/`*.c.com`）并明确当前模式约束。
-- 明确三模式 Xray/Mosdns 关系：仅 Mode B 启用 FakeDNS/FakeIP；Mode A/Mode C 禁用。
-- 开发者文档修正 Mode B/C OSPF 说明：Mode B 不做 `domain/geosite` DNS->OSPF 展开，Mode C 才执行域名解析同步。
+
+## [1.6.13] - 2026-04-25
+### 🚀 稳定版发布 (Stable)
+- 发布 v1.6.13 Stable，修复实时连接追踪高负载，并清理三模式下 Xray/Mosdns 不适配配置。
+
+### 🐛 修复 (Fixes)
+- 连接追踪关联原因增强：为未命中规则补充明确原因字段，便于快速定位规则未关联根因。
+- 连接追踪 CPU 热点优化：geosite 匹配改为缓存化按需匹配，避免实时轮询时重复重开销扫描导致 CPU 飙升。
+- 模式配置清理：按 Mode A/B/C 收敛 Xray 与 Mosdns 生成项，删除无效及模式不适配配置（仅 Mode B 启用 FakeDNS/FakeIP）。
+- Mode C 路由收敛：同步时清理 FRR 历史孤儿 tag100 路由，避免长期残留污染发布集。
+
+### 📝 文档 (Docs)
+- 文档统一说明 domain 规则语义（c.com/**.c.com/*.c.com）并对齐三模式 DNS/OSPF 约束。
 
 ## [1.6.12] - 2026-04-24
 ### 🚀 稳定版发布 (Stable)
