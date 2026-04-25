@@ -34,6 +34,20 @@ var (
 	logRegex = regexp.MustCompile(`^(\d{4}/\d{2}/\d{2} \d{2}:\d{2}:\d{2}(?:\.\d+)?)\s+from\s+([^\s]+)\s+accepted\s+(tcp|udp):([^\s]+)\s+\[([^\]]+)\]`)
 )
 
+func normalizeConnectionPolicy(raw string) string {
+	p := strings.ToLower(strings.TrimSpace(raw))
+	if p == "" {
+		return ""
+	}
+	if idx := strings.LastIndex(p, ">>"); idx >= 0 {
+		p = strings.TrimSpace(p[idx+2:])
+	}
+	if idx := strings.LastIndex(p, "->"); idx >= 0 {
+		p = strings.TrimSpace(p[idx+2:])
+	}
+	return p
+}
+
 func init() {
 	connRing = ring.New(200) // Keep last 200 connections
 }
@@ -113,12 +127,17 @@ func StartConnectionTracker() {
 
 			matches := logRegex.FindStringSubmatch(line)
 			if len(matches) == 6 {
+				rawPolicy := strings.TrimSpace(matches[5])
+				policy := normalizeConnectionPolicy(rawPolicy)
+				if policy == "" {
+					policy = rawPolicy
+				}
 				record := ConnectionRecord{
 					Time:    matches[1],
 					Client:  matches[2],
 					Network: matches[3],
 					Target:  matches[4],
-					Policy:  matches[5],
+					Policy:  policy,
 				}
 
 				if strings.HasPrefix(record.Client, "127.0.0.1") || record.Policy == "api" || record.Policy == "dns-out" {
@@ -196,6 +215,30 @@ func lookupRecentDomainByIP(ip string) string {
 	return ""
 }
 
+func lookupRecentDomainByIPFromResolveCache(ip string) string {
+	ip = strings.TrimSpace(ip)
+	if ip == "" {
+		return ""
+	}
+	var domain string
+	if err := db.QueryRow(
+		"SELECT COALESCE(domain, '') FROM domain_resolve_cache WHERE ips_json LIKE '%' || char(34) || ? || char(34) || '%' ORDER BY CAST(COALESCE(resolved_at, '0') AS INTEGER) DESC LIMIT 1",
+		ip,
+	).Scan(&domain); err != nil {
+		return ""
+	}
+	domain = strings.TrimSpace(domain)
+	if domain == "" {
+		return ""
+	}
+	if strings.HasPrefix(domain, "remote:") || strings.HasPrefix(domain, "local:") {
+		if idx := strings.Index(domain, ":"); idx >= 0 && idx+1 < len(domain) {
+			domain = domain[idx+1:]
+		}
+	}
+	return strings.TrimSpace(domain)
+}
+
 func resolveConnectionTargetDomain(target string) string {
 	host := targetHostOnly(target)
 	if host == "" {
@@ -205,6 +248,9 @@ func resolveConnectionTargetDomain(target string) string {
 		return host
 	}
 	if domain := lookupRecentDomainByIP(host); domain != "" {
+		return domain
+	}
+	if domain := lookupRecentDomainByIPFromResolveCache(host); domain != "" {
 		return domain
 	}
 	return host
