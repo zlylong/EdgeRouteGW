@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"os/exec"
@@ -173,8 +174,85 @@ func readMemoryUsage() float64 {
 	return used / memTotal * 100
 }
 
+type networkInterfaceInfo struct {
+	Name   string `json:"name"`
+	IPv4   string `json:"ipv4"`
+	Subnet string `json:"subnet"`
+}
+
+func listPrivateIPv4Interfaces() []networkInterfaceInfo {
+	ifaces, err := net.Interfaces()
+	if err != nil {
+		return []networkInterfaceInfo{}
+	}
+	out := make([]networkInterfaceInfo, 0)
+	for _, iface := range ifaces {
+		if iface.Flags&net.FlagUp == 0 || iface.Flags&net.FlagLoopback != 0 {
+			continue
+		}
+		addrs, err := iface.Addrs()
+		if err != nil {
+			continue
+		}
+		for _, addr := range addrs {
+			ipnet, ok := addr.(*net.IPNet)
+			if !ok {
+				continue
+			}
+			ip := ipnet.IP.To4()
+			if ip == nil || !ip.IsPrivate() {
+				continue
+			}
+			network := ip.Mask(ipnet.Mask)
+			maskSize, _ := ipnet.Mask.Size()
+			out = append(out, networkInterfaceInfo{
+				Name:   iface.Name,
+				IPv4:   ip.String(),
+				Subnet: fmt.Sprintf("%s/%d", network.String(), maskSize),
+			})
+			break
+		}
+	}
+	return out
+}
+
+func findNetworkByIface(options []networkInterfaceInfo, ifaceName string) (networkInterfaceInfo, bool) {
+	for _, item := range options {
+		if item.Name == ifaceName {
+			return item, true
+		}
+	}
+	return networkInterfaceInfo{}, false
+}
+
+func loadNetworkRoleSettings() (string, string) {
+	var managementIface, serviceIface string
+	_ = db.QueryRow("SELECT value FROM settings WHERE key='management_iface'").Scan(&managementIface)
+	_ = db.QueryRow("SELECT value FROM settings WHERE key='service_iface'").Scan(&serviceIface)
+	managementIface = strings.TrimSpace(managementIface)
+	serviceIface = strings.TrimSpace(serviceIface)
+	return managementIface, serviceIface
+}
+
+func ensureDefaultNetworkRoleSettings() {
+	options := listPrivateIPv4Interfaces()
+	if len(options) == 0 {
+		return
+	}
+	managementIface, serviceIface := loadNetworkRoleSettings()
+	if managementIface == "" {
+		managementIface = options[0].Name
+	}
+	if serviceIface == "" {
+		serviceIface = managementIface
+	}
+	_, _ = db.Exec("INSERT OR REPLACE INTO settings (key, value) VALUES ('management_iface', ?)", managementIface)
+	_, _ = db.Exec("INSERT OR REPLACE INTO settings (key, value) VALUES ('service_iface', ?)", serviceIface)
+}
+
 func registerSystemRoutes(api *gin.RouterGroup) {
 	api.GET("/status", func(c *gin.Context) {
+		ensureDefaultNetworkRoleSettings()
 		xray := exec.Command("systemctl", "is-active", "--quiet", "xray").Run() == nil
 		frr := exec.Command("systemctl", "is-active", "--quiet", "frr").Run() == nil
 		mosdns := exec.Command("systemctl", "is-active", "--quiet", "mosdns").Run() == nil
@@ -224,6 +302,40 @@ func registerSystemRoutes(api *gin.RouterGroup) {
 			"up": upStr, "down": downStr,
 		})
 
+	})
+
+	api.POST("/network_config", func(c *gin.Context) {
+		var req struct {
+			ManagementIface string `json:"management_iface"`
+			ServiceIface    string `json:"service_iface"`
+		}
+		if c.BindJSON(&req) != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "bad network config payload"})
+			return
+		}
+		req.ManagementIface = strings.TrimSpace(req.ManagementIface)
+		req.ServiceIface = strings.TrimSpace(req.ServiceIface)
+		if req.ManagementIface == "" || req.ServiceIface == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "management/service iface is required"})
+			return
+		}
+		options := listPrivateIPv4Interfaces()
+		_, okMgmt := findNetworkByIface(options, req.ManagementIface)
+		_, okSvc := findNetworkByIface(options, req.ServiceIface)
+		if !okMgmt || !okSvc {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "selected iface not found in available private interfaces"})
+			return
+		}
+		if _, err := db.Exec("INSERT OR REPLACE INTO settings (key, value) VALUES ('management_iface', ?)", req.ManagementIface); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		if _, err := db.Exec("INSERT OR REPLACE INTO settings (key, value) VALUES ('service_iface', ?)", req.ServiceIface); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		syncFRRConfig()
+		c.JSON(http.StatusOK, gin.H{"success": true})
 	})
 
 	api.POST("/mode", func(c *gin.Context) {

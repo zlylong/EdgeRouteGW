@@ -111,6 +111,8 @@ func setupFeatureSuiteRouter(t *testing.T) *gin.Engine {
 		`INSERT INTO settings(key, value) VALUES ('cron_enabled', 'false')`,
 		`INSERT INTO settings(key, value) VALUES ('cron_time', '04:00')`,
 		`INSERT INTO settings(key, value) VALUES ('lan_default_policy', 'proxy')`,
+		`INSERT INTO settings(key, value) VALUES ('management_iface', 'eth0')`,
+		`INSERT INTO settings(key, value) VALUES ('service_iface', 'eth0')`,
 		`INSERT INTO settings(key, value) VALUES ('default_node_id', '2')`,
 		`INSERT INTO rules(type, value, policy) VALUES ('domain', 'example.com', 'proxy')`,
 		`INSERT INTO rules(type, value, policy) VALUES ('ip', '8.8.8.8/32', 'direct')`,

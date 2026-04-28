@@ -999,6 +999,32 @@ PersistentKeepalive = 25
                             </div>
                             
                             <div class="bg-white p-6 rounded-lg shadow">
+                                <h3 class="text-lg font-medium border-b pb-2 mb-4">网卡管理</h3>
+                                <div class="space-y-4">
+                                    <div>
+                                        <label class="block text-sm text-gray-600 mb-1">管理网络</label>
+                                        <select v-model="networkConfigForm.management_iface" class="w-full border rounded p-2 text-sm focus:outline-blue-500">
+                                            <option value="" disabled>请选择管理网卡</option>
+                                            <option v-for="it in (sysStatus.interface_options || [])" :key="'mgmt-'+it.name" :value="it.name">{{ it.name }} ({{ it.ipv4 }} / {{ it.subnet }})</option>
+                                        </select>
+                                        <div class="text-xs text-gray-500 mt-1">当前：{{ sysStatus.management_network?.iface || '-' }} / {{ sysStatus.management_network?.ip || '-' }} / {{ sysStatus.management_network?.subnet || '-' }}</div>
+                                    </div>
+                                    <div>
+                                        <label class="block text-sm text-gray-600 mb-1">服务发布网络</label>
+                                        <select v-model="networkConfigForm.service_iface" class="w-full border rounded p-2 text-sm focus:outline-blue-500">
+                                            <option value="" disabled>请选择服务发布网卡</option>
+                                            <option v-for="it in (sysStatus.interface_options || [])" :key="'svc-'+it.name" :value="it.name">{{ it.name }} ({{ it.ipv4 }} / {{ it.subnet }})</option>
+                                        </select>
+                                        <div class="text-xs text-gray-500 mt-1">当前：{{ sysStatus.service_network?.iface || '-' }} / {{ sysStatus.service_network?.ip || '-' }} / {{ sysStatus.service_network?.subnet || '-' }}</div>
+                                        <div class="text-xs text-amber-600 mt-1">说明：OSPF Router-ID/Network 等服务发布相关配置会跟随“服务发布网络”。</div>
+                                    </div>
+                                    <div>
+                                        <button @click="saveNetworkConfig" class="bg-blue-600 text-white px-4 py-2 rounded text-sm hover:bg-blue-700">保存网卡角色</button>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="bg-white p-6 rounded-lg shadow">
                                 <h3 class="text-lg font-medium border-b pb-2 mb-4">核心组件更新与回滚</h3>
                                 <div class="space-y-4">
                                     <div class="flex justify-between items-center">
@@ -1715,8 +1741,28 @@ window.onerror = function(msg, url, line, col, error) { alert("JS Error: " + msg
                     showToast('OSPF 推送控制已保存');
                     loadData();
                 };
-                const sysStatus = ref({ mode: 'B', xray: false, ospf: false, mosdns: false, cpu: 0, ram: 0 });
+                const sysStatus = ref({ mode: 'B', xray: false, ospf: false, mosdns: false, cpu: 0, ram: 0, interface_options: [], management_network: { iface: '', ip: '', subnet: '' }, service_network: { iface: '', ip: '', subnet: '' } });
                 const cron = ref({ enabled: false, time: '04:00', schedule_type: 'daily', weekday: 1, monthday: 1 });
+                const networkConfigForm = ref({ management_iface: '', service_iface: '' });
+                
+                const saveNetworkConfig = async () => {
+                    if (!networkConfigForm.value.management_iface || !networkConfigForm.value.service_iface) {
+                        showToast('请先选择管理网络和服务发布网络', 'error');
+                        return;
+                    }
+                    const res = await apiFetch('/api/network_config', {
+                        method: 'POST',
+                        body: JSON.stringify(networkConfigForm.value)
+                    });
+                    if (!res.ok) {
+                        const d = await res.json().catch(() => ({}));
+                        showToast(d.error || '网络配置保存失败', 'error');
+                        return;
+                    }
+                    showToast('网卡角色已保存，服务发布相关配置已绑定到服务发布网络');
+                    loadData(true);
+                };
+
                 const saveCron = async () => {
                     const weekday = Math.max(1, Math.min(7, parseInt(cron.value.weekday, 10) || 1));
                     const monthday = Math.max(1, Math.min(31, parseInt(cron.value.monthday, 10) || 1));
@@ -1989,7 +2035,7 @@ window.onerror = function(msg, url, line, col, error) { alert("JS Error: " + msg
                 };
 
                 const loadData = async (isInit = false) => {
-                    if (token.value) apiFetch('/api/status').then(r=>r.json()).then(d => sysStatus.value = d);
+                    if (token.value) apiFetch('/api/status').then(r=>r.json()).then(d => { sysStatus.value = d; networkConfigForm.value.management_iface = d?.management_network?.iface || ''; networkConfigForm.value.service_iface = d?.service_network?.iface || ''; });
                     fetchTraffic();
                     if (activeTab.value === 'connections') fetchConnections();
 
