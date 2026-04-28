@@ -85,7 +85,8 @@ table inet proxygw {
         {{if eq .Mode "A"}}
         ip daddr @protected_ips counter return comment "mode_a_protected_ip_direct_output"
         {{end}}
-        meta l4proto { tcp, udp } mark set 1 accept
+        # Do NOT hijack host-originated traffic into TProxy; keep host egress direct to avoid self-blackhole
+        counter return comment "host_egress_direct"
     }
 }
 `

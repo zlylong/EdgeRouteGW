@@ -50,3 +50,13 @@ func TestNftablesModeBNoQuicReject(t *testing.T) {
 		t.Fatalf("mode B should not include mode_a_quic_reject")
 	}
 }
+
+func TestNftablesOutputHostEgressDirect(t *testing.T) {
+	cfg := renderNftForMode(t, "A")
+	if !strings.Contains(cfg, "host_egress_direct") {
+		t.Fatalf("output chain should keep host egress direct")
+	}
+	if strings.Contains(cfg, "meta l4proto { tcp, udp } mark set 1 accept") {
+		t.Fatalf("output chain must not mark all host tcp/udp with fwmark 1")
+	}
+}
