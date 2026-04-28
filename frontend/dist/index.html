@@ -2035,7 +2035,7 @@ window.onerror = function(msg, url, line, col, error) { alert("JS Error: " + msg
                 };
 
                 const loadData = async (isInit = false) => {
-                    if (token.value) apiFetch('/api/status').then(r=>r.json()).then(d => { sysStatus.value = d; networkConfigForm.value.management_iface = d?.management_network?.iface || ''; networkConfigForm.value.service_iface = d?.service_network?.iface || ''; });
+                    if (token.value) apiFetch('/api/status').then(r=>r.json()).then(d => { sysStatus.value = d; if (isInit === true) { networkConfigForm.value.management_iface = d?.management_network?.iface || ''; networkConfigForm.value.service_iface = d?.service_network?.iface || ''; } });
                     fetchTraffic();
                     if (activeTab.value === 'connections') fetchConnections();
 
