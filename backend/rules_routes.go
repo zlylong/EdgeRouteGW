@@ -5,7 +5,9 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -62,6 +64,42 @@ func newRuleGroupID() string {
 
 func rulesContainBatchSeparator(raw string) bool {
 	return strings.ContainsAny(raw, ",，\n\r\t")
+}
+
+var policySingleNodeRe = regexp.MustCompile(`^proxy-(\d+)$`)
+var policyHARe = regexp.MustCompile(`^ha-(\d+)-(\d+)$`)
+
+func validateRulePolicy(policy string) error {
+	if policy == "direct" || policy == "block" || policy == "proxy" {
+		return nil
+	}
+	if m := policySingleNodeRe.FindStringSubmatch(policy); len(m) == 2 {
+		nodeID, _ := strconv.Atoi(m[1])
+		var cnt int
+		if err := db.QueryRow("SELECT COUNT(*) FROM nodes WHERE id=?", nodeID).Scan(&cnt); err != nil {
+			return fmt.Errorf("invalid policy")
+		}
+		if cnt == 0 {
+			return fmt.Errorf("invalid policy: node %d not found", nodeID)
+		}
+		return nil
+	}
+	if m := policyHARe.FindStringSubmatch(policy); len(m) == 3 {
+		aID, _ := strconv.Atoi(m[1])
+		bID, _ := strconv.Atoi(m[2])
+		if aID == bID {
+			return fmt.Errorf("invalid policy: HA nodes must be different")
+		}
+		var cnt int
+		if err := db.QueryRow("SELECT COUNT(*) FROM nodes WHERE id IN (?,?)", aID, bID).Scan(&cnt); err != nil {
+			return fmt.Errorf("invalid policy")
+		}
+		if cnt != 2 {
+			return fmt.Errorf("invalid policy: HA node not found")
+		}
+		return nil
+	}
+	return fmt.Errorf("invalid policy")
 }
 
 func registerRuleRoutes(api *gin.RouterGroup) {
@@ -240,12 +278,27 @@ func registerRuleRoutes(api *gin.RouterGroup) {
 			return
 		}
 
+		if r.Type == "geoip" || r.Type == "geolocation" {
+			geoTag := strings.ToLower(strings.TrimSpace(r.Value))
+			if geoTag == "" {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "invalid geoip/geolocation rule value"})
+				return
+			}
+			if geoTag != "private" {
+				geoipPath := getPath("core", "mosdns", "geoip.dat")
+				if !hasGeoIPTag(geoipPath, geoTag) {
+					c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("invalid geoip tag: %s", geoTag)})
+					return
+				}
+			}
+			r.Value = geoTag
+		}
 		if r.Type == "ip" && !isValidIPOrCIDR(r.Value) {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid ip/cidr rule value"})
 			return
 		}
-		if r.Policy != "direct" && r.Policy != "block" && !strings.HasPrefix(r.Policy, "proxy") && !strings.HasPrefix(r.Policy, "ha-") {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid policy"})
+		if err := validateRulePolicy(r.Policy); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
 		}
 

@@ -202,6 +202,48 @@ func TestRulesRejectInvalidGeositeTag(t *testing.T) {
 	}
 }
 
+func TestRulesRejectInvalidGeoIPTag(t *testing.T) {
+	r := setupTestRouter(t)
+
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "core", "mosdns"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	oldHome := os.Getenv("PROXYGW_HOME")
+	if err := os.Setenv("PROXYGW_HOME", root); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Setenv("PROXYGW_HOME", oldHome) })
+	writeTestGeoData(t)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/rules", strings.NewReader(`{"Type":"geoip","Value":"not-a-real-tag","Policy":"proxy"}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer test-token")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("want 400 got %d body=%s", w.Code, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), "invalid geoip tag") {
+		t.Fatalf("unexpected body: %s", w.Body.String())
+	}
+}
+
+func TestRulesRejectInvalidNodePolicy(t *testing.T) {
+	r := setupTestRouter(t)
+	req := httptest.NewRequest(http.MethodPost, "/api/rules", strings.NewReader(`{"Type":"domain","Value":"example.org","Policy":"proxy-999"}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer test-token")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("want 400 got %d body=%s", w.Code, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), "node 999 not found") {
+		t.Fatalf("unexpected body: %s", w.Body.String())
+	}
+}
+
 func TestRulesBatchCreateRenameFilterAndDeleteGroup(t *testing.T) {
 	r := setupTestRouter(t)
 	if _, err := db.Exec(`INSERT OR REPLACE INTO settings(key,value) VALUES('mode','A')`); err != nil {
