@@ -1222,6 +1222,9 @@ func initDB() {
 			log.Fatalf("[FATAL] failed to create table: %v", err)
 		}
 	}
+	if _, err := db.Exec("CREATE TABLE IF NOT EXISTS protected_ips (id INTEGER PRIMARY KEY AUTOINCREMENT, value TEXT NOT NULL UNIQUE, remark TEXT, created_at DATETIME DEFAULT CURRENT_TIMESTAMP)"); err != nil {
+		log.Fatalf("[FATAL] failed to create protected_ips table: %v", err)
+	}
 	ensureGatewayEventTable()
 
 	if _, err := db.Exec("ALTER TABLE nodes ADD COLUMN params TEXT DEFAULT '{}'"); err != nil && !strings.Contains(err.Error(), "duplicate column name") {

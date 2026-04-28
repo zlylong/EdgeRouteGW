@@ -36,6 +36,10 @@ table inet proxygw {
         type ipv6_addr; flags interval
         {{if .IP6Direct}}elements = { {{.IP6Direct}} }{{end}}
     }
+    set protected_ips {
+        type ipv4_addr; flags interval
+        {{if .ProtectedIPs}}elements = { {{.ProtectedIPs}} }{{end}}
+    }
 
     chain prerouting {
         type filter hook prerouting priority mangle; policy accept;
@@ -57,6 +61,9 @@ table inet proxygw {
         ip6 saddr @ip6_proxy meta l4proto { tcp, udp } mark set 1 tproxy ip6 to [::1]:12345 counter accept comment "proxy_acl_ip_v6"
 
         {{if eq .Mode "A"}}
+        # Mode A: protected destination IPs always go direct (avoid rule-change disconnect)
+        ip daddr @protected_ips counter return comment "mode_a_protected_ip_direct"
+
         # Mode A: reject QUIC (UDP/443) immediately to force fast TCP fallback
         meta l4proto udp th dport 443 counter reject with icmpx type port-unreachable comment "mode_a_quic_reject"
         {{end}}
@@ -75,6 +82,9 @@ table inet proxygw {
         meta mark 0x02 return
         ip daddr { 127.0.0.0/8, 192.168.0.0/16, 10.0.0.0/8, 172.16.0.0/12, 224.0.0.0/4, 255.255.255.255/32 } return
         ip6 daddr { ::1/128, fc00::/7, fe80::/10, ff00::/8 } return
+        {{if eq .Mode "A"}}
+        ip daddr @protected_ips counter return comment "mode_a_protected_ip_direct_output"
+        {{end}}
         meta l4proto { tcp, udp } mark set 1 accept
     }
 }
@@ -91,11 +101,29 @@ func applyNftablesConfig() error {
 		mode = "A" // default
 	}
 
-	var macProxy, macDirect, ipProxy, ipDirect, ip6Proxy, ip6Direct string
+	var macProxy, macDirect, ipProxy, ipDirect, ip6Proxy, ip6Direct, protectedIPs string
 
 	// ONLY process LAN ACLs if we are in Mode A.
 	// In Mode B and C, these cause loops or blackholes, so we keep the variables empty.
 	if mode == "A" {
+
+		// Mode A protected IP list: always direct, to avoid disconnect during xray rule reload
+		if rows, err := db.Query("SELECT value FROM protected_ips ORDER BY id"); err == nil {
+			defer rows.Close()
+			for rows.Next() {
+				var v string
+				if err := rows.Scan(&v); err == nil {
+					v = strings.TrimSpace(v)
+					if v == "" {
+						continue
+					}
+					if protectedIPs != "" {
+						protectedIPs += ", "
+					}
+					protectedIPs += v
+				}
+			}
+		}
 		rows, err := db.Query("SELECT type, value, policy FROM lan_acls")
 		if err == nil {
 			defer rows.Close()
@@ -154,6 +182,7 @@ func applyNftablesConfig() error {
 		IPDirect      string
 		IP6Proxy      string
 		IP6Direct     string
+		ProtectedIPs  string
 		DefaultPolicy string
 		Mode          string
 	}{
@@ -163,6 +192,7 @@ func applyNftablesConfig() error {
 		IPDirect:      ipDirect,
 		IP6Proxy:      ip6Proxy,
 		IP6Direct:     ip6Direct,
+		ProtectedIPs:  protectedIPs,
 		DefaultPolicy: defaultPolicy,
 		Mode:          mode,
 	}

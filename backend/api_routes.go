@@ -39,6 +39,7 @@ func registerAPIRoutes(r *gin.Engine) {
 	registerRuleRoutes(authed)
 	registerDNSRoutes(authed)
 	registerLanACLRoutes(authed)
+	registerProtectedIPRoutes(authed)
 	registerConnectionRoutes(authed)
 	registerUpdateRoutes(authed)
 	registerRemoteNodeRoutes(authed)

@@ -353,6 +353,46 @@
                         </div>
                     </div>
 
+                    <!-- Protected IPs (Mode A) -->
+                    <div v-if="activeTab === 'protected_ips'" key="protected_ips" class="h-full flex flex-col">
+                        <div class="flex justify-between items-center mb-4">
+                            <div>
+                                <h3 class="text-lg font-semibold text-gray-700">规则变更保护 IP 列表</h3>
+                                <p class="text-xs text-gray-500 mt-1">这些目标 IP/CIDR 在 Mode A 下强制直连，不走 Xray，避免改规则时业务中断。</p>
+                            </div>
+                            <div class="flex items-center gap-2">
+                                <input v-model="protectedIpForm.value" placeholder="例如 1.1.1.1 或 8.8.8.0/24" class="w-64 border rounded p-2 text-sm focus:outline-blue-500"/>
+                                <input v-model="protectedIpForm.remark" placeholder="备注（可选）" class="w-40 border rounded p-2 text-sm focus:outline-blue-500"/>
+                                <button @click="addProtectedIp" class="bg-blue-600 text-white px-4 py-2 rounded text-sm hover:bg-blue-700 transition shadow">
+                                    <i class="fas fa-plus mr-1"></i> 添加
+                                </button>
+                            </div>
+                        </div>
+                        <div class="bg-white rounded shadow flex-1 overflow-hidden">
+                            <table class="w-full text-left border-collapse">
+                                <thead class="bg-gray-50 border-b">
+                                    <tr>
+                                        <th class="p-3 text-sm font-semibold text-gray-600">IP/CIDR</th>
+                                        <th class="p-3 text-sm font-semibold text-gray-600">备注</th>
+                                        <th class="p-3 text-sm font-semibold text-gray-600">创建时间</th>
+                                        <th class="p-3 text-sm font-semibold text-gray-600 text-right">操作</th>
+                                    </tr>
+                                </thead>
+                                <tbody class="text-sm divide-y">
+                                    <tr v-if="protectedIps.length === 0"><td colspan="4" class="p-8 text-center text-gray-400">暂无保护 IP</td></tr>
+                                    <tr v-for="it in protectedIps" :key="it.id" class="hover:bg-gray-50">
+                                        <td class="p-3 font-mono text-gray-800">{{ it.value }}</td>
+                                        <td class="p-3 text-gray-600">{{ it.remark || '-' }}</td>
+                                        <td class="p-3 text-gray-500 text-xs">{{ it.created_at }}</td>
+                                        <td class="p-3 text-right">
+                                            <button @click="deleteProtectedIp(it.id)" class="text-red-500 hover:text-red-700" title="删除"><i class="fas fa-trash"></i></button>
+                                        </td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+
                     <!-- Nodes -->
 
                     <div v-if="activeTab === 'nodes'" key="nodes">
@@ -1214,6 +1254,27 @@ window.onerror = function(msg, url, line, col, error) { alert("JS Error: " + msg
                     if(r.ok) showToast('网关全局策略已切换！防火墙热重载完成。');
                 };
 
+                const addProtectedIp = async () => {
+                    const v = (protectedIpForm.value.value || '').trim();
+                    if (!v) return showToast('请输入 IP/CIDR', 'error');
+                    const r = await apiFetch('/api/protected_ips', { method: 'POST', body: JSON.stringify({ value: v, remark: protectedIpForm.value.remark || '' }) });
+                    const d = await r.json().catch(() => ({}));
+                    if (!r.ok) return showToast(d.error || '添加失败', 'error');
+                    protectedIpForm.value = { value: '', remark: '' };
+                    showToast('保护IP已添加并热生效');
+                    loadData(false);
+                };
+                const deleteProtectedIp = async (id) => {
+                    if(!confirm('确认删除该保护IP？')) return;
+                    const r = await apiFetch('/api/protected_ips/' + id, { method: 'DELETE' });
+                    if(!r.ok) {
+                        let d = await r.json().catch(() => ({}));
+                        return showToast(d.error || '删除失败', 'error');
+                    }
+                    showToast('保护IP已删除并热生效');
+                    loadData(false);
+                };
+
                 const openAddNode = () => {
 
                     editingNode.value = { id: null, name: 'New Node', type: 'Vmess', address: '1.2.3.4', port: 443, uuid: '', params: '{}' };
@@ -1506,6 +1567,7 @@ window.onerror = function(msg, url, line, col, error) { alert("JS Error: " + msg
                     { id: 'rules', icon: 'fa-route', label: '路由分流规则' },
                     { id: 'geo_query', icon: 'fa-magnifying-glass-location', label: 'Geo 查询验证' },
                     { id: 'lan_acls', icon: 'fa-laptop-house', label: '设备分流规则', hideModeBC: true },
+                    { id: 'protected_ips', icon: 'fa-shield-halved', label: '规则变更保护IP', hideModeBC: true },
                     { id: 'dns', icon: 'fa-globe', label: 'DNS 设置' },
                     { id: 'ospf', icon: 'fa-project-diagram', label: 'OSPF 状态', hideModeA: true },
                     { id: 'configs', icon: 'fa-file-code', label: '配置信息面板' },
@@ -1518,6 +1580,8 @@ window.onerror = function(msg, url, line, col, error) { alert("JS Error: " + msg
                 
                 const lanAcls = ref([]);
                 const defaultLanPolicy = ref('proxy');
+                const protectedIps = ref([]);
+                const protectedIpForm = ref({ value: "", remark: "" });
                 const connections = ref([]);
 
                 const connSearch = ref('');
@@ -1945,6 +2009,7 @@ window.onerror = function(msg, url, line, col, error) { alert("JS Error: " + msg
                         initLoaded = true;
                     }
                     if(token.value && activeTab.value === 'lan_acls') apiFetch('/api/lan_acls').then(r=>r.json()).then(d => { lanAcls.value = d.acls || []; defaultLanPolicy.value = d.default_policy || 'proxy'; });
+                    if(token.value && activeTab.value === 'protected_ips') apiFetch('/api/protected_ips').then(r=>r.json()).then(d => { protectedIps.value = d.items || []; });
                     if(token.value && activeTab.value === 'nodes') apiFetch('/api/nodes').then(r=>r.json()).then(d => nodes.value = d);
                     if(token.value && activeTab.value === 'remote_nodes') loadRemoteNodes();
                     if(token.value && (activeTab.value === 'rules' || activeTab.value === 'geo_query')) {
@@ -2170,8 +2235,8 @@ Mode C: 纯OSPF (恢复真实IP宣告)`)) {
                 onMounted(() => { loadData(true); setInterval(() => loadData(false), 2000); });
 
                                 return { syslogs, currentLogTab, syslogsContainer, fetchSyslogs, traffic, formatBytes,
-                    connections, connSearch, filteredConnections, lanAcls, defaultLanPolicy, goToRule,
-                    showAclModal, aclForm, openAddAcl, saveAcl, deleteAcl, updateLanDefault,
+                    connections, connSearch, filteredConnections, lanAcls, defaultLanPolicy, protectedIps, protectedIpForm, goToRule,
+                    showAclModal, aclForm, openAddAcl, saveAcl, deleteAcl, updateLanDefault, addProtectedIp, deleteProtectedIp,
                     currentConfigTab,
                     loadData,
                     isSubmitting, isLoading, vlessParams, cron, saveCron, showPwdModal, pwdForm, logout, changePwd, toastMsg, toastType, confirmData, doConfirm, isUpdating, token, password, login, categories, geoQuery, showGeoSuggestions, geoSuggestionIndex, filteredGeoSuggestions, handleGeoInput, handleGeoInputBlur, moveGeoSuggestion, confirmGeoSuggestionOrQuery, applyGeoSuggestion, runGeoQuery, xrayConfigStr, mosdnsConfigStr, nftablesConfigStr, frrConfigStr, loadConfigs, newRule, ruleGroups, selectedRuleGroup, ruleSearchId, filteredRules, editingRuleGroup, shortRuleGroup, describeRulePattern, ruleValuePlaceholder, ruleValidationError, handleRuleValueFocus, handleRuleValueBlur, addRule, loadRules, saveRuleGroupName, activeTab, tabs, currentTabLabel, nodes, rules, dns, dnsLogs, ospf, ospfController, ospfControllerDirty, saveOspfController, sysStatus, applyConfig, toggleMode, changeMode, importNodeUrl, pingNodes, openAddNode, editNode, saveNode, showNodeModal, editingNode, deleteNode, toggleNode, deleteRule, deleteRuleGroup, saveDns, updateComp, showMosdnsRollbackModal, mosdnsVersions, selectedMosdnsRollbackVersion, openMosdnsRollbackModal, confirmMosdnsRollback, showRollbackModal, xrayVersions, selectedRollbackVersion, openRollbackModal, confirmRollback, remoteNodes, showRemoteNodeModal, showRemoteDetailsModal, selectedRemoteNode, remoteNodeForm, loadRemoteNodes, openAddRemoteNode, submitRemoteNode, viewRemoteNode, checkRemoteNode, confirmDeleteRemoteNode, copyText, importToLocal, isDeploying, showBatchModal, batchText, submitBatchNodes, showHistoryModal, nodeHistory, setDefaultNode, regenerateNode, loadNodeHistory, rollbackNode }

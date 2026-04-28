@@ -20,6 +20,7 @@ func renderNftForMode(t *testing.T, mode string) string {
 		IPDirect      string
 		IP6Proxy      string
 		IP6Direct     string
+		ProtectedIPs  string
 		DefaultPolicy string
 		Mode          string
 	}{DefaultPolicy: "proxy", Mode: mode}
