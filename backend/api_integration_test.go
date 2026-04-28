@@ -175,6 +175,33 @@ func TestRulesAllowWildcardDomainInModeA(t *testing.T) {
 	}
 }
 
+func TestRulesRejectInvalidGeositeTag(t *testing.T) {
+	r := setupTestRouter(t)
+
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "core", "mosdns"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	oldHome := os.Getenv("PROXYGW_HOME")
+	if err := os.Setenv("PROXYGW_HOME", root); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Setenv("PROXYGW_HOME", oldHome) })
+	writeTestGeoData(t)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/rules", strings.NewReader(`{"Type":"geosite","Value":"anthropic","Policy":"proxy"}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer test-token")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("want 400 got %d body=%s", w.Code, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), "invalid geosite tag") {
+		t.Fatalf("unexpected body: %s", w.Body.String())
+	}
+}
+
 func TestRulesBatchCreateRenameFilterAndDeleteGroup(t *testing.T) {
 	r := setupTestRouter(t)
 	if _, err := db.Exec(`INSERT OR REPLACE INTO settings(key,value) VALUES('mode','A')`); err != nil {

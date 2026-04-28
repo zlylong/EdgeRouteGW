@@ -223,6 +223,18 @@ func registerRuleRoutes(api *gin.RouterGroup) {
 					return
 				}
 			}
+		} else if r.Type == "geosite" {
+			geositeTag := strings.ToLower(strings.TrimSpace(r.Value))
+			if geositeTag == "" {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "invalid geosite rule value"})
+				return
+			}
+			geositePath := getPath("core", "mosdns", "geosite.dat")
+			if !hasGeoSiteTag(geositePath, geositeTag) {
+				c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("invalid geosite tag: %s", geositeTag)})
+				return
+			}
+			r.Value = geositeTag
 		} else if rulesContainBatchSeparator(r.Value) {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "only domain rules support comma-separated batch add"})
 			return
