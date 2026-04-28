@@ -2159,15 +2159,49 @@ Mode C: 纯OSPF (恢复真实IP宣告)`)) {
                 const ruleValidationError = computed(() => {
                     const value = (newRule.value.value || '').trim();
                     if (!value) return '';
+
                     if (newRule.value.type === 'domain') {
-                        const parts = value.split(/[，,\n\r\t]+/).map(item => item.trim()).filter(Boolean);
+                        const parts = value.split(/[，,]+|\s+/).map(item => item.trim()).filter(Boolean);
+
                         for (const item of parts) {
                             const normalized = item.replace(/\.+$/, '').toLowerCase();
                             if (normalized.includes('*') && !wildcardDomainRulePattern.test(normalized)) {
                                 return '域名 wildcard 仅支持 *.example.com 或 **.example.com';
                             }
                         }
+                    } else if (newRule.value.type === 'geoip' || newRule.value.type === 'geolocation') {
+                        const tag = value.toLowerCase();
+                        if (tag !== 'private') {
+                            const tags = (categories.value.geoip || []).map(t => String(t).toLowerCase());
+                            if (!tags.includes(tag)) {
+                                return '无效 GeoIP 标签: ' + value;
+                            }
+                        }
+                    } else if (newRule.value.type === 'geosite') {
+                        const tag = value.toLowerCase();
+                        const tags = (categories.value.geosite || []).map(t => String(t).toLowerCase());
+                        if (!tags.includes(tag)) {
+                            return '无效 Geosite 标签: ' + value;
+                        }
+                    } else if (newRule.value.type === 'ip') {
+                        const ipOrCidr = /^(?:\d{1,3}\.){3}\d{1,3}(?:\/(?:[0-9]|[1-2]\d|3[0-2]))?$/;
+                        if (!ipOrCidr.test(value)) {
+                            return 'IP/CIDR 格式无效（示例：8.8.8.8 或 8.8.8.0/24）';
+                        }
                     }
+
+                    if (newRule.value.action === 'node') {
+                        if (!newRule.value.primary) return '请选择指定节点';
+                        const exists = (nodes.value || []).some(n => String(n.id) === String(newRule.value.primary));
+                        if (!exists) return '所选节点不存在或已被删除';
+                    } else if (newRule.value.action === 'ha') {
+                        if (!newRule.value.primary || !newRule.value.standby) return '请选择主备节点';
+                        if (newRule.value.primary === newRule.value.standby) return '主备节点不能相同';
+                        const hasPrimary = (nodes.value || []).some(n => String(n.id) === String(newRule.value.primary));
+                        const hasStandby = (nodes.value || []).some(n => String(n.id) === String(newRule.value.standby));
+                        if (!hasPrimary || !hasStandby) return '主备节点不存在或已被删除';
+                    }
+
                     return '';
                 });
                 const isRuleValueEditing = ref(false);
