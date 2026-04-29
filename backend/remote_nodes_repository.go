@@ -109,6 +109,11 @@ func (r *RemoteNodesRepository) GetRemoteNodeVLESSParams(id string) (RemoteNodeV
 	return p, err
 }
 
+func (r *RemoteNodesRepository) UpdateRemoteNodeHostKey(id int64, hostKey string) error {
+	_, err := r.db.Exec("UPDATE remote_nodes SET ssh_host_key = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?", hostKey, id)
+	return err
+}
+
 func (r *RemoteNodesRepository) GetRemoteNodeCheckInfo(id string) (RemoteNodeCheckInfo, error) {
 	var info RemoteNodeCheckInfo
 	err := r.db.QueryRow("SELECT ssh_host, ssh_port, ssh_user, ssh_auth_type, ssh_credential, ssh_host_key, type FROM remote_nodes WHERE id = ?", id).
@@ -117,6 +122,14 @@ func (r *RemoteNodesRepository) GetRemoteNodeCheckInfo(id string) (RemoteNodeChe
 		info.Credential = DecryptAES(info.Credential)
 	}
 	return info, err
+}
+
+func (r *RemoteNodesRepository) GetRegenerateWGParams(id string) (RemoteNodeWGParams, error) {
+	return r.GetRemoteNodeWGParams(id)
+}
+
+func (r *RemoteNodesRepository) GetRegenerateVLESSParams(id string) (RemoteNodeVLESSParams, error) {
+	return r.GetRemoteNodeVLESSParams(id)
 }
 
 func (r *RemoteNodesRepository) ListRemoteNodeHistory(id string) ([]map[string]interface{}, error) {

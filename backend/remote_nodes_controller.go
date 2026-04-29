@@ -162,7 +162,7 @@ func connectWithAutoHostKey(id int64, req *RemoteNodeReq) (remoteSSHClient, erro
 		return nil, err
 	}
 
-	if _, uerr := db.Exec("UPDATE remote_nodes SET ssh_host_key = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?", fp, id); uerr != nil {
+	if uerr := NewRemoteNodesRepository().UpdateRemoteNodeHostKey(id, fp); uerr != nil {
 		return nil, fmt.Errorf("%v; auto-update host key failed: %v", err, uerr)
 	}
 	logAction(id, "deploy", "running", fmt.Sprintf("Auto-updated SSH host fingerprint to %s and retrying deployment", fp))
@@ -436,18 +436,24 @@ func regenerateRemoteNodeParams(c *gin.Context) {
 	// Archive old params
 	var oldParams map[string]interface{} = make(map[string]interface{})
 	if req.Type == "wg" {
-		var spriv, spub, cpriv, cpub, ep, taddr, caddr string
-		var lport int
-		if err := db.QueryRow("SELECT server_priv, server_pub, client_priv, client_pub, endpoint, port, tunnel_addr, client_addr FROM remote_node_wg WHERE node_id = ?", id).
-			Scan(&spriv, &spub, &cpriv, &cpub, &ep, &lport, &taddr, &caddr); err == nil {
-			oldParams = map[string]interface{}{"server_priv": spriv, "share_link": remote_deploy.GenerateWireGuardShareLink(cpriv, req.SSHHost, lport, spub, caddr, "", "ProxyGW-"+req.SSHHost, 1420), "server_pub": spub, "client_priv": cpriv, "client_pub": cpub, "endpoint": ep, "port": lport, "tunnel_addr": taddr, "client_addr": caddr}
+		wg, err := NewRemoteNodesRepository().GetRegenerateWGParams(id)
+		if err == nil {
+			oldParams = map[string]interface{}{
+				"server_priv": wg.ServerPriv,
+				"share_link":  remote_deploy.GenerateWireGuardShareLink(wg.ClientPriv, req.SSHHost, wg.Port, wg.ServerPub, wg.ClientAddr, "", "ProxyGW-"+req.SSHHost, 1420),
+				"server_pub":  wg.ServerPub,
+				"client_priv": wg.ClientPriv,
+				"client_pub":  wg.ClientPub,
+				"endpoint":    wg.Endpoint,
+				"port":        wg.Port,
+				"tunnel_addr": wg.TunnelAddr,
+				"client_addr": wg.ClientAddr,
+			}
 		}
 	} else {
-		var uuid, rpriv, rpub, sid, sname, dest, slink string
-		var lport int
-		if err := db.QueryRow("SELECT uuid, reality_priv, reality_pub, short_id, server_name, dest, port, share_link FROM remote_node_vless WHERE node_id = ?", id).
-			Scan(&uuid, &rpriv, &rpub, &sid, &sname, &dest, &lport, &slink); err == nil {
-			oldParams = map[string]interface{}{"uuid": uuid, "reality_priv": rpriv, "reality_pub": rpub, "short_id": sid, "server_name": sname, "dest": dest, "port": lport, "share_link": slink}
+		v, err := NewRemoteNodesRepository().GetRegenerateVLESSParams(id)
+		if err == nil {
+			oldParams = map[string]interface{}{"uuid": v.UUID, "reality_priv": v.RealityPriv, "reality_pub": v.RealityPub, "short_id": v.ShortID, "server_name": v.ServerName, "dest": v.Dest, "port": v.Port, "share_link": v.ShareLink}
 		}
 	}
 
