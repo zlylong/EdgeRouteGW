@@ -229,6 +229,40 @@ func TestRulesRejectInvalidGeoIPTag(t *testing.T) {
 	}
 }
 
+func TestRulesAllowValidGeoIPTagFastly(t *testing.T) {
+	r := setupTestRouter(t)
+
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "core", "mosdns"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	oldHome := os.Getenv("PROXYGW_HOME")
+	if err := os.Setenv("PROXYGW_HOME", root); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Setenv("PROXYGW_HOME", oldHome) })
+	writeTestGeoData(t)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/rules", strings.NewReader(`{"Type":"geoip","Value":" FASTLY ","Policy":"proxy"}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer test-token")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("want 200 got %d body=%s", w.Code, w.Body.String())
+	}
+
+	var count int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM rules WHERE lower(value)='fastly' AND policy='proxy'`).Scan(&count); err != nil {
+		t.Fatal(err)
+	}
+	if count != 1 {
+		var gotType, gotValue, gotPolicy string
+		_ = db.QueryRow(`SELECT type, value, policy FROM rules ORDER BY id DESC LIMIT 1`).Scan(&gotType, &gotValue, &gotPolicy)
+		t.Fatalf("expected inserted fastly geoip rule, count=%d last=(%s,%s,%s)", count, gotType, gotValue, gotPolicy)
+	}
+}
+
 func TestRulesRejectInvalidNodePolicy(t *testing.T) {
 	r := setupTestRouter(t)
 	req := httptest.NewRequest(http.MethodPost, "/api/rules", strings.NewReader(`{"Type":"domain","Value":"example.org","Policy":"proxy-999"}`))

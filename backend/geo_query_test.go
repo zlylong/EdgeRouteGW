@@ -94,11 +94,16 @@ func writeTestGeoData(t *testing.T) {
 			IP     []byte
 			Prefix int
 		}{{IP: []byte{8, 8, 8, 0}, Prefix: 24}}},
+		{Tag: "fastly", CIDRs: []struct {
+			IP     []byte
+			Prefix int
+		}{{IP: []byte{151, 101, 0, 0}, Prefix: 16}}},
 	})
 	geosite := buildTestGeoSiteDat([]testGeoSiteEntry{
 		{Tag: "gfw", Domains: []testGeoSiteDomain{{Type: 2, Value: "google.com"}, {Type: 3, Value: "youtube.com"}}},
 		{Tag: "google", Domains: []testGeoSiteDomain{{Type: 2, Value: "google.com"}}},
 		{Tag: "cn", Domains: []testGeoSiteDomain{{Type: 2, Value: "baidu.com"}}},
+		{Tag: "fastly", Domains: []testGeoSiteDomain{{Type: 2, Value: "fastly.com"}}},
 	})
 	if err := os.WriteFile(getPath("core", "mosdns", "geoip.dat"), geoip, 0o644); err != nil {
 		t.Fatal(err)

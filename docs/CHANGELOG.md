@@ -1,5 +1,14 @@
 ## [Unreleased]
 
+## [1.6.14] - 2026-04-29
+### 🚀 稳定版发布 (Stable)
+- 发布 `v1.6.14 Stable`，补全 GeoIP/Geosite 标签校验回归测试并完成全量测试链路验证。
+
+### ✅ 测试 (Tests)
+- 新增 API 集成测试：`geoip=FASTLY`（含首尾空白）应被识别为有效标签并允许写入规则。
+- 扩展测试 geodata 夹具：补充 `fastly` 的 GeoIP 与 Geosite 测试标签，覆盖标签存在性校验路径。
+- 执行完整验证：`cd backend && go test ./...` 与 `scripts/check-release-chain.sh` 全部通过。
+
 ## [1.6.13] - 2026-04-25
 ### 🚀 稳定版发布 (Stable)
 - 发布 v1.6.13 Stable，修复实时连接追踪高负载，并清理三模式下 Xray/Mosdns 不适配配置。
