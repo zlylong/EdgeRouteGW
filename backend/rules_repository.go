@@ -115,3 +115,20 @@ func (r *RulesRepository) DeleteRuleByID(ruleID string) error {
 	_, err := r.db.Exec("DELETE FROM rules WHERE id=?", ruleID)
 	return err
 }
+
+func (r *RulesRepository) InsertRulesBatch(ruleType string, values []string, policy, groupID, groupName string) error {
+	tx, err := r.db.Begin()
+	if err != nil {
+		return err
+	}
+	for _, value := range values {
+		if _, err := tx.Exec("INSERT INTO rules (type, value, policy, group_id, group_name) VALUES (?, ?, ?, ?, ?)", ruleType, value, policy, groupID, groupName); err != nil {
+			_ = tx.Rollback()
+			return err
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+	return nil
+}

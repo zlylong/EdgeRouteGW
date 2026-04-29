@@ -266,19 +266,7 @@ func (ctl *RulesController) RegisterRoutes(api *gin.RouterGroup) {
 			groupID = newRuleGroupID()
 			groupName = r.GroupName
 		}
-		tx, err := db.Begin()
-		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "db error"})
-			return
-		}
-		for _, value := range values {
-			if _, err := tx.Exec("INSERT INTO rules (type, value, policy, group_id, group_name) VALUES (?, ?, ?, ?, ?)", r.Type, value, r.Policy, groupID, groupName); err != nil {
-				_ = tx.Rollback()
-				c.JSON(http.StatusInternalServerError, gin.H{"error": "db error"})
-				return
-			}
-		}
-		if err := tx.Commit(); err != nil {
+		if err := ctl.repo.InsertRulesBatch(r.Type, values, r.Policy, groupID, groupName); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "db error"})
 			return
 		}
