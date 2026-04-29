@@ -384,3 +384,24 @@ func (ctl *SystemController) HandleOspfSettings(c *gin.Context) {
 		"publish_ip_allowlist_on": allowlist != "",
 	})
 }
+
+func (ctl *SystemController) HandleResetOspfPending(c *gin.Context) {
+	if !requireHighRiskMutationGuard(c, "ospf_reset_pending") {
+		return
+	}
+	if isDryRun(c) {
+		c.JSON(http.StatusOK, gin.H{"success": true, "dry_run": true, "action": "ospf_reset_pending", "plan": gin.H{"scope": "routes_table WHERE status='candidate' AND source='static'", "effect": "delete pending static routes only; published/stable routes untouched"}})
+		return
+	}
+	deleted, err := ctl.repo.ResetOspfPendingStaticRoutes()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	pub, cand, cntErr := ctl.repo.GetOspfRouteCounts()
+	if cntErr != nil {
+		log.Printf("[WARN] query ospf route counts after reset err: %v", cntErr)
+	}
+	log.Printf("[OSPF] pending reset requested: deleted_static_candidates=%d remaining_published=%d remaining_candidate=%d", deleted, pub, cand)
+	c.JSON(http.StatusOK, gin.H{"success": true, "deleted_pending": deleted, "published": pub, "pending": cand})
+}

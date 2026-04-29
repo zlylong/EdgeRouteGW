@@ -140,3 +140,15 @@ func (r *SystemRepository) GetOspfPublishAllowlist() (string, error) {
 	err := db.QueryRow("SELECT value FROM settings WHERE key='ospf_publish_allowlist'").Scan(&allowlist)
 	return allowlist, err
 }
+
+func (r *SystemRepository) ResetOspfPendingStaticRoutes() (int64, error) {
+	res, err := db.Exec("DELETE FROM routes_table WHERE status='candidate' AND source='static'")
+	if err != nil {
+		return 0, err
+	}
+	affected, err := res.RowsAffected()
+	if err != nil {
+		return 0, err
+	}
+	return affected, nil
+}

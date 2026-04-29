@@ -12,4 +12,5 @@ func registerSystemRoutes(api *gin.RouterGroup) {
 	api.GET("/traffic", sysCtl.HandleTraffic)
 	api.GET("/ospf", sysCtl.HandleGetOspf)
 	api.POST("/ospf/settings", sysCtl.HandleOspfSettings)
+	api.POST("/ospf/reset_pending", sysCtl.HandleResetOspfPending)
 }

@@ -972,6 +972,7 @@ PersistentKeepalive = 25
                                     </label>
                                     <div class="text-xs text-gray-500 xl:pb-2">当前：每批 {{ ospfController.push_batch_limit }} 条 / 最短间隔 {{ ospfController.push_interval_seconds }} 秒 / 解析并发 {{ ospfController.resolve_workers }}</div>
                                     <button @click="saveOspfController" :disabled="!ospfControllerDirty" class="bg-blue-600 text-white px-4 py-2 rounded text-sm hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed xl:mb-[1px]">保存推送控制</button>
+                                    <button @click="resetOspfPending" :disabled="ospf.pending <= 0" class="bg-red-600 text-white px-4 py-2 rounded text-sm hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed xl:mb-[1px]">一键重置 Pending Set</button>
                                 </div>
                             </div>
                             <div class="terminal overflow-y-auto" style="min-height: 16rem; height: clamp(16rem, 42vh, 34rem);">
@@ -1765,6 +1766,23 @@ window.onerror = function(msg, url, line, col, error) { alert("JS Error: " + msg
                     showToast('OSPF 推送控制已保存');
                     loadData();
                 };
+                const resetOspfPending = async () => {
+                    if ((ospf.value?.pending || 0) <= 0) {
+                        showToast('当前无 Pending Set，无需重置');
+                        return;
+                    }
+                    customConfirm(`确认一键重置 Pending Set？\n\n将清理待发布路由（candidate/static），不影响已发布 Stable Set。`, async () => {
+                        const res = await apiFetch('/api/ospf/reset_pending?confirm=APPLY', { method: 'POST' });
+                        if (!res.ok) {
+                            const data = await res.json().catch(() => ({}));
+                            showToast(data.error || '重置 Pending Set 失败', 'error');
+                            return;
+                        }
+                        const data = await res.json().catch(() => ({}));
+                        showToast(`已重置 Pending Set，删除 ${data.deleted_pending || 0} 条待发布路由`);
+                        loadData();
+                    });
+                };
                 const sysStatus = ref({ mode: 'B', xray: false, ospf: false, mosdns: false, cpu: 0, ram: 0, interface_options: [], management_network: { iface: '', ip: '', subnet: '' }, service_network: { iface: '', ip: '', subnet: '' }, commit: '', binary_build_time: '' });
                 const cron = ref({ enabled: false, time: '04:00', schedule_type: 'daily', weekday: 1, monthday: 1 });
                 const networkConfigForm = ref({ management_iface: '', service_iface: '' });
@@ -2370,7 +2388,7 @@ Mode C: 纯OSPF (恢复真实IP宣告)`)) {
                     showAclModal, aclForm, openAddAcl, saveAcl, deleteAcl, updateLanDefault, addProtectedIp, deleteProtectedIp,
                     currentConfigTab,
                     loadData,
-                    isSubmitting, isLoading, vlessParams, cron, saveCron, networkConfigForm, networkConfigSelecting, saveNetworkConfig, showPwdModal, pwdForm, logout, changePwd, toastMsg, toastType, confirmData, doConfirm, isUpdating, token, password, login, categories, geoQuery, showGeoSuggestions, geoSuggestionIndex, filteredGeoSuggestions, handleGeoInput, handleGeoInputBlur, moveGeoSuggestion, confirmGeoSuggestionOrQuery, applyGeoSuggestion, runGeoQuery, xrayConfigStr, mosdnsConfigStr, nftablesConfigStr, frrConfigStr, loadConfigs, newRule, ruleGroups, selectedRuleGroup, ruleSearchId, filteredRules, editingRuleGroup, shortRuleGroup, describeRulePattern, ruleValuePlaceholder, ruleValidationError, handleRuleValueFocus, handleRuleValueBlur, addRule, loadRules, saveRuleGroupName, activeTab, tabs, visibleTabs, uiMode, toggleUiMode, currentTabLabel, nodes, rules, dns, dnsLogs, ospf, ospfController, ospfControllerDirty, saveOspfController, sysStatus, applyConfig, toggleMode, changeMode, importNodeUrl, pingNodes, openAddNode, editNode, saveNode, showNodeModal, editingNode, deleteNode, toggleNode, deleteRule, deleteRuleGroup, saveDns, updateComp, showMosdnsRollbackModal, mosdnsVersions, selectedMosdnsRollbackVersion, openMosdnsRollbackModal, confirmMosdnsRollback, showRollbackModal, xrayVersions, selectedRollbackVersion, openRollbackModal, confirmRollback, remoteNodes, showRemoteNodeModal, showRemoteDetailsModal, selectedRemoteNode, remoteNodeForm, loadRemoteNodes, openAddRemoteNode, submitRemoteNode, viewRemoteNode, checkRemoteNode, confirmDeleteRemoteNode, copyText, importToLocal, isDeploying, showBatchModal, batchText, submitBatchNodes, showHistoryModal, nodeHistory, setDefaultNode, regenerateNode, loadNodeHistory, rollbackNode }
+                    isSubmitting, isLoading, vlessParams, cron, saveCron, networkConfigForm, networkConfigSelecting, saveNetworkConfig, showPwdModal, pwdForm, logout, changePwd, toastMsg, toastType, confirmData, doConfirm, isUpdating, token, password, login, categories, geoQuery, showGeoSuggestions, geoSuggestionIndex, filteredGeoSuggestions, handleGeoInput, handleGeoInputBlur, moveGeoSuggestion, confirmGeoSuggestionOrQuery, applyGeoSuggestion, runGeoQuery, xrayConfigStr, mosdnsConfigStr, nftablesConfigStr, frrConfigStr, loadConfigs, newRule, ruleGroups, selectedRuleGroup, ruleSearchId, filteredRules, editingRuleGroup, shortRuleGroup, describeRulePattern, ruleValuePlaceholder, ruleValidationError, handleRuleValueFocus, handleRuleValueBlur, addRule, loadRules, saveRuleGroupName, activeTab, tabs, visibleTabs, uiMode, toggleUiMode, currentTabLabel, nodes, rules, dns, dnsLogs, ospf, ospfController, ospfControllerDirty, saveOspfController, resetOspfPending, sysStatus, applyConfig, toggleMode, changeMode, importNodeUrl, pingNodes, openAddNode, editNode, saveNode, showNodeModal, editingNode, deleteNode, toggleNode, deleteRule, deleteRuleGroup, saveDns, updateComp, showMosdnsRollbackModal, mosdnsVersions, selectedMosdnsRollbackVersion, openMosdnsRollbackModal, confirmMosdnsRollback, showRollbackModal, xrayVersions, selectedRollbackVersion, openRollbackModal, confirmRollback, remoteNodes, showRemoteNodeModal, showRemoteDetailsModal, selectedRemoteNode, remoteNodeForm, loadRemoteNodes, openAddRemoteNode, submitRemoteNode, viewRemoteNode, checkRemoteNode, confirmDeleteRemoteNode, copyText, importToLocal, isDeploying, showBatchModal, batchText, submitBatchNodes, showHistoryModal, nodeHistory, setDefaultNode, regenerateNode, loadNodeHistory, rollbackNode }
             }
         }).mount('#app');
     </script>
