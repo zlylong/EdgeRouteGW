@@ -2,9 +2,10 @@
 
 建议阅读顺序：
 1. `OPERATIONS.md`（部署指南/排障/SOP）
-2. `API.md`（接口约定）
-3. `CHANGELOG.md`（版本变更）
-4. `RELEASE_TEMPLATE.md`（发布记录模板）
+2. `BACKEND_COMPONENT_DIAGRAM.md`（后端组件关系图）
+3. `API.md`（接口约定）
+4. `CHANGELOG.md`（版本变更）
+5. `RELEASE_TEMPLATE.md`（发布记录模板）
 
 ## ProxyGW 透明代理网关
 
