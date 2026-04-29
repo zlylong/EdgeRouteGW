@@ -344,6 +344,37 @@ func (ctl *RulesController) RegisterRoutes(api *gin.RouterGroup) {
 		c.JSON(http.StatusOK, gin.H{"success": true, "deleted": affected})
 	})
 
+	api.PUT("/rules/reorder", func(c *gin.Context) {
+		var payload struct {
+			IDs []int `json:"ids"`
+		}
+		if c.BindJSON(&payload) != nil || len(payload.IDs) == 0 {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "ids required"})
+			return
+		}
+		seen := make(map[int]struct{}, len(payload.IDs))
+		for _, id := range payload.IDs {
+			if id <= 0 {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "invalid rule id in ids"})
+				return
+			}
+			if _, ok := seen[id]; ok {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "duplicate rule id in ids"})
+				return
+			}
+			seen[id] = struct{}{}
+		}
+		if err := ctl.repo.ReorderRules(payload.IDs); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "db error"})
+			return
+		}
+		if err := applyRuleChangeDynamically(true); err != nil {
+			log.Printf("[WARN] dynamic rule reorder apply failed, fallback to scheduled apply: %v", err)
+			scheduleApplyFallbackIfRuntimeReady(true)
+		}
+		c.JSON(http.StatusOK, gin.H{"success": true})
+	})
+
 	api.DELETE("/rules/:id", func(c *gin.Context) {
 		ruleID := c.Param("id")
 		ruleType, err := ctl.repo.GetRuleTypeByID(ruleID)

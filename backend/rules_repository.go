@@ -60,13 +60,13 @@ func (r *RulesRepository) RuleExists(ruleType, value string) (bool, error) {
 }
 
 func (r *RulesRepository) ListRules(groupFilter string) ([]map[string]interface{}, error) {
-	query := "SELECT id, type, value, policy, COALESCE(group_id, ''), COALESCE(group_name, '') FROM rules"
+	query := "SELECT id, type, value, policy, priority, COALESCE(group_id, ''), COALESCE(group_name, '') FROM rules"
 	args := make([]interface{}, 0, 1)
 	if groupFilter != "" {
 		query += " WHERE COALESCE(group_id, '') = ?"
 		args = append(args, groupFilter)
 	}
-	query += " ORDER BY id ASC"
+	query += " ORDER BY priority ASC, id ASC"
 
 	rows, err := r.db.Query(query, args...)
 	if err != nil {
@@ -77,11 +77,12 @@ func (r *RulesRepository) ListRules(groupFilter string) ([]map[string]interface{
 	var rules []map[string]interface{}
 	for rows.Next() {
 		var id int
+		var priority int
 		var rtype, value, policy, groupID, groupName string
-		if err := rows.Scan(&id, &rtype, &value, &policy, &groupID, &groupName); err != nil {
+		if err := rows.Scan(&id, &rtype, &value, &policy, &priority, &groupID, &groupName); err != nil {
 			continue
 		}
-		rules = append(rules, map[string]interface{}{"id": id, "type": rtype, "value": value, "policy": policy, "group_id": groupID, "group_name": groupName})
+		rules = append(rules, map[string]interface{}{"id": id, "type": rtype, "value": value, "policy": policy, "priority": priority, "group_id": groupID, "group_name": groupName})
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
@@ -125,13 +126,44 @@ func (r *RulesRepository) DeleteRuleByID(ruleID string) error {
 	return err
 }
 
+func (r *RulesRepository) NextRulePriority(tx *sql.Tx) (int, error) {
+	var maxPriority int
+	err := tx.QueryRow("SELECT COALESCE(MAX(priority), 0) FROM rules").Scan(&maxPriority)
+	if err != nil {
+		return 0, err
+	}
+	return maxPriority + 1, nil
+}
+
+func (r *RulesRepository) ReorderRules(ids []int) error {
+	tx, err := r.db.Begin()
+	if err != nil {
+		return err
+	}
+	for idx, id := range ids {
+		if _, err := tx.Exec("UPDATE rules SET priority=? WHERE id=?", idx+1, id); err != nil {
+			_ = tx.Rollback()
+			return err
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+	return nil
+}
+
 func (r *RulesRepository) InsertRulesBatch(ruleType string, values []string, policy, groupID, groupName string) error {
 	tx, err := r.db.Begin()
 	if err != nil {
 		return err
 	}
 	for _, value := range values {
-		if _, err := tx.Exec("INSERT INTO rules (type, value, policy, group_id, group_name) VALUES (?, ?, ?, ?, ?)", ruleType, value, policy, groupID, groupName); err != nil {
+		nextPriority, err := r.NextRulePriority(tx)
+		if err != nil {
+			_ = tx.Rollback()
+			return err
+		}
+		if _, err := tx.Exec("INSERT INTO rules (type, value, policy, priority, group_id, group_name) VALUES (?, ?, ?, ?, ?, ?)", ruleType, value, policy, nextPriority, groupID, groupName); err != nil {
 			_ = tx.Rollback()
 			return err
 		}

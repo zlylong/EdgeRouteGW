@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -80,7 +81,7 @@ func setupFeatureSuiteRouter(t *testing.T) *gin.Engine {
 
 	stmts := []string{
 		`CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT);`,
-		`CREATE TABLE rules (id INTEGER PRIMARY KEY AUTOINCREMENT, type TEXT, value TEXT, policy TEXT, group_id TEXT NOT NULL DEFAULT '', group_name TEXT NOT NULL DEFAULT '');`,
+		`CREATE TABLE rules (id INTEGER PRIMARY KEY AUTOINCREMENT, type TEXT, value TEXT, policy TEXT, priority INTEGER NOT NULL DEFAULT 0, group_id TEXT NOT NULL DEFAULT '', group_name TEXT NOT NULL DEFAULT '');`,
 		`CREATE TABLE nodes (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, grp TEXT, type TEXT, address TEXT, port INTEGER, uuid TEXT, params TEXT, active BOOLEAN DEFAULT 1, ping INTEGER DEFAULT 0);`,
 		`CREATE TABLE lan_acls (id INTEGER PRIMARY KEY AUTOINCREMENT, type TEXT, value TEXT, policy TEXT, remark TEXT, created_at DATETIME DEFAULT CURRENT_TIMESTAMP);`,
 		`CREATE TABLE remote_nodes (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, type TEXT, ssh_host TEXT, ssh_port INTEGER, ssh_user TEXT, ssh_auth_type TEXT, ssh_credential TEXT, ssh_host_key TEXT, region TEXT, status TEXT, remark TEXT, created_at DATETIME DEFAULT CURRENT_TIMESTAMP, updated_at DATETIME DEFAULT CURRENT_TIMESTAMP);`,
@@ -412,6 +413,29 @@ func TestFeatureSuite_DNSRulesAndNodes(t *testing.T) {
 		}
 		if ruleCount != 1 {
 			t.Fatalf("expected inserted ha rule, count=%d", ruleCount)
+		}
+
+		var googleID, haID int
+		if err := db.QueryRow("SELECT id FROM rules WHERE value='google.com' AND policy='proxy'").Scan(&googleID); err != nil {
+			t.Fatal(err)
+		}
+		if err := db.QueryRow("SELECT id FROM rules WHERE value='ha-check.example' AND policy='ha-1-2'").Scan(&haID); err != nil {
+			t.Fatal(err)
+		}
+		reorder := httptest.NewRecorder()
+		r.ServeHTTP(reorder, authedJSONRequest(http.MethodPut, "/api/rules/reorder", fmt.Sprintf(`{"ids":[%d,%d]}`, haID, googleID)))
+		if reorder.Code != http.StatusOK {
+			t.Fatalf("reorder should succeed, got %d body=%s", reorder.Code, reorder.Body.String())
+		}
+		var pGoogle, pHA int
+		if err := db.QueryRow("SELECT priority FROM rules WHERE id=?", googleID).Scan(&pGoogle); err != nil {
+			t.Fatal(err)
+		}
+		if err := db.QueryRow("SELECT priority FROM rules WHERE id=?", haID).Scan(&pHA); err != nil {
+			t.Fatal(err)
+		}
+		if !(pHA < pGoogle) {
+			t.Fatalf("expected reordered priority, got ha=%d google=%d", pHA, pGoogle)
 		}
 
 		remove := httptest.NewRecorder()

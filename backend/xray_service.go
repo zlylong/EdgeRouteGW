@@ -214,7 +214,7 @@ func applyXrayConfigInternal(restart bool) error {
 		}
 	}
 
-	rRows, err := db.Query("SELECT id, type, value, policy FROM rules ORDER BY id ASC")
+	rRows, err := db.Query("SELECT id, type, value, policy FROM rules ORDER BY priority ASC, id ASC")
 	if err != nil {
 		log.Printf("[WARN] routing rules query err: %v", err)
 		return err

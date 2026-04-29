@@ -104,7 +104,7 @@ func syncXrayRoutingRulesDynamically() error {
 		)
 	}
 
-	rRows, err := db.Query("SELECT id, type, value, policy FROM rules ORDER BY id ASC")
+	rRows, err := db.Query("SELECT id, type, value, policy FROM rules ORDER BY priority ASC, id ASC")
 	if err != nil {
 		return fmt.Errorf("query rules failed: %w", err)
 	}

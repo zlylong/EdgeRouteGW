@@ -25,7 +25,7 @@ func setupTestDB(t *testing.T) (*sql.DB, string) {
 	}
 	stmts := []string{
 		`CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT);`,
-		`CREATE TABLE rules (id INTEGER PRIMARY KEY AUTOINCREMENT, type TEXT, value TEXT, policy TEXT, group_id TEXT NOT NULL DEFAULT '', group_name TEXT NOT NULL DEFAULT '');`,
+		`CREATE TABLE rules (id INTEGER PRIMARY KEY AUTOINCREMENT, type TEXT, value TEXT, policy TEXT, priority INTEGER NOT NULL DEFAULT 0, group_id TEXT NOT NULL DEFAULT '', group_name TEXT NOT NULL DEFAULT '');`,
 		`CREATE TABLE nodes (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, grp TEXT, type TEXT, address TEXT, port INTEGER, uuid TEXT, params TEXT, active BOOLEAN DEFAULT 1, ping INTEGER DEFAULT 0);`,
 	}
 	for _, s := range stmts {

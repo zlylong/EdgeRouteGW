@@ -284,7 +284,7 @@ func policyMatchesConnection(rulePolicy, connPolicy string) bool {
 }
 
 func attachRuleMatchMeta(records []ConnectionRecord) []ConnectionRecord {
-	rows, err := db.Query("SELECT id, type, value, policy FROM rules ORDER BY id ASC")
+	rows, err := db.Query("SELECT id, type, value, policy FROM rules ORDER BY priority ASC, id ASC")
 	if err != nil {
 		return records
 	}

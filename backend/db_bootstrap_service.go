@@ -36,7 +36,7 @@ func initDB() {
 			id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, grp TEXT, type TEXT, address TEXT, port INTEGER, uuid TEXT, active BOOLEAN DEFAULT 1, ping INTEGER DEFAULT 0
 		);`,
 		`CREATE TABLE IF NOT EXISTS rules (
-			id INTEGER PRIMARY KEY AUTOINCREMENT, type TEXT, value TEXT, policy TEXT, group_id TEXT NOT NULL DEFAULT '', group_name TEXT NOT NULL DEFAULT ''
+			id INTEGER PRIMARY KEY AUTOINCREMENT, type TEXT, value TEXT, policy TEXT, priority INTEGER NOT NULL DEFAULT 0, group_id TEXT NOT NULL DEFAULT '', group_name TEXT NOT NULL DEFAULT ''
 		);`,
 		`CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT);`,
 		`CREATE TABLE IF NOT EXISTS lan_acls (
@@ -88,6 +88,15 @@ func initDB() {
 	}
 	if _, err := db.Exec("ALTER TABLE routes_table ADD COLUMN miss_count INTEGER DEFAULT 0"); err != nil && !strings.Contains(err.Error(), "duplicate column name") {
 		log.Printf("[WARN] ALTER TABLE failed: %v", err)
+	}
+	if _, err := db.Exec("ALTER TABLE rules ADD COLUMN priority INTEGER NOT NULL DEFAULT 0"); err != nil && !strings.Contains(err.Error(), "duplicate column name") {
+		log.Printf("[WARN] ALTER TABLE failed: %v", err)
+	}
+	if _, err := db.Exec("UPDATE rules SET priority=id WHERE priority=0"); err != nil {
+		log.Printf("[WARN] rules priority backfill failed: %v", err)
+	}
+	if _, err := db.Exec("CREATE INDEX IF NOT EXISTS idx_rules_priority_id ON rules(priority ASC, id ASC)"); err != nil {
+		log.Printf("[WARN] create rules priority index failed: %v", err)
 	}
 	if _, err := db.Exec("ALTER TABLE rules ADD COLUMN group_id TEXT NOT NULL DEFAULT ''"); err != nil && !strings.Contains(err.Error(), "duplicate column name") {
 		log.Printf("[WARN] ALTER TABLE failed: %v", err)
