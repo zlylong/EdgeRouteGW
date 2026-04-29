@@ -18,6 +18,11 @@
   ```
   推荐的日常维护命令。它将自动从 GitHub `main` 分支拉取最新代码，智能检查依赖，自动获取 GitHub Releases 最新版预编译后端二进制，并平滑重启所有相关守护服务。
 
+  > 自 `v1.6.16+` 起，`install.sh` / `update.sh` 在服务启动后会自动执行一次数据库低风险优化（`scripts/db_optimize.sh --index-only`）：
+  > - 幂等创建关键索引（`domain_geoip_lock` / `gateway_events`）
+  > - 执行 `ANALYZE` 与 `PRAGMA optimize`
+  > - 不执行 `VACUUM`（避免在安装/升级流程引入长时间写锁）
+
 - **🗑️ 彻底卸载系统**：
   ```bash
   bash scripts/uninstall.sh
@@ -45,6 +50,28 @@ journalctl -u xray -n 100 --no-pager -f
 ## 💾 数据备份与密码重置
 
 系统所有持久化状态（节点配置、规则策略、管理员信息）都保存在本地：
+
+### 数据库优化（SQLite）
+
+当出现以下任一信号时，建议执行数据库优化：
+- 升级后查询响应变慢（尤其事件查询、GeoIP 锁查询）
+- `proxygw.db` 体积异常膨胀
+- `PRAGMA freelist_count` 占比明显偏高
+
+**低风险在线优化（推荐日常）**：
+```bash
+/root/proxygw/scripts/db_optimize.sh /root/proxygw/config/proxygw.db --index-only
+```
+
+**完整压缩优化（维护窗口执行）**：
+```bash
+/root/proxygw/scripts/db_optimize.sh /root/proxygw/config/proxygw.db --full
+```
+
+说明：
+- `--index-only`：仅建索引 + `ANALYZE` + `PRAGMA optimize`，不做 `VACUUM`
+- `--full`：包含 `VACUUM`，会持有写锁，建议低峰执行
+- 脚本会自动生成时间戳备份：`proxygw.db.bak.YYYYmmdd_HHMMSS`
 
 **数据备份**：
 建议在进行重大变更前定期备份 `config/` 目录。

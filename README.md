@@ -24,6 +24,8 @@ bash <(curl -s -4 -L https://raw.githubusercontent.com/zlylong/proxygw/main/scri
 ```
 *(注：由于底层包含强制的 Nftables 防环路策略，不建议在已有复杂防火墙规则的宿主机运行，推荐单独分配一个 LXC 或轻量级 VM)*
 
+> 说明：安装/升级脚本会在服务启动后自动执行数据库低风险优化（`scripts/db_optimize.sh --index-only`），用于补齐关键索引与统计信息；完整 `VACUUM` 仍建议在维护窗口手动执行。
+
 ## 🔑 初始登录
 
 为了系统安全，ProxyGW **没有默认固定密码**。首次安装完成后，请在服务器终端查看系统为您随机生成的初始密码：
