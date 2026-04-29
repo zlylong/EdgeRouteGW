@@ -345,13 +345,11 @@ func createAndDeployRemoteNode(c *gin.Context) {
 		return
 	}
 
-	res, err := db.Exec("INSERT INTO remote_nodes (name, type, ssh_host, ssh_port, ssh_user, ssh_auth_type, ssh_credential, ssh_host_key, region, status, remark) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'Deploying', ?)",
-		req.Name, req.Type, req.SSHHost, req.SSHPort, req.SSHUser, req.SSHAuthType, EncryptAES(req.SSHCredential), req.SSHHostKey, req.Region, req.Remark)
+	nodeId, err := NewRemoteNodesRepository().InsertRemoteNodeDeploying(req)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to insert node"})
 		return
 	}
-	nodeId, _ := res.LastInsertId()
 	startDeployRoutine(nodeId, req, false, nil)
 	c.JSON(http.StatusOK, gin.H{"success": true, "message": "Deployment started", "id": nodeId})
 }
@@ -364,10 +362,8 @@ func batchDeployRemoteNodes(c *gin.Context) {
 	}
 
 	for _, req := range reqs {
-		res, err := db.Exec("INSERT INTO remote_nodes (name, type, ssh_host, ssh_port, ssh_user, ssh_auth_type, ssh_credential, ssh_host_key, region, status, remark) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'Deploying', ?)",
-			req.Name, req.Type, req.SSHHost, req.SSHPort, req.SSHUser, req.SSHAuthType, EncryptAES(req.SSHCredential), req.SSHHostKey, req.Region, req.Remark)
+		nodeId, err := NewRemoteNodesRepository().InsertRemoteNodeDeploying(req)
 		if err == nil {
-			nodeId, _ := res.LastInsertId()
 			startDeployRoutine(nodeId, req, false, nil)
 		}
 	}
@@ -392,11 +388,7 @@ func deleteRemoteNode(c *gin.Context) {
 		}(req)
 	}
 
-	db.Exec("DELETE FROM remote_node_wg WHERE node_id = ?", id)
-	db.Exec("DELETE FROM remote_node_vless WHERE node_id = ?", id)
-	db.Exec("DELETE FROM remote_node_logs WHERE node_id = ?", id)
-	db.Exec("DELETE FROM remote_node_history WHERE node_id = ?", id)
-	_, err = db.Exec("DELETE FROM remote_nodes WHERE id = ?", id)
+	err = NewRemoteNodesRepository().DeleteRemoteNodeCascade(id)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete"})
 		return

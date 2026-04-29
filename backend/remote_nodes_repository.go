@@ -87,3 +87,21 @@ func (r *RemoteNodesRepository) SetRemoteNodeStatus(id interface{}, status strin
 func (r *RemoteNodesRepository) InsertRemoteNodeHistory(nodeID string, nodeType, paramsJSON string) {
 	_, _ = r.db.Exec("INSERT INTO remote_node_history (node_id, type, params) VALUES (?, ?, ?)", nodeID, nodeType, paramsJSON)
 }
+
+func (r *RemoteNodesRepository) InsertRemoteNodeDeploying(req RemoteNodeReq) (int64, error) {
+	res, err := r.db.Exec("INSERT INTO remote_nodes (name, type, ssh_host, ssh_port, ssh_user, ssh_auth_type, ssh_credential, ssh_host_key, region, status, remark) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'Deploying', ?)",
+		req.Name, req.Type, req.SSHHost, req.SSHPort, req.SSHUser, req.SSHAuthType, EncryptAES(req.SSHCredential), req.SSHHostKey, req.Region, req.Remark)
+	if err != nil {
+		return 0, err
+	}
+	return res.LastInsertId()
+}
+
+func (r *RemoteNodesRepository) DeleteRemoteNodeCascade(id string) error {
+	_, _ = r.db.Exec("DELETE FROM remote_node_wg WHERE node_id = ?", id)
+	_, _ = r.db.Exec("DELETE FROM remote_node_vless WHERE node_id = ?", id)
+	_, _ = r.db.Exec("DELETE FROM remote_node_logs WHERE node_id = ?", id)
+	_, _ = r.db.Exec("DELETE FROM remote_node_history WHERE node_id = ?", id)
+	_, err := r.db.Exec("DELETE FROM remote_nodes WHERE id = ?", id)
+	return err
+}
