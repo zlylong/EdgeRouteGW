@@ -1609,9 +1609,10 @@ window.onerror = function(msg, url, line, col, error) { alert("JS Error: " + msg
                     localStorage.setItem('ui_mode', uiMode.value);
                 };
                 const visibleTabs = computed(() => {
+                    const mode = sysStatus.value?.mode;
                     return tabs.filter(t => {
-                        if (t.hideModeBC && sysStatus?.mode !== 'A') return false;
-                        if (t.hideModeA && sysStatus?.mode === 'A') return false;
+                        if (t.hideModeBC && mode !== 'A') return false;
+                        if (t.hideModeA && mode === 'A') return false;
                         if (uiMode.value === 'normal' && hiddenInNormalTabs.has(t.id)) return false;
                         return true;
                     });
