@@ -98,47 +98,39 @@ func getRemoteNodes(c *gin.Context) {
 
 func getRemoteNodeDetails(c *gin.Context) {
 	id := c.Param("id")
-	var node map[string]interface{} = make(map[string]interface{})
+	repo := NewRemoteNodesRepository()
+	node := make(map[string]interface{})
 
-	var ntype, name, host, region, status, remark string
-	var port int
-	err := db.QueryRow("SELECT name, type, ssh_host, ssh_port, region, status, remark FROM remote_nodes WHERE id = ?", id).
-		Scan(&name, &ntype, &host, &port, &region, &status, &remark)
+	basic, err := repo.GetRemoteNodeBasic(id)
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Node not found"})
 		return
 	}
 
 	node["id"] = id
-	node["name"] = name
-	node["type"] = ntype
-	node["ssh_host"] = host
-	node["ssh_port"] = port
-	node["region"] = region
-	node["status"] = status
-	node["remark"] = remark
+	node["name"] = basic.Name
+	node["type"] = basic.Type
+	node["ssh_host"] = basic.Host
+	node["ssh_port"] = basic.Port
+	node["region"] = basic.Region
+	node["status"] = basic.Status
+	node["remark"] = basic.Remark
 
-	if ntype == "wg" {
-		var spriv, spub, cpriv, cpub, ep, taddr, caddr string
-		var lport int
-		err = db.QueryRow("SELECT server_priv, server_pub, client_priv, client_pub, endpoint, port, tunnel_addr, client_addr FROM remote_node_wg WHERE node_id = ?", id).
-			Scan(&spriv, &spub, &cpriv, &cpub, &ep, &lport, &taddr, &caddr)
+	if basic.Type == "wg" {
+		wg, err := repo.GetRemoteNodeWGParams(id)
 		if err == nil {
 			node["wg"] = map[string]interface{}{
-				"server_pub": spub, "client_pub": cpub,
-				"endpoint": ep, "port": lport, "tunnel_addr": taddr, "client_addr": caddr,
-				"share_link": remote_deploy.GenerateWireGuardShareLink(cpriv, host, lport, spub, caddr, "", "ProxyGW-"+host, 1420),
+				"server_pub": wg.ServerPub, "client_pub": wg.ClientPub,
+				"endpoint": wg.Endpoint, "port": wg.Port, "tunnel_addr": wg.TunnelAddr, "client_addr": wg.ClientAddr,
+				"share_link": remote_deploy.GenerateWireGuardShareLink(wg.ClientPriv, basic.Host, wg.Port, wg.ServerPub, wg.ClientAddr, "", "ProxyGW-"+basic.Host, 1420),
 			}
 		}
-	} else if ntype == "vless" {
-		var uuid, rpriv, rpub, sid, sname, dest, slink string
-		var lport int
-		err = db.QueryRow("SELECT uuid, reality_priv, reality_pub, short_id, server_name, dest, port, share_link FROM remote_node_vless WHERE node_id = ?", id).
-			Scan(&uuid, &rpriv, &rpub, &sid, &sname, &dest, &lport, &slink)
+	} else if basic.Type == "vless" {
+		v, err := repo.GetRemoteNodeVLESSParams(id)
 		if err == nil {
 			node["vless"] = map[string]interface{}{
-				"uuid": "***REDACTED***", "reality_pub": rpub, "short_id": sid,
-				"server_name": sname, "dest": dest, "port": lport, "share_link": slink,
+				"uuid": "***REDACTED***", "reality_pub": v.RealityPub, "short_id": v.ShortID,
+				"server_name": v.ServerName, "dest": v.Dest, "port": v.Port, "share_link": v.ShareLink,
 			}
 		}
 	}
@@ -398,18 +390,13 @@ func deleteRemoteNode(c *gin.Context) {
 
 func checkRemoteNode(c *gin.Context) {
 	id := c.Param("id")
-	var host, authType, credential, user, ntype string
-	var port int
-	var hostKey string
-	err := db.QueryRow("SELECT ssh_host, ssh_port, ssh_user, ssh_auth_type, ssh_credential, ssh_host_key, type FROM remote_nodes WHERE id = ?", id).
-		Scan(&host, &port, &user, &authType, &credential, &hostKey, &ntype)
-	credential = DecryptAES(credential)
+	info, err := NewRemoteNodesRepository().GetRemoteNodeCheckInfo(id)
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Node not found"})
 		return
 	}
 
-	client, err := remoteConnect(host, port, user, authType, credential, hostKey)
+	client, err := remoteConnect(info.Host, info.Port, info.User, info.AuthType, info.Credential, info.HostKey)
 	if err != nil {
 		NewRemoteNodesRepository().SetRemoteNodeStatus(id, "Offline")
 		logAction(0, "check", "failed", fmt.Sprintf("Node %s SSH check failed: %v", id, err))
@@ -419,11 +406,11 @@ func checkRemoteNode(c *gin.Context) {
 	defer client.Close()
 
 	cmd := "systemctl is-active xray"
-	if ntype == "wg" {
+	if info.Type == "wg" {
 		cmd = "systemctl is-active wg-quick@wg0"
 	}
 
-	checkReq := RemoteNodeReq{SSHUser: user, SSHAuthType: authType, SSHCredential: credential}
+	checkReq := RemoteNodeReq{SSHUser: info.User, SSHAuthType: info.AuthType, SSHCredential: info.Credential}
 	out, _, err := runRemoteCommand(client, checkReq, cmd)
 	status := "Online"
 	if err != nil || out == "" {

@@ -2,6 +2,48 @@ package main
 
 import "database/sql"
 
+type RemoteNodeBasic struct {
+	Name   string
+	Type   string
+	Host   string
+	Port   int
+	Region string
+	Status string
+	Remark string
+}
+
+type RemoteNodeWGParams struct {
+	ServerPriv string
+	ServerPub  string
+	ClientPriv string
+	ClientPub  string
+	Endpoint   string
+	Port       int
+	TunnelAddr string
+	ClientAddr string
+}
+
+type RemoteNodeVLESSParams struct {
+	UUID        string
+	RealityPriv string
+	RealityPub  string
+	ShortID     string
+	ServerName  string
+	Dest        string
+	Port        int
+	ShareLink   string
+}
+
+type RemoteNodeCheckInfo struct {
+	Host       string
+	Port       int
+	User       string
+	AuthType   string
+	Credential string
+	HostKey    string
+	Type       string
+}
+
 type RemoteNodesRepository struct {
 	db *sql.DB
 }
@@ -44,6 +86,37 @@ func (r *RemoteNodesRepository) FetchNodeReq(id string) (RemoteNodeReq, error) {
 		Scan(&req.Name, &req.Type, &req.SSHHost, &req.SSHPort, &req.SSHUser, &req.SSHAuthType, &req.SSHCredential, &req.SSHHostKey, &req.Region, &req.Remark)
 	req.SSHCredential = DecryptAES(req.SSHCredential)
 	return req, err
+}
+
+func (r *RemoteNodesRepository) GetRemoteNodeBasic(id string) (RemoteNodeBasic, error) {
+	var n RemoteNodeBasic
+	err := r.db.QueryRow("SELECT name, type, ssh_host, ssh_port, region, status, remark FROM remote_nodes WHERE id = ?", id).
+		Scan(&n.Name, &n.Type, &n.Host, &n.Port, &n.Region, &n.Status, &n.Remark)
+	return n, err
+}
+
+func (r *RemoteNodesRepository) GetRemoteNodeWGParams(id string) (RemoteNodeWGParams, error) {
+	var p RemoteNodeWGParams
+	err := r.db.QueryRow("SELECT server_priv, server_pub, client_priv, client_pub, endpoint, port, tunnel_addr, client_addr FROM remote_node_wg WHERE node_id = ?", id).
+		Scan(&p.ServerPriv, &p.ServerPub, &p.ClientPriv, &p.ClientPub, &p.Endpoint, &p.Port, &p.TunnelAddr, &p.ClientAddr)
+	return p, err
+}
+
+func (r *RemoteNodesRepository) GetRemoteNodeVLESSParams(id string) (RemoteNodeVLESSParams, error) {
+	var p RemoteNodeVLESSParams
+	err := r.db.QueryRow("SELECT uuid, reality_priv, reality_pub, short_id, server_name, dest, port, share_link FROM remote_node_vless WHERE node_id = ?", id).
+		Scan(&p.UUID, &p.RealityPriv, &p.RealityPub, &p.ShortID, &p.ServerName, &p.Dest, &p.Port, &p.ShareLink)
+	return p, err
+}
+
+func (r *RemoteNodesRepository) GetRemoteNodeCheckInfo(id string) (RemoteNodeCheckInfo, error) {
+	var info RemoteNodeCheckInfo
+	err := r.db.QueryRow("SELECT ssh_host, ssh_port, ssh_user, ssh_auth_type, ssh_credential, ssh_host_key, type FROM remote_nodes WHERE id = ?", id).
+		Scan(&info.Host, &info.Port, &info.User, &info.AuthType, &info.Credential, &info.HostKey, &info.Type)
+	if err == nil {
+		info.Credential = DecryptAES(info.Credential)
+	}
+	return info, err
 }
 
 func (r *RemoteNodesRepository) ListRemoteNodeHistory(id string) ([]map[string]interface{}, error) {
