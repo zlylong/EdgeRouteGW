@@ -132,6 +132,42 @@ func (r *RemoteNodesRepository) GetRegenerateVLESSParams(id string) (RemoteNodeV
 	return r.GetRemoteNodeVLESSParams(id)
 }
 
+func (r *RemoteNodesRepository) EnsureRemoteNodeHistoryTable() {
+	_, _ = r.db.Exec("CREATE TABLE IF NOT EXISTS remote_node_history (id INTEGER PRIMARY KEY AUTOINCREMENT, node_id INTEGER, type TEXT, params TEXT, created_at DATETIME DEFAULT CURRENT_TIMESTAMP, FOREIGN KEY(node_id) REFERENCES remote_nodes(id) ON DELETE CASCADE);")
+}
+
+func (r *RemoteNodesRepository) UpsertRemoteNodeWGParams(id int64, serverPriv, serverPub, clientPriv, clientPub, endpoint string, port int, tunnelAddr, clientAddr string) error {
+	_, err := r.db.Exec(`INSERT INTO remote_node_wg (node_id, server_priv, server_pub, client_priv, client_pub, endpoint, port, tunnel_addr, client_addr)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT(node_id) DO UPDATE SET
+			server_priv=excluded.server_priv,
+			server_pub=excluded.server_pub,
+			client_priv=excluded.client_priv,
+			client_pub=excluded.client_pub,
+			endpoint=excluded.endpoint,
+			port=excluded.port,
+			tunnel_addr=excluded.tunnel_addr,
+			client_addr=excluded.client_addr`,
+		id, serverPriv, serverPub, clientPriv, clientPub, endpoint, port, tunnelAddr, clientAddr)
+	return err
+}
+
+func (r *RemoteNodesRepository) UpsertRemoteNodeVLESSParams(id int64, uuid, realityPriv, realityPub, shortID, serverName, dest string, port int, shareLink string) error {
+	_, err := r.db.Exec(`INSERT INTO remote_node_vless (node_id, uuid, reality_priv, reality_pub, short_id, server_name, dest, port, share_link)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT(node_id) DO UPDATE SET
+			uuid=excluded.uuid,
+			reality_priv=excluded.reality_priv,
+			reality_pub=excluded.reality_pub,
+			short_id=excluded.short_id,
+			server_name=excluded.server_name,
+			dest=excluded.dest,
+			port=excluded.port,
+			share_link=excluded.share_link`,
+		id, uuid, realityPriv, realityPub, shortID, serverName, dest, port, shareLink)
+	return err
+}
+
 func (r *RemoteNodesRepository) ListRemoteNodeHistory(id string) ([]map[string]interface{}, error) {
 	rows, err := r.db.Query("SELECT id, params, created_at FROM remote_node_history WHERE node_id = ? ORDER BY id DESC", id)
 	if err != nil {

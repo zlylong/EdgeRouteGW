@@ -72,7 +72,7 @@ type RemoteNodesController struct{}
 func NewRemoteNodesController() *RemoteNodesController { return &RemoteNodesController{} }
 
 func (ctl *RemoteNodesController) RegisterRoutes(authed *gin.RouterGroup) {
-	db.Exec("CREATE TABLE IF NOT EXISTS remote_node_history (id INTEGER PRIMARY KEY AUTOINCREMENT, node_id INTEGER, type TEXT, params TEXT, created_at DATETIME DEFAULT CURRENT_TIMESTAMP, FOREIGN KEY(node_id) REFERENCES remote_nodes(id) ON DELETE CASCADE);")
+	NewRemoteNodesRepository().EnsureRemoteNodeHistoryTable()
 
 	authed.GET("/remote_nodes", getRemoteNodes)
 	authed.GET("/remote_nodes/:id", getRemoteNodeDetails)
@@ -233,18 +233,7 @@ func doDeployRoutine(id int64, req RemoteNodeReq, isUpdate bool, params map[stri
 
 		endpoint := fmt.Sprintf("%s:%d", req.SSHHost, port)
 
-		if _, err := db.Exec(`INSERT INTO remote_node_wg (node_id, server_priv, server_pub, client_priv, client_pub, endpoint, port, tunnel_addr, client_addr)
-				VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-				ON CONFLICT(node_id) DO UPDATE SET
-					server_priv=excluded.server_priv,
-					server_pub=excluded.server_pub,
-					client_priv=excluded.client_priv,
-					client_pub=excluded.client_pub,
-					endpoint=excluded.endpoint,
-					port=excluded.port,
-					tunnel_addr=excluded.tunnel_addr,
-					client_addr=excluded.client_addr`,
-			id, sPriv, sPub, cPriv, cPub, endpoint, port, tunnel, clientIP); err != nil {
+		if err := NewRemoteNodesRepository().UpsertRemoteNodeWGParams(id, sPriv, sPub, cPriv, cPub, endpoint, port, tunnel, clientIP); err != nil {
 			NewRemoteNodesRepository().SetRemoteNodeStatus(id, "Failed")
 			logAction(id, "deploy", "failed", fmt.Sprintf("Failed to persist WireGuard params: %v", err))
 			return
@@ -290,18 +279,7 @@ func doDeployRoutine(id int64, req RemoteNodeReq, isUpdate bool, params map[stri
 		shareLink = fmt.Sprintf("vless://%s@%s:%d?security=reality&sni=%s&fp=chrome&pbk=%s&sid=%s&type=tcp&flow=xtls-rprx-vision&encryption=none#%s",
 			uuid, req.SSHHost, port, serverName, rPub, shortId, url.QueryEscape(req.Name))
 
-		if _, err := db.Exec(`INSERT INTO remote_node_vless (node_id, uuid, reality_priv, reality_pub, short_id, server_name, dest, port, share_link)
-				VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-				ON CONFLICT(node_id) DO UPDATE SET
-					uuid=excluded.uuid,
-					reality_priv=excluded.reality_priv,
-					reality_pub=excluded.reality_pub,
-					short_id=excluded.short_id,
-					server_name=excluded.server_name,
-					dest=excluded.dest,
-					port=excluded.port,
-					share_link=excluded.share_link`,
-			id, uuid, rPriv, rPub, shortId, serverName, dest, port, shareLink); err != nil {
+		if err := NewRemoteNodesRepository().UpsertRemoteNodeVLESSParams(id, uuid, rPriv, rPub, shortId, serverName, dest, port, shareLink); err != nil {
 			NewRemoteNodesRepository().SetRemoteNodeStatus(id, "Failed")
 			logAction(id, "deploy", "failed", fmt.Sprintf("Failed to persist VLESS params: %v", err))
 			return
