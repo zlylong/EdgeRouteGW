@@ -1,5 +1,17 @@
 ## [Unreleased]
 
+## [1.6.15] - 2026-04-29
+### 🚀 稳定版发布 (Stable)
+- 发布 v1.6.15 Stable，上线 OSPF 一键重置 Pending Set（仅清理 candidate/static），降低误操作恢复成本且不影响后续规则管理。
+
+### ✨ 新增 (Features)
+- OSPF 新增一键重置 Pending Set 操作入口（前端按钮 + 后端接口）。
+- 新增接口 /api/ospf/reset_pending，支持 confirm=APPLY 执行确认。
+
+### 🔒 安全与保护 (Safety)
+- 接口纳入高危变更门禁（requireHighRiskMutationGuard）与 dry-run。
+- 重置范围严格限定为 routes_table 中 status=candidate 且 source=static，不触碰已发布路由集。
+
 ## [1.6.14] - 2026-04-29
 ### 🚀 稳定版发布 (Stable)
 - 发布 `v1.6.14 Stable`，补全 GeoIP/Geosite 标签校验回归测试并完成全量测试链路验证。
