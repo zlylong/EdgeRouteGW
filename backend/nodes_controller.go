@@ -81,7 +81,10 @@ func (ctl *NodesController) RegisterRoutes(api *gin.RouterGroup) {
 	})
 
 	api.PUT("/nodes/:id/default", func(c *gin.Context) {
-		_ = ctl.repo.SetDefaultNodeID(c.Param("id"))
+		if err := ctl.repo.SetDefaultNodeID(c.Param("id")); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "db error"})
+			return
+		}
 		if err := applyNodeChangeDynamically(); err != nil {
 			log.Printf("[WARN] dynamic default node apply failed, fallback to scheduled apply: %v", err)
 			scheduleApplyFallbackIfRuntimeReady(false)

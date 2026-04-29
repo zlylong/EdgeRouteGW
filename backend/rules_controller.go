@@ -216,10 +216,6 @@ func (ctl *RulesController) RegisterRoutes(api *gin.RouterGroup) {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "db rows error"})
 			return
 		}
-		if err := rows.Err(); err != nil {
-			c.JSON(500, gin.H{"error": "db rows error"})
-			return
-		}
 		if rules == nil {
 			rules = make([]map[string]interface{}, 0)
 		}
