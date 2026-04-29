@@ -24,6 +24,13 @@ func (r *SystemRepository) SaveMode(mode string) error {
 	return err
 }
 
+func (r *SystemRepository) SaveCronDefaults(cronTime, scheduleType string, weekday, monthday int) {
+	_, _ = db.Exec("INSERT OR REPLACE INTO settings (key, value) VALUES ('cron_time', ?)", cronTime)
+	_, _ = db.Exec("INSERT OR REPLACE INTO settings (key, value) VALUES ('cron_schedule_type', ?)", scheduleType)
+	_, _ = db.Exec("INSERT OR REPLACE INTO settings (key, value) VALUES ('cron_weekday', ?)", strconv.Itoa(weekday))
+	_, _ = db.Exec("INSERT OR REPLACE INTO settings (key, value) VALUES ('cron_monthday', ?)", strconv.Itoa(monthday))
+}
+
 func (r *SystemRepository) SaveCronSettings(enabled bool, cronTime, scheduleType string, weekday, monthday int) error {
 	if _, err := db.Exec("INSERT OR REPLACE INTO settings (key, value) VALUES ('cron_enabled', ?)", fmt.Sprintf("%t", enabled)); err != nil {
 		return err
