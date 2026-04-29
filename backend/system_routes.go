@@ -250,6 +250,18 @@ func ensureDefaultNetworkRoleSettings() {
 	_, _ = db.Exec("INSERT OR REPLACE INTO settings (key, value) VALUES ('service_iface', ?)", serviceIface)
 }
 
+func getBuildInfo() (string, string) {
+	commit := "unknown"
+	if out, err := exec.Command("git", "-C", getPath(), "rev-parse", "--short", "HEAD").Output(); err == nil {
+		commit = strings.TrimSpace(string(out))
+	}
+	buildTime := "unknown"
+	if info, err := os.Stat(getPath("backend", "proxygw-backend")); err == nil {
+		buildTime = info.ModTime().Format(time.RFC3339)
+	}
+	return commit, buildTime
+}
+
 func registerSystemRoutes(api *gin.RouterGroup) {
 	api.GET("/status", func(c *gin.Context) {
 		ensureDefaultNetworkRoleSettings()
