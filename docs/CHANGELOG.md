@@ -1,5 +1,24 @@
 ## [Unreleased]
 
+### ✨ 新增 (Features)
+- 新增数据库一键优化脚本 `scripts/db_optimize.sh`：
+  - 自动备份 `proxygw.db`（时间戳命名）
+  - `--index-only`：幂等创建关键索引 + `ANALYZE` + `PRAGMA optimize`
+  - `--full`：在上述基础上执行 `VACUUM`（用于维护窗口）
+- 安装/更新脚本自动接入低风险优化：`install.sh` 与 `update.sh` 在服务启动后自动尝试执行 `db_optimize.sh --index-only`（存在性检查 + 失败不阻断主流程）。
+
+### ⚡ 性能与优化 (Optimizations)
+- 补齐 `domain_geoip_lock` 访问路径索引：
+  - `idx_dgl_domain_resolver_ver (domain, resolver_group, geodata_ver)`
+  - 避免查询计划仅命中复合主键前缀导致的过滤不充分。
+- 补齐 `gateway_events` 常用筛选路径索引：
+  - `idx_gateway_events_module_level_id (module, level, id DESC)`
+  - 降低按模块/级别倒序分页查询时的全表扫描概率。
+
+### 📝 文档 (Docs)
+- `docs/OPERATIONS.md` 新增数据库优化章节：触发信号、`--index-only/--full` 使用建议、维护窗口与锁影响说明。
+- `README.md` 与运维文档补充“安装/升级后自动低风险 DB 优化”说明。
+
 ## [1.6.15] - 2026-04-29
 ### 🚀 稳定版发布 (Stable)
 - 发布 v1.6.15 Stable，上线 OSPF 一键重置 Pending Set（仅清理 candidate/static），降低误操作恢复成本且不影响后续规则管理。
