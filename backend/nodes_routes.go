@@ -8,7 +8,6 @@ import (
 	"net"
 	"net/http"
 	"net/url"
-	"os/exec"
 	"regexp"
 	"strconv"
 	"strings"
@@ -348,7 +347,7 @@ func registerNodeRoutes(api *gin.RouterGroup) {
 				ping := -1
 
 				if strings.ToLower(nType) == "wireguard" || strings.ToLower(nType) == "wg" {
-					out, _ := exec.Command("ping", "-c", "1", "-W", "2", addr).Output()
+					out, _ := sysCmd.output("ping", "-c", "1", "-W", "2", addr)
 					if strings.Contains(string(out), "1 received") || strings.Contains(string(out), "1 packets received") {
 						re := regexp.MustCompile(`time=([0-9.]+)`)
 						matches := re.FindStringSubmatch(string(out))

@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"os/exec"
 	"strconv"
 	"strings"
 )
@@ -49,10 +48,10 @@ func syncXrayOutboundsDynamically(extraRemoveTags ...string) error {
 		for tag := range removeTags {
 			args = append(args, tag)
 		}
-		if out, err := exec.Command(getPath("core", "xray", "xray"), args...).CombinedOutput(); err != nil {
-			msg := strings.ToLower(string(out))
+		if res := sysCmd.runCombinedOutput(getPath("core", "xray", "xray"), args...); res.Err != nil {
+			msg := strings.ToLower(string(res.Output))
 			if !strings.Contains(msg, "not found") && !strings.Contains(msg, "failed to dial") {
-				return fmt.Errorf("xray api rmo failed: %v, output: %s", err, string(out))
+				return fmt.Errorf("xray api rmo failed: %v, output: %s", res.Err, string(res.Output))
 			}
 		}
 	}
@@ -73,8 +72,8 @@ func syncXrayOutboundsDynamically(extraRemoveTags ...string) error {
 	if err := os.WriteFile(tmpPath, b, 0644); err != nil {
 		return fmt.Errorf("write outbounds payload failed: %w", err)
 	}
-	if out, err := exec.Command(getPath("core", "xray", "xray"), "api", "ado", "-s", "127.0.0.1:10085", tmpPath).CombinedOutput(); err != nil {
-		return fmt.Errorf("xray api ado failed: %v, output: %s", err, string(out))
+	if res := sysCmd.runCombinedOutput(getPath("core", "xray", "xray"), "api", "ado", "-s", "127.0.0.1:10085", tmpPath); res.Err != nil {
+		return fmt.Errorf("xray api ado failed: %v, output: %s", res.Err, string(res.Output))
 	}
 	return nil
 }

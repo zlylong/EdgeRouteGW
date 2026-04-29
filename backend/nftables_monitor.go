@@ -3,7 +3,6 @@ package main
 import (
 	"fmt"
 	"net/http"
-	"os/exec"
 	"regexp"
 	"sort"
 	"strconv"
@@ -28,10 +27,11 @@ var (
 )
 
 func collectNftPreroutingCounters() (map[string]nftCounterStat, error) {
-	out, err := exec.Command("nft", "-a", "list", "chain", "inet", "proxygw", "prerouting").CombinedOutput()
-	if err != nil {
-		return nil, fmt.Errorf("nft list prerouting failed: %v, out=%s", err, strings.TrimSpace(string(out)))
+	cmdRes := sysCmd.runCombinedOutput("nft", "-a", "list", "chain", "inet", "proxygw", "prerouting")
+	if cmdRes.Err != nil {
+		return nil, fmt.Errorf("nft list prerouting failed: %v, out=%s", cmdRes.Err, strings.TrimSpace(string(cmdRes.Output)))
 	}
+	out := cmdRes.Output
 
 	counterRe := regexp.MustCompile(`counter packets\s+(\d+)\s+bytes\s+(\d+)`)
 	commentRe := regexp.MustCompile(`comment\s+"([^"]+)"`)

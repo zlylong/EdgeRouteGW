@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"os/exec"
 	"strconv"
 	"strings"
 )
@@ -157,9 +156,8 @@ func syncXrayRoutingRulesDynamically() error {
 	if err := os.WriteFile(tmp, payload, 0644); err != nil {
 		return fmt.Errorf("write routing payload failed: %w", err)
 	}
-	cmd := exec.Command(getPath("core", "xray", "xray"), "api", "adrules", "-s", "127.0.0.1:10085", tmp)
-	if out, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("xray api adrules failed: %v, output: %s", err, string(out))
+	if res := sysCmd.runCombinedOutput(getPath("core", "xray", "xray"), "api", "adrules", "-s", "127.0.0.1:10085", tmp); res.Err != nil {
+		return fmt.Errorf("xray api adrules failed: %v, output: %s", res.Err, string(res.Output))
 	}
 	return nil
 }

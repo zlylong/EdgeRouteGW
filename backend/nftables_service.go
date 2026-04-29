@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"fmt"
 	"os"
-	"os/exec"
 	"strings"
 	"text/template"
 )
@@ -212,9 +211,8 @@ func applyNftablesConfig() error {
 		return fmt.Errorf("failed to write config: %v", err)
 	}
 
-	cmd := exec.Command("nft", "-f", "/etc/nftables.conf")
-	if out, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("nft apply failed: %v, out: %s", err, out)
+	if res := sysCmd.runCombinedOutput("nft", "-f", "/etc/nftables.conf"); res.Err != nil {
+		return fmt.Errorf("nft apply failed: %v, out: %s", res.Err, res.Output)
 	}
 
 	return nil

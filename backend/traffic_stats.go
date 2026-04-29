@@ -3,7 +3,6 @@ package main
 import (
 	"encoding/json"
 	"log"
-	"os/exec"
 	"strconv"
 	"strings"
 	"sync"
@@ -70,7 +69,7 @@ func startTrafficMonitor() {
 	for {
 		select {
 		case <-ticker.C:
-			out, err := exec.Command(getPath("core", "xray", "xray"), "api", "statsquery", "-server=127.0.0.1:10085", "-pattern=").Output()
+			out, err := sysCmd.output(getPath("core", "xray", "xray"), "api", "statsquery", "-server=127.0.0.1:10085", "-pattern=")
 			if err != nil {
 				trafficMutex.Lock()
 				currentSpeedUp = 0
