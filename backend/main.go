@@ -894,77 +894,6 @@ func detectModeSwitchProtectedConflicts(mode string) []string {
 	return conflicts
 }
 
-func parseDatFile(filename string) []string {
-	data, err := os.ReadFile(filename)
-	if err != nil {
-		return nil
-	}
-
-	tags := make(map[string]bool)
-	idx := 0
-	for idx < len(data) {
-		if data[idx] == 0x0A {
-			idx++
-			msgLen, shift := 0, 0
-			for {
-				if idx >= len(data) {
-					break
-				}
-				b := data[idx]
-				idx++
-				msgLen |= (int(b&0x7F) << shift)
-				if (b & 0x80) == 0 {
-					break
-				}
-				shift += 7
-			}
-
-			endIdx := idx + msgLen
-			if idx < endIdx && idx < len(data) && data[idx] == 0x0A {
-				idx++
-				strLen, shift := 0, 0
-				for {
-					if idx >= len(data) {
-						break
-					}
-					b := data[idx]
-					idx++
-					strLen |= (int(b&0x7F) << shift)
-					if (b & 0x80) == 0 {
-						break
-					}
-					shift += 7
-				}
-
-				if idx+strLen <= endIdx && idx+strLen <= len(data) && strLen > 0 && strLen < 50 {
-					tag := string(data[idx : idx+strLen])
-					tag = strings.ToLower(tag)
-					valid := true
-					for _, c := range tag {
-						if c < 32 || c > 126 || c == ' ' {
-							valid = false
-							break
-						}
-					}
-					if valid {
-						tags[tag] = true
-					}
-				}
-			}
-			idx = endIdx
-		} else {
-			idx++
-		}
-	}
-
-	var res []string
-	for k := range tags {
-		res = append(res, k)
-	}
-	sort.Strings(res)
-	return res
-}
-
 var cronUpdateChan = make(chan struct{}, 1)
 
 type cronScheduleSettings struct {
@@ -981,59 +910,6 @@ var (
 )
 
 var pendingMosdnsApply bool
-
-func getPrimaryLANIPAndSubnet() (string, string) {
-	serviceIface := ""
-	if db != nil {
-		_ = db.QueryRow("SELECT value FROM settings WHERE key='service_iface'").Scan(&serviceIface)
-		serviceIface = strings.TrimSpace(serviceIface)
-	}
-
-	ifaces, err := net.Interfaces()
-	if err != nil {
-		return "", ""
-	}
-
-	isPrivateIPv4 := func(ip net.IP) bool {
-		return ip.IsPrivate() && ip.To4() != nil
-	}
-
-	resolveIface := func(target string) (string, string) {
-		for _, iface := range ifaces {
-			if target != "" && iface.Name != target {
-				continue
-			}
-			if iface.Flags&net.FlagUp == 0 || iface.Flags&net.FlagLoopback != 0 {
-				continue
-			}
-			addrs, err := iface.Addrs()
-			if err != nil {
-				continue
-			}
-			for _, addr := range addrs {
-				ipnet, ok := addr.(*net.IPNet)
-				if !ok {
-					continue
-				}
-				ip := ipnet.IP.To4()
-				if ip == nil || !isPrivateIPv4(ip) {
-					continue
-				}
-				network := ip.Mask(ipnet.Mask)
-				maskSize, _ := ipnet.Mask.Size()
-				return ip.String(), fmt.Sprintf("%s/%d", network.String(), maskSize)
-			}
-		}
-		return "", ""
-	}
-
-	if serviceIface != "" {
-		if ip, subnet := resolveIface(serviceIface); ip != "" && subnet != "" {
-			return ip, subnet
-		}
-	}
-	return resolveIface("")
-}
 
 func main() {
 	repo := NewAppRepository()
