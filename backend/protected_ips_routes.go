@@ -29,7 +29,7 @@ func normalizeProtectedIPValue(raw string) (string, bool) {
 }
 
 func registerProtectedIPRoutes(api *gin.RouterGroup) {
-	ctl := NewProtectedIPController()
+	ctl := NewProtectedIPController(NewProtectedIPRepository())
 	api.GET("/protected_ips", ctl.List)
 	api.POST("/protected_ips", ctl.Create)
 	api.DELETE("/protected_ips/:id", ctl.Delete)
