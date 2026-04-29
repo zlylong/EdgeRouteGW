@@ -11,7 +11,6 @@ import (
 	"net/http"
 	"net/url"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"sort"
 	"strconv"
@@ -204,8 +203,8 @@ var runVtyshConfigBatch = func(config string) (string, error) {
 		return "", err
 	}
 	defer os.Remove(tmpFile)
-	out, err := exec.Command("vtysh", "-f", tmpFile).CombinedOutput()
-	return string(out), err
+	res := sysCmd.runCombinedOutput("vtysh", "-f", tmpFile)
+	return string(res.Output), res.Err
 }
 
 func isDirtyRouteIPv4(ip4 net.IP, prefix int) bool {
@@ -930,7 +929,8 @@ func parseFRRTaggedRoutesFromConfig(conf string) map[string]struct{} {
 }
 
 func readFRRTaggedStaticRoutes() (map[string]struct{}, error) {
-	out, err := exec.Command("vtysh", "-c", "show running-config").CombinedOutput()
+	res := sysCmd.runCombinedOutput("vtysh", "-c", "show running-config")
+	out, err := res.Output, res.Err
 	if err != nil {
 		return nil, fmt.Errorf("vtysh show running-config failed: %w (%s)", err, strings.TrimSpace(string(out)))
 	}
@@ -1814,7 +1814,7 @@ func applyMosdnsConfig() error {
 	if err := os.WriteFile(getPath("core", "mosdns", "config.yaml"), []byte(config), 0644); err != nil {
 		return fmt.Errorf("failed to write mosdns config.yaml: %v", err)
 	}
-	err = exec.Command("systemctl", "restart", "mosdns").Run()
+	err = sysCmd.run("systemctl", "restart", "mosdns")
 	if err != nil {
 		return err
 	}
@@ -1822,7 +1822,7 @@ func applyMosdnsConfig() error {
 }
 
 func cleanupTransientWireguardInterfaces() {
-	out, err := exec.Command("ip", "-o", "-4", "addr", "show", "type", "wireguard").Output()
+	out, err := sysCmd.output("ip", "-o", "-4", "addr", "show", "type", "wireguard")
 	if err != nil {
 		return
 	}
@@ -1843,13 +1843,13 @@ func cleanupTransientWireguardInterfaces() {
 		if !strings.HasSuffix(cidr, "/32") {
 			continue
 		}
-		if exec.Command("systemctl", "is-active", "--quiet", "wg-quick@"+ifName).Run() == nil {
+		if sysCmd.run("systemctl", "is-active", "--quiet", "wg-quick@"+ifName) == nil {
 			continue
 		}
 		if _, err := os.Stat(filepath.Join("/etc/wireguard", ifName+".conf")); err == nil {
 			continue
 		}
-		if err := exec.Command("ip", "link", "delete", ifName).Run(); err == nil {
+		if err := sysCmd.run("ip", "link", "delete", ifName); err == nil {
 			log.Printf("[INFO] cleaned transient wireguard interface: %s (%s)", ifName, cidr)
 		}
 	}
@@ -2198,7 +2198,7 @@ func applyXrayConfigInternal(restart bool) error {
 
 	tempTestPath := "/tmp/proxygw_xray_test.json"
 	os.WriteFile(tempTestPath, configData, 0644)
-	if err := exec.Command(getPath("core", "xray", "xray"), "-test", "-config", tempTestPath).Run(); err != nil {
+	if err := sysCmd.run(getPath("core", "xray", "xray"), "-test", "-config", tempTestPath); err != nil {
 		log.Printf("[ERROR] Xray config validation failed: %v. Config rejected.", err)
 		return fmt.Errorf("xray config validation failed, check node parameters")
 	}
@@ -2210,7 +2210,7 @@ func applyXrayConfigInternal(restart bool) error {
 		return nil
 	}
 	cleanupTransientWireguardInterfaces()
-	return exec.Command("systemctl", "restart", "xray").Run()
+	return sysCmd.run("systemctl", "restart", "xray")
 }
 
 func getPrimaryLANIPAndSubnet() (string, string) {
@@ -2273,8 +2273,8 @@ func syncFRRConfig() {
 	}
 
 	if mode == "A" || mode == "" {
-		exec.Command("vtysh", "-c", "conf t", "-c", "no route-map OSPF-EXPORT permit 10").Run()
-		exec.Command("systemctl", "stop", "frr").Run()
+		sysCmd.run("vtysh", "-c", "conf t", "-c", "no route-map OSPF-EXPORT permit 10")
+		sysCmd.run("systemctl", "stop", "frr")
 		return
 	}
 
@@ -2314,8 +2314,8 @@ route-map OSPF-EXPORT permit 10
 		log.Printf("[OSPF] Auto-updating FRR config: mode=%s, router-id=%s, network=%s", mode, ip, subnet)
 		os.WriteFile(getPath("core", "frr", "frr.conf"), []byte(newContent), 0644)
 		os.WriteFile("/etc/frr/frr.conf", []byte(newContent), 0644)
-		exec.Command("sed", "-i", "s/ospfd=no/ospfd=yes/", "/etc/frr/daemons").Run()
-		exec.Command("systemctl", "restart", "frr").Run()
+		sysCmd.run("sed", "-i", "s/ospfd=no/ospfd=yes/", "/etc/frr/daemons")
+		sysCmd.run("systemctl", "restart", "frr")
 		db.Exec("UPDATE routes_table SET status='candidate' WHERE status='published'")
 	}
 }
@@ -2449,10 +2449,10 @@ func main() {
 	os.MkdirAll("/run/proxygw", 0755)
 	StartConnectionTracker()
 
-	exec.Command("sh", "-c", "ip rule del fwmark 1 lookup tproxy 2>/dev/null || true; ip rule add fwmark 1 lookup tproxy").Run()
-	exec.Command("sh", "-c", "ip route del local default dev lo table tproxy 2>/dev/null || true; ip route add local default dev lo table tproxy").Run()
-	exec.Command("sh", "-c", "ip -6 rule del fwmark 1 lookup tproxy 2>/dev/null || true; ip -6 rule add fwmark 1 lookup tproxy").Run()
-	exec.Command("sh", "-c", "ip -6 route del local default dev lo table tproxy 2>/dev/null || true; ip -6 route add local default dev lo table tproxy").Run()
+	sysCmd.run("sh", "-c", "ip rule del fwmark 1 lookup tproxy 2>/dev/null || true; ip rule add fwmark 1 lookup tproxy")
+	sysCmd.run("sh", "-c", "ip route del local default dev lo table tproxy 2>/dev/null || true; ip route add local default dev lo table tproxy")
+	sysCmd.run("sh", "-c", "ip -6 rule del fwmark 1 lookup tproxy 2>/dev/null || true; ip -6 rule add fwmark 1 lookup tproxy")
+	sysCmd.run("sh", "-c", "ip -6 route del local default dev lo table tproxy 2>/dev/null || true; ip -6 route add local default dev lo table tproxy")
 
 	r := gin.Default()
 	registerAPIRoutes(r)

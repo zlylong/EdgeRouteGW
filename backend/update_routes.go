@@ -7,7 +7,6 @@ import (
 	"io"
 	"net/http"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 
@@ -40,14 +39,14 @@ func updateGeodata() error {
 		{"cp", filepath.Join(tmpDir, "geosite.dat"), getPath("core", "mosdns", "geosite.dat")},
 	}
 	for _, c := range cmds {
-		if err := exec.Command(c[0], c[1:]...).Run(); err != nil {
+		if err := sysCmd.run(c[0], c[1:]...); err != nil {
 			return fmt.Errorf("extraction/copy failed: %v", err)
 		}
 	}
 	if err := os.WriteFile(getPath("core", "mosdns", "geodata.ver"), []byte(tag), 0644); err != nil {
 		return fmt.Errorf("write geodata version failed: %v", err)
 	}
-	if err := exec.Command("systemctl", "restart", "mosdns", "xray").Run(); err != nil {
+	if err := sysCmd.run("systemctl", "restart", "mosdns", "xray"); err != nil {
 		return fmt.Errorf("service restart failed: %v", err)
 	}
 	cacheMutex.Lock()
@@ -149,7 +148,7 @@ func registerUpdateRoutes(api *gin.RouterGroup) {
 				return
 			}
 
-			if err := exec.Command("cp", getPath("core", "mosdns", "mosdns"), getPath("core", "mosdns", "mosdns.bak")).Run(); err != nil {
+			if err := sysCmd.run("cp", getPath("core", "mosdns", "mosdns"), getPath("core", "mosdns", "mosdns.bak")); err != nil {
 				c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": "backup failed"})
 				return
 			}
@@ -166,27 +165,27 @@ func registerUpdateRoutes(api *gin.RouterGroup) {
 				c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": fmt.Sprintf("mosdns download failed: %v", err)})
 				return
 			}
-			if err := exec.Command("unzip", "-qo", mosdnsZip, "-d", tmpDir).Run(); err != nil {
+			if err := sysCmd.run("unzip", "-qo", mosdnsZip, "-d", tmpDir); err != nil {
 				c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": "unzip failed"})
 				return
 			}
-			if err := exec.Command("install", "-m", "755", filepath.Join(tmpDir, "mosdns"), getPath("core", "mosdns", "mosdns")).Run(); err != nil {
-				_ = exec.Command("cp", getPath("core", "mosdns", "mosdns.bak"), getPath("core", "mosdns", "mosdns")).Run()
+			if err := sysCmd.run("install", "-m", "755", filepath.Join(tmpDir, "mosdns"), getPath("core", "mosdns", "mosdns")); err != nil {
+				_ = sysCmd.run("cp", getPath("core", "mosdns", "mosdns.bak"), getPath("core", "mosdns", "mosdns"))
 				c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": "install failed"})
 				return
 			}
-			if err := exec.Command("systemctl", "restart", "mosdns").Run(); err != nil {
-				_ = exec.Command("cp", getPath("core", "mosdns", "mosdns.bak"), getPath("core", "mosdns", "mosdns")).Run()
-				_ = exec.Command("systemctl", "restart", "mosdns").Run()
+			if err := sysCmd.run("systemctl", "restart", "mosdns"); err != nil {
+				_ = sysCmd.run("cp", getPath("core", "mosdns", "mosdns.bak"), getPath("core", "mosdns", "mosdns"))
+				_ = sysCmd.run("systemctl", "restart", "mosdns")
 				c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": "restart failed, rolled back"})
 				return
 			}
 		case "rollback_mosdns":
-			if err := exec.Command("cp", getPath("core", "mosdns", "mosdns.bak"), getPath("core", "mosdns", "mosdns")).Run(); err != nil {
+			if err := sysCmd.run("cp", getPath("core", "mosdns", "mosdns.bak"), getPath("core", "mosdns", "mosdns")); err != nil {
 				c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": "rollback copy failed"})
 				return
 			}
-			if err := exec.Command("systemctl", "restart", "mosdns").Run(); err != nil {
+			if err := sysCmd.run("systemctl", "restart", "mosdns"); err != nil {
 				c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": "rollback restart failed"})
 				return
 			}
@@ -214,7 +213,7 @@ func registerUpdateRoutes(api *gin.RouterGroup) {
 				return
 			}
 
-			if err := exec.Command("cp", getPath("core", "xray", "xray"), getPath("core", "xray", "xray.bak")).Run(); err != nil {
+			if err := sysCmd.run("cp", getPath("core", "xray", "xray"), getPath("core", "xray", "xray.bak")); err != nil {
 				c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": "backup failed"})
 				return
 			}
@@ -231,27 +230,27 @@ func registerUpdateRoutes(api *gin.RouterGroup) {
 				c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": fmt.Sprintf("xray validation failed: %v", err)})
 				return
 			}
-			if err := exec.Command("unzip", "-qo", xrayZip, "-d", tmpDir).Run(); err != nil {
+			if err := sysCmd.run("unzip", "-qo", xrayZip, "-d", tmpDir); err != nil {
 				c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": "unzip failed"})
 				return
 			}
-			if err := exec.Command("install", "-m", "755", filepath.Join(tmpDir, "xray"), getPath("core", "xray", "xray")).Run(); err != nil {
-				_ = exec.Command("cp", getPath("core", "xray", "xray.bak"), getPath("core", "xray", "xray")).Run()
+			if err := sysCmd.run("install", "-m", "755", filepath.Join(tmpDir, "xray"), getPath("core", "xray", "xray")); err != nil {
+				_ = sysCmd.run("cp", getPath("core", "xray", "xray.bak"), getPath("core", "xray", "xray"))
 				c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": "install failed"})
 				return
 			}
-			if err := exec.Command("systemctl", "restart", "xray").Run(); err != nil {
-				_ = exec.Command("cp", getPath("core", "xray", "xray.bak"), getPath("core", "xray", "xray")).Run()
-				_ = exec.Command("systemctl", "restart", "xray").Run()
+			if err := sysCmd.run("systemctl", "restart", "xray"); err != nil {
+				_ = sysCmd.run("cp", getPath("core", "xray", "xray.bak"), getPath("core", "xray", "xray"))
+				_ = sysCmd.run("systemctl", "restart", "xray")
 				c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": "restart failed, rolled back"})
 				return
 			}
 		case "rollback_xray":
-			if err := exec.Command("cp", getPath("core", "xray", "xray.bak"), getPath("core", "xray", "xray")).Run(); err != nil {
+			if err := sysCmd.run("cp", getPath("core", "xray", "xray.bak"), getPath("core", "xray", "xray")); err != nil {
 				c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": "rollback copy failed"})
 				return
 			}
-			if err := exec.Command("systemctl", "restart", "xray").Run(); err != nil {
+			if err := sysCmd.run("systemctl", "restart", "xray"); err != nil {
 				c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": "rollback restart failed"})
 				return
 			}
