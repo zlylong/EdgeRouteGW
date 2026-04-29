@@ -128,4 +128,10 @@ systemctl daemon-reload
 echo "[4/4] Restarting services..."
 systemctl restart proxygw
 
+# Run low-risk DB index optimization (idempotent, online-safe)
+if [ -x "$REPO_DIR/scripts/db_optimize.sh" ] && [ -f "$REPO_DIR/config/proxygw.db" ]; then
+    echo "Running DB index optimization (--index-only)..."
+    "$REPO_DIR/scripts/db_optimize.sh" "$REPO_DIR/config/proxygw.db" --index-only || true
+fi
+
 echo "Update Complete!"

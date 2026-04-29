@@ -288,6 +288,12 @@ systemctl enable proxygw mosdns xray || true
 # Force restart if already running to pick up updates and generate bootstrap if needed
 systemctl restart proxygw mosdns xray || true
 
+# Run low-risk DB index optimization (idempotent, online-safe)
+if [ -x "$REPO_DIR/scripts/db_optimize.sh" ] && [ -f "$REPO_DIR/config/proxygw.db" ]; then
+    echo "Running DB index optimization (--index-only)..."
+    "$REPO_DIR/scripts/db_optimize.sh" "$REPO_DIR/config/proxygw.db" --index-only || true
+fi
+
 # Automatically generate a secure password if it's a fresh install
 # Wait for the database and bootstrap password to be initialized by the backend
 echo "Waiting for ProxyGW to initialize..."
