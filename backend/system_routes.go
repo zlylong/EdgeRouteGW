@@ -9,7 +9,6 @@ import (
 	"net"
 	"net/http"
 	"os"
-	"os/exec"
 	"strconv"
 	"strings"
 	"time"
@@ -18,24 +17,24 @@ import (
 )
 
 var modeSwitchSetServices = func(mode string) error {
-	if exec.Command("systemctl", "is-active", "--quiet", "nftables").Run() != nil {
-		if err := exec.Command("systemctl", "start", "nftables").Run(); err != nil {
+	if err := sysCmd.run("systemctl", "is-active", "--quiet", "nftables"); err != nil {
+		if err := sysCmd.run("systemctl", "start", "nftables"); err != nil {
 			return err
 		}
 	}
 
-	_ = exec.Command("systemctl", "reset-failed", "frr").Run()
+	_ = sysCmd.run("systemctl", "reset-failed", "frr")
 	if mode == "A" {
-		if exec.Command("systemctl", "is-active", "--quiet", "frr").Run() == nil {
-			if err := exec.Command("systemctl", "stop", "frr").Run(); err != nil {
+		if sysCmd.run("systemctl", "is-active", "--quiet", "frr") == nil {
+			if err := sysCmd.run("systemctl", "stop", "frr"); err != nil {
 				return err
 			}
 		}
 		return nil
 	}
 
-	if exec.Command("systemctl", "is-active", "--quiet", "frr").Run() != nil {
-		if err := exec.Command("systemctl", "start", "frr").Run(); err != nil {
+	if err := sysCmd.run("systemctl", "is-active", "--quiet", "frr"); err != nil {
+		if err := sysCmd.run("systemctl", "start", "frr"); err != nil {
 			return err
 		}
 	}
@@ -252,7 +251,7 @@ func ensureDefaultNetworkRoleSettings() {
 
 func getBuildInfo() (string, string) {
 	commit := "unknown"
-	if out, err := exec.Command("git", "-C", getPath(), "rev-parse", "--short", "HEAD").Output(); err == nil {
+	if out, err := sysCmd.output("git", "-C", getPath(), "rev-parse", "--short", "HEAD"); err == nil {
 		commit = strings.TrimSpace(string(out))
 	}
 	buildTime := "unknown"
@@ -265,9 +264,9 @@ func getBuildInfo() (string, string) {
 func registerSystemRoutes(api *gin.RouterGroup) {
 	api.GET("/status", func(c *gin.Context) {
 		ensureDefaultNetworkRoleSettings()
-		xray := exec.Command("systemctl", "is-active", "--quiet", "xray").Run() == nil
-		frr := exec.Command("systemctl", "is-active", "--quiet", "frr").Run() == nil
-		mosdns := exec.Command("systemctl", "is-active", "--quiet", "mosdns").Run() == nil
+		xray := sysCmd.run("systemctl", "is-active", "--quiet", "xray") == nil
+		frr := sysCmd.run("systemctl", "is-active", "--quiet", "frr") == nil
+		mosdns := sysCmd.run("systemctl", "is-active", "--quiet", "mosdns") == nil
 
 		cpu := readCPUUsage()
 		ram := readMemoryUsage()
@@ -278,7 +277,7 @@ func registerSystemRoutes(api *gin.RouterGroup) {
 		}
 
 		xrayVer := "Unknown"
-		xrayVersionOut, err := exec.Command(getPath("core", "xray", "xray"), "version").Output()
+		xrayVersionOut, err := sysCmd.output(getPath("core", "xray", "xray"), "version")
 		if err == nil {
 			xrayVer = parseXrayVersionOutput(string(xrayVersionOut))
 		}
@@ -290,8 +289,8 @@ func registerSystemRoutes(api *gin.RouterGroup) {
 			geoVer = info.ModTime().Format("2006-01-02")
 		}
 
-		upStats, _ := exec.Command(getPath("core", "xray", "xray"), "api", "statsquery", "-server=127.0.0.1:10085", "-name=inbound>>>api_inbound>>>traffic>>>uplink").Output()
-		downStats, _ := exec.Command(getPath("core", "xray", "xray"), "api", "statsquery", "-server=127.0.0.1:10085", "-name=inbound>>>api_inbound>>>traffic>>>downlink").Output()
+		upStats, _ := sysCmd.output(getPath("core", "xray", "xray"), "api", "statsquery", "-server=127.0.0.1:10085", "-name=inbound>>>api_inbound>>>traffic>>>uplink")
+		downStats, _ := sysCmd.output(getPath("core", "xray", "xray"), "api", "statsquery", "-server=127.0.0.1:10085", "-name=inbound>>>api_inbound>>>traffic>>>downlink")
 		upStr := "0 MB"
 		downStr := "0 MB"
 		if strings.Contains(string(upStats), "value") {
@@ -302,7 +301,7 @@ func registerSystemRoutes(api *gin.RouterGroup) {
 		}
 
 		mosdnsVer := "Unknown"
-		if mosdnsVersionOut, err := exec.Command(getPath("core", "mosdns", "mosdns"), "version").Output(); err == nil {
+		if mosdnsVersionOut, err := sysCmd.output(getPath("core", "mosdns", "mosdns"), "version"); err == nil {
 			mosdnsVer = strings.TrimSpace(string(mosdnsVersionOut))
 		}
 
@@ -559,7 +558,7 @@ func registerSystemRoutes(api *gin.RouterGroup) {
 			log.Printf("[WARN] SELECT count(*) FROM routes_table WHERE status='candidate' err: %v", err)
 		}
 
-		frrOut, _ := exec.Command("vtysh", "-c", "show ip ospf neighbor json").Output()
+		frrOut, _ := sysCmd.output("vtysh", "-c", "show ip ospf neighbor json")
 		neighborsCount := 0
 		if strings.Contains(string(frrOut), "nbrState") {
 			neighborsCount = 1

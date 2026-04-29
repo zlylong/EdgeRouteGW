@@ -3,7 +3,6 @@ package main
 import (
 	"fmt"
 	"net/http"
-	"os/exec"
 
 	"github.com/gin-gonic/gin"
 )
@@ -17,8 +16,8 @@ func registerSyslogsRoutes(r *gin.RouterGroup) {
 		}
 
 		// Get the last 200 lines
-		cmd := exec.Command("journalctl", "-u", service, "-n", "200", "--no-pager")
-		out, err := cmd.CombinedOutput()
+		res := sysCmd.runCombinedOutput("journalctl", "-u", service, "-n", "200", "--no-pager")
+		out, err := res.Output, res.Err
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Failed to fetch logs: %v\nOutput: %s", err, string(out))})
 			return
