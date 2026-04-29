@@ -5,6 +5,14 @@ import (
 	"strconv"
 )
 
+type NodeTrafficRanking struct {
+	NodeID     int
+	NodeName   string
+	UpBytes    int64
+	DownBytes  int64
+	TotalBytes int64
+}
+
 type SystemRepository struct{}
 
 func NewSystemRepository() *SystemRepository { return &SystemRepository{} }
@@ -64,4 +72,71 @@ func (r *SystemRepository) SaveOspfSettings(batchLimit, intervalSeconds, resolve
 		return err
 	}
 	return nil
+}
+
+func (r *SystemRepository) GetMode() (string, error) {
+	var mode string
+	err := db.QueryRow("SELECT value FROM settings WHERE key='mode'").Scan(&mode)
+	return mode, err
+}
+
+func (r *SystemRepository) GetMonthlyTrafficTotal() (int64, int64, error) {
+	var totalMonthUp, totalMonthDown int64
+	err := db.QueryRow(`
+		SELECT COALESCE(SUM(up_bytes), 0), COALESCE(SUM(down_bytes), 0)
+		FROM traffic_history
+		WHERE datetime(ts, 'localtime') >= datetime('now', 'localtime', 'start of month')
+	`).Scan(&totalMonthUp, &totalMonthDown)
+	return totalMonthUp, totalMonthDown, err
+}
+
+func (r *SystemRepository) GetMonthlyNodeTrafficRanking(limit int) ([]NodeTrafficRanking, error) {
+	rows, err := db.Query(`
+		SELECT n.id,
+		       n.name,
+		       COALESCE(SUM(h.up_bytes), 0)   AS up_bytes,
+		       COALESCE(SUM(h.down_bytes), 0) AS down_bytes,
+		       COALESCE(SUM(h.up_bytes), 0) + COALESCE(SUM(h.down_bytes), 0) AS total_bytes
+		FROM nodes n
+		LEFT JOIN node_traffic_history h
+		       ON h.node_id = n.id
+		      AND datetime(h.ts, 'localtime') >= datetime('now', 'localtime', 'start of month')
+		GROUP BY n.id, n.name
+		HAVING total_bytes > 0
+		ORDER BY total_bytes DESC
+		LIMIT ?
+	`, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	ranking := make([]NodeTrafficRanking, 0)
+	for rows.Next() {
+		var item NodeTrafficRanking
+		if scanErr := rows.Scan(&item.NodeID, &item.NodeName, &item.UpBytes, &item.DownBytes, &item.TotalBytes); scanErr != nil {
+			continue
+		}
+		ranking = append(ranking, item)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return ranking, nil
+}
+
+func (r *SystemRepository) GetOspfRouteCounts() (published int, candidate int, err error) {
+	if err = db.QueryRow("SELECT count(*) FROM routes_table WHERE status='published'").Scan(&published); err != nil {
+		return 0, 0, err
+	}
+	if err = db.QueryRow("SELECT count(*) FROM routes_table WHERE status='candidate'").Scan(&candidate); err != nil {
+		return 0, 0, err
+	}
+	return published, candidate, nil
+}
+
+func (r *SystemRepository) GetOspfPublishAllowlist() (string, error) {
+	var allowlist string
+	err := db.QueryRow("SELECT value FROM settings WHERE key='ospf_publish_allowlist'").Scan(&allowlist)
+	return allowlist, err
 }

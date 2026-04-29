@@ -32,8 +32,10 @@ func (ctl *SystemController) HandleStatus(c *gin.Context) {
 	ram := readMemoryUsage()
 
 	var mode string
-	if err := db.QueryRow("SELECT value FROM settings WHERE key='mode'").Scan(&mode); err != nil && err != sql.ErrNoRows {
+	if v, err := ctl.repo.GetMode(); err != nil && err != sql.ErrNoRows {
 		log.Printf("[WARN] SELECT value FROM settings WHERE key='mode' err: %v", err)
+	} else {
+		mode = v
 	}
 
 	xrayVer := "Unknown"
@@ -169,70 +171,39 @@ func (ctl *SystemController) HandleTraffic(c *gin.Context) {
 	downSpeed := currentSpeedDown
 	trafficMutex.Unlock()
 
-	var totalMonthUp, totalMonthDown sql.NullInt64
-	if err := db.QueryRow(`
-		SELECT COALESCE(SUM(up_bytes), 0), COALESCE(SUM(down_bytes), 0)
-		FROM traffic_history
-		WHERE datetime(ts, 'localtime') >= datetime('now', 'localtime', 'start of month')
-	`).Scan(&totalMonthUp, &totalMonthDown); err != nil && err != sql.ErrNoRows {
+	totalMonthUp, totalMonthDown, err := ctl.repo.GetMonthlyTrafficTotal()
+	if err != nil && err != sql.ErrNoRows {
 		log.Printf("[WARN] query traffic_history monthly summary failed: %v", err)
 	}
 
-	nodeRows, err := db.Query(`
-		SELECT n.id,
-		       n.name,
-		       COALESCE(SUM(h.up_bytes), 0)   AS up_bytes,
-		       COALESCE(SUM(h.down_bytes), 0) AS down_bytes,
-		       COALESCE(SUM(h.up_bytes), 0) + COALESCE(SUM(h.down_bytes), 0) AS total_bytes
-		FROM nodes n
-		LEFT JOIN node_traffic_history h
-		       ON h.node_id = n.id
-		      AND datetime(h.ts, 'localtime') >= datetime('now', 'localtime', 'start of month')
-		GROUP BY n.id, n.name
-		HAVING total_bytes > 0
-		ORDER BY total_bytes DESC
-		LIMIT 10
-	`)
 	nodeRanking := make([]gin.H, 0)
+	ranking, err := ctl.repo.GetMonthlyNodeTrafficRanking(10)
 	if err != nil {
 		log.Printf("[WARN] query node_traffic_history monthly ranking failed: %v", err)
 	} else {
-		defer nodeRows.Close()
-		for nodeRows.Next() {
-			var nodeID int
-			var nodeName string
-			var upBytes, downBytes, totalBytes int64
-			if scanErr := nodeRows.Scan(&nodeID, &nodeName, &upBytes, &downBytes, &totalBytes); scanErr != nil {
-				continue
-			}
+		for _, item := range ranking {
 			nodeRanking = append(nodeRanking, gin.H{
-				"node_id":     nodeID,
-				"node_name":   nodeName,
-				"up":          upBytes,
-				"down":        downBytes,
-				"total_bytes": totalBytes,
+				"node_id":     item.NodeID,
+				"node_name":   item.NodeName,
+				"up":          item.UpBytes,
+				"down":        item.DownBytes,
+				"total_bytes": item.TotalBytes,
 			})
-		}
-		if rowsErr := nodeRows.Err(); rowsErr != nil {
-			log.Printf("[WARN] iterate node_traffic_history monthly ranking failed: %v", rowsErr)
 		}
 	}
 
 	c.JSON(200, gin.H{
 		"speed":        gin.H{"up": upSpeed, "down": downSpeed},
-		"total_month":  gin.H{"up": totalMonthUp.Int64, "down": totalMonthDown.Int64},
+		"total_month":  gin.H{"up": totalMonthUp, "down": totalMonthDown},
 		"node_ranking": nodeRanking,
 	})
 }
 
 func (ctl *SystemController) HandleGetOspf(c *gin.Context) {
 	settings := getOspfControllerSettings()
-	var pub, cand int
-	if err := db.QueryRow("SELECT count(*) FROM routes_table WHERE status='published'").Scan(&pub); err != nil && err != sql.ErrNoRows {
-		log.Printf("[WARN] SELECT count(*) FROM routes_table WHERE status='published' err: %v", err)
-	}
-	if err := db.QueryRow("SELECT count(*) FROM routes_table WHERE status='candidate'").Scan(&cand); err != nil && err != sql.ErrNoRows {
-		log.Printf("[WARN] SELECT count(*) FROM routes_table WHERE status='candidate' err: %v", err)
+	pub, cand, err := ctl.repo.GetOspfRouteCounts()
+	if err != nil && err != sql.ErrNoRows {
+		log.Printf("[WARN] query ospf route counts err: %v", err)
 	}
 
 	frrOut, _ := sysCmd.output("vtysh", "-c", "show ip ospf neighbor json")
@@ -241,8 +212,11 @@ func (ctl *SystemController) HandleGetOspf(c *gin.Context) {
 		neighborsCount = 1
 	}
 
-	var allowlist string
-	_ = db.QueryRow("SELECT value FROM settings WHERE key='ospf_publish_allowlist'").Scan(&allowlist)
+	allowlist, err := ctl.repo.GetOspfPublishAllowlist()
+	if err != nil && err != sql.ErrNoRows {
+		log.Printf("[WARN] SELECT value FROM settings WHERE key='ospf_publish_allowlist' err: %v", err)
+		allowlist = ""
+	}
 	allowlist = strings.TrimSpace(allowlist)
 	allowlistOn := allowlist != ""
 	c.JSON(http.StatusOK, gin.H{
