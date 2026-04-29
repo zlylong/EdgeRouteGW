@@ -12,6 +12,7 @@ import (
 	"net/url"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -1820,6 +1821,40 @@ func applyMosdnsConfig() error {
 	return nil
 }
 
+func cleanupTransientWireguardInterfaces() {
+	out, err := exec.Command("ip", "-o", "-4", "addr", "show", "type", "wireguard").Output()
+	if err != nil {
+		return
+	}
+	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		fields := strings.Fields(line)
+		if len(fields) < 4 {
+			continue
+		}
+		ifName := fields[1]
+		if strings.HasSuffix(ifName, ":") {
+			ifName = strings.TrimSuffix(ifName, ":")
+		}
+		cidr := fields[3]
+		if !strings.HasSuffix(cidr, "/32") {
+			continue
+		}
+		if exec.Command("systemctl", "is-active", "--quiet", "wg-quick@"+ifName).Run() == nil {
+			continue
+		}
+		if _, err := os.Stat(filepath.Join("/etc/wireguard", ifName+".conf")); err == nil {
+			continue
+		}
+		if err := exec.Command("ip", "link", "delete", ifName).Run(); err == nil {
+			log.Printf("[INFO] cleaned transient wireguard interface: %s (%s)", ifName, cidr)
+		}
+	}
+}
+
 func applyXrayConfig() error {
 	return applyXrayConfigInternal(true)
 }
@@ -2174,6 +2209,7 @@ func applyXrayConfigInternal(restart bool) error {
 	if !restart {
 		return nil
 	}
+	cleanupTransientWireguardInterfaces()
 	return exec.Command("systemctl", "restart", "xray").Run()
 }
 
