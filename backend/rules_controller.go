@@ -260,6 +260,18 @@ func (ctl *RulesController) RegisterRoutes(api *gin.RouterGroup) {
 			return
 		}
 
+		for _, value := range values {
+			exists, err := ctl.repo.RuleExists(r.Type, value)
+			if err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "db error"})
+				return
+			}
+			if exists {
+				c.JSON(http.StatusConflict, gin.H{"error": fmt.Sprintf("duplicate rule exists: %s %s", r.Type, value)})
+				return
+			}
+		}
+
 		groupID := ""
 		groupName := ""
 		if r.Type == "domain" && len(values) > 1 {

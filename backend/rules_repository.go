@@ -50,6 +50,15 @@ func (r *RulesRepository) CountNodesByIDs(aID, bID int) (int, error) {
 	return cnt, err
 }
 
+func (r *RulesRepository) RuleExists(ruleType, value string) (bool, error) {
+	var cnt int
+	err := r.db.QueryRow("SELECT COUNT(*) FROM rules WHERE type=? AND value=?", ruleType, value).Scan(&cnt)
+	if err != nil {
+		return false, err
+	}
+	return cnt > 0, nil
+}
+
 func (r *RulesRepository) ListRules(groupFilter string) ([]map[string]interface{}, error) {
 	query := "SELECT id, type, value, policy, COALESCE(group_id, ''), COALESCE(group_name, '') FROM rules"
 	args := make([]interface{}, 0, 1)

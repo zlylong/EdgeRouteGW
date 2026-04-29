@@ -388,6 +388,12 @@ func TestFeatureSuite_DNSRulesAndNodes(t *testing.T) {
 		if create.Code != http.StatusOK {
 			t.Fatalf("want 200 got %d", create.Code)
 		}
+
+		dup := httptest.NewRecorder()
+		r.ServeHTTP(dup, authedJSONRequest(http.MethodPost, "/api/rules", `{"Type":"domain","Value":"google.com","Policy":"direct"}`))
+		if dup.Code != http.StatusConflict {
+			t.Fatalf("duplicate rule should be rejected with 409, got %d body=%s", dup.Code, dup.Body.String())
+		}
 		var ruleCount int
 		if err := db.QueryRow("SELECT COUNT(*) FROM rules WHERE value='google.com' AND policy='proxy'").Scan(&ruleCount); err != nil {
 			t.Fatal(err)
