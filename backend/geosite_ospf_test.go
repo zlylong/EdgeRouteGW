@@ -112,3 +112,28 @@ func TestSyncStaticRoutesToOSPF_ModeBOnlyAnnouncesGeoIPForRules(t *testing.T) {
 		t.Fatalf("unexpected static routes in mode B: got=%v want=%v", ips, expected)
 	}
 }
+
+func TestSyncStaticRoutesToOSPF_ModeCIncludesHAPolicyRules(t *testing.T) {
+	setupFeatureSuiteRouter(t)
+	writeTestGeoData(t)
+
+	if _, err := db.Exec("DELETE FROM rules"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec("DELETE FROM routes_table"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec("INSERT INTO rules(type, value, policy) VALUES ('geosite', 'google', 'ha-9-8')"); err != nil {
+		t.Fatal(err)
+	}
+
+	syncStaticRoutesToOSPF("C")
+
+	var cnt int
+	if err := db.QueryRow("SELECT COUNT(*) FROM routes_table WHERE source='static' AND ip='8.8.8.0/24'").Scan(&cnt); err != nil {
+		t.Fatal(err)
+	}
+	if cnt != 1 {
+		t.Fatalf("expected HA geosite rule to generate OSPF static route, got count=%d", cnt)
+	}
+}
