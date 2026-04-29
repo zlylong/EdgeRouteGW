@@ -194,7 +194,7 @@
             </div>
             <nav class="flex-1 mt-6">
                 <ul class="space-y-2">
-                    <li v-for="tab in tabs.filter(t => !(t.hideModeBC && sysStatus?.mode !== 'A') && !(t.hideModeA && sysStatus?.mode === 'A'))" :key="tab.id">
+                    <li v-for="tab in visibleTabs" :key="tab.id">
                         <a href="#" @click.prevent="activeTab = tab.id; loadData()" 
                            :class="['flex items-center px-6 py-3 transition-colors duration-200', 
                                     activeTab === tab.id ? 'bg-blue-600 text-white border-l-4 border-blue-400' : 'text-gray-400 hover:bg-gray-800 hover:text-white border-l-4 border-transparent']">
@@ -217,6 +217,12 @@
             <header class="bg-white shadow-sm border-b px-8 py-4 flex justify-between items-center z-0">
                 <h2 class="text-2xl font-semibold text-gray-700">{{ currentTabLabel }}</h2>
                 <div class="flex items-center space-x-4">
+                    <button @click="toggleUiMode" class="text-sm px-3 py-1 rounded border shadow-sm bg-white hover:bg-gray-50 text-gray-700">
+                        <i class="fa-solid fa-sliders mr-1"></i>{{ uiMode === 'advanced' ? '切换普通视图' : '切换高级视图' }}
+                    </button>
+                    <span class="text-sm font-bold border rounded px-2 py-1" :class="uiMode === 'advanced' ? 'bg-blue-100 text-blue-800' : 'bg-gray-100 text-gray-700'">
+                        {{ uiMode === 'advanced' ? '高级' : '普通' }}
+                    </span>
                     <span class="text-sm font-bold border rounded px-2 py-1" :class="sysStatus.mode==='A' ? 'bg-purple-100 text-purple-800' : 'bg-orange-100 text-orange-800'">
                         当前模式: {{ sysStatus.mode === 'A' ? 'Mode A (全局网关 TProxy)' : (sysStatus.mode === 'B' ? 'Mode B (纯 Fake-IP)' : 'Mode C (真实 OSPF)') }}
                     </span>
@@ -1596,6 +1602,26 @@ window.onerror = function(msg, url, line, col, error) { alert("JS Error: " + msg
                     { id: 'configs', icon: 'fa-file-code', label: '配置信息面板' },
                     { id: 'syslogs', icon: 'fa-terminal', label: '核心日志面板' },
                 ];
+                const hiddenInNormalTabs = new Set(['remote_nodes', 'configs', 'syslogs', 'protected_ips', 'connections']);
+                const uiMode = ref(localStorage.getItem('ui_mode') === 'advanced' ? 'advanced' : 'normal');
+                const toggleUiMode = () => {
+                    uiMode.value = uiMode.value === 'advanced' ? 'normal' : 'advanced';
+                    localStorage.setItem('ui_mode', uiMode.value);
+                };
+                const visibleTabs = computed(() => {
+                    return tabs.filter(t => {
+                        if (t.hideModeBC && sysStatus?.mode !== 'A') return false;
+                        if (t.hideModeA && sysStatus?.mode === 'A') return false;
+                        if (uiMode.value === 'normal' && hiddenInNormalTabs.has(t.id)) return false;
+                        return true;
+                    });
+                });
+                watch([activeTab, uiMode], () => {
+                    const ids = visibleTabs.value.map(t => t.id);
+                    if (!ids.includes(activeTab.value)) {
+                        activeTab.value = 'system';
+                    }
+                });
 
                 const currentTabLabel = computed(() => tabs.find(t => t.id === activeTab.value)?.label);
 
@@ -2343,7 +2369,7 @@ Mode C: 纯OSPF (恢复真实IP宣告)`)) {
                     showAclModal, aclForm, openAddAcl, saveAcl, deleteAcl, updateLanDefault, addProtectedIp, deleteProtectedIp,
                     currentConfigTab,
                     loadData,
-                    isSubmitting, isLoading, vlessParams, cron, saveCron, networkConfigForm, networkConfigSelecting, saveNetworkConfig, showPwdModal, pwdForm, logout, changePwd, toastMsg, toastType, confirmData, doConfirm, isUpdating, token, password, login, categories, geoQuery, showGeoSuggestions, geoSuggestionIndex, filteredGeoSuggestions, handleGeoInput, handleGeoInputBlur, moveGeoSuggestion, confirmGeoSuggestionOrQuery, applyGeoSuggestion, runGeoQuery, xrayConfigStr, mosdnsConfigStr, nftablesConfigStr, frrConfigStr, loadConfigs, newRule, ruleGroups, selectedRuleGroup, ruleSearchId, filteredRules, editingRuleGroup, shortRuleGroup, describeRulePattern, ruleValuePlaceholder, ruleValidationError, handleRuleValueFocus, handleRuleValueBlur, addRule, loadRules, saveRuleGroupName, activeTab, tabs, currentTabLabel, nodes, rules, dns, dnsLogs, ospf, ospfController, ospfControllerDirty, saveOspfController, sysStatus, applyConfig, toggleMode, changeMode, importNodeUrl, pingNodes, openAddNode, editNode, saveNode, showNodeModal, editingNode, deleteNode, toggleNode, deleteRule, deleteRuleGroup, saveDns, updateComp, showMosdnsRollbackModal, mosdnsVersions, selectedMosdnsRollbackVersion, openMosdnsRollbackModal, confirmMosdnsRollback, showRollbackModal, xrayVersions, selectedRollbackVersion, openRollbackModal, confirmRollback, remoteNodes, showRemoteNodeModal, showRemoteDetailsModal, selectedRemoteNode, remoteNodeForm, loadRemoteNodes, openAddRemoteNode, submitRemoteNode, viewRemoteNode, checkRemoteNode, confirmDeleteRemoteNode, copyText, importToLocal, isDeploying, showBatchModal, batchText, submitBatchNodes, showHistoryModal, nodeHistory, setDefaultNode, regenerateNode, loadNodeHistory, rollbackNode }
+                    isSubmitting, isLoading, vlessParams, cron, saveCron, networkConfigForm, networkConfigSelecting, saveNetworkConfig, showPwdModal, pwdForm, logout, changePwd, toastMsg, toastType, confirmData, doConfirm, isUpdating, token, password, login, categories, geoQuery, showGeoSuggestions, geoSuggestionIndex, filteredGeoSuggestions, handleGeoInput, handleGeoInputBlur, moveGeoSuggestion, confirmGeoSuggestionOrQuery, applyGeoSuggestion, runGeoQuery, xrayConfigStr, mosdnsConfigStr, nftablesConfigStr, frrConfigStr, loadConfigs, newRule, ruleGroups, selectedRuleGroup, ruleSearchId, filteredRules, editingRuleGroup, shortRuleGroup, describeRulePattern, ruleValuePlaceholder, ruleValidationError, handleRuleValueFocus, handleRuleValueBlur, addRule, loadRules, saveRuleGroupName, activeTab, tabs, visibleTabs, uiMode, toggleUiMode, currentTabLabel, nodes, rules, dns, dnsLogs, ospf, ospfController, ospfControllerDirty, saveOspfController, sysStatus, applyConfig, toggleMode, changeMode, importNodeUrl, pingNodes, openAddNode, editNode, saveNode, showNodeModal, editingNode, deleteNode, toggleNode, deleteRule, deleteRuleGroup, saveDns, updateComp, showMosdnsRollbackModal, mosdnsVersions, selectedMosdnsRollbackVersion, openMosdnsRollbackModal, confirmMosdnsRollback, showRollbackModal, xrayVersions, selectedRollbackVersion, openRollbackModal, confirmRollback, remoteNodes, showRemoteNodeModal, showRemoteDetailsModal, selectedRemoteNode, remoteNodeForm, loadRemoteNodes, openAddRemoteNode, submitRemoteNode, viewRemoteNode, checkRemoteNode, confirmDeleteRemoteNode, copyText, importToLocal, isDeploying, showBatchModal, batchText, submitBatchNodes, showHistoryModal, nodeHistory, setDefaultNode, regenerateNode, loadNodeHistory, rollbackNode }
             }
         }).mount('#app');
     </script>
