@@ -2310,7 +2310,33 @@ Mode C: 纯OSPF (恢复真实IP宣告)`)) {
                     }); 
                 }
 
-                onMounted(() => { loadData(true); setInterval(() => loadData(false), 2000); });
+                let pollTimer = null;
+                const startVisiblePolling = () => {
+                    if (pollTimer !== null) return;
+                    pollTimer = setInterval(() => {
+                        if (document.visibilityState !== 'visible') return;
+                        loadData(false);
+                    }, 2000);
+                };
+                const stopVisiblePolling = () => {
+                    if (pollTimer === null) return;
+                    clearInterval(pollTimer);
+                    pollTimer = null;
+                };
+                const handleVisibilityPolling = () => {
+                    if (document.visibilityState === 'visible') {
+                        loadData(false);
+                        startVisiblePolling();
+                    } else {
+                        stopVisiblePolling();
+                    }
+                };
+
+                onMounted(() => {
+                    loadData(true);
+                    document.addEventListener('visibilitychange', handleVisibilityPolling);
+                    if (document.visibilityState === 'visible') startVisiblePolling();
+                });
 
                                 return { syslogs, currentLogTab, syslogsContainer, fetchSyslogs, traffic, formatBytes,
                     connections, connSearch, filteredConnections, lanAcls, defaultLanPolicy, protectedIps, protectedIpForm, goToRule,

@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -20,6 +21,38 @@ type SystemController struct {
 
 func NewSystemController(repo *SystemRepository) *SystemController {
 	return &SystemController{repo: repo}
+}
+
+var (
+	ospfNeighborsCacheMu   sync.Mutex
+	ospfNeighborsCachedAt  time.Time
+	ospfNeighborsCachedCnt int
+	ospfNeighborsCacheTTL  = 8 * time.Second
+)
+
+func getCachedOspfNeighborsCount() int {
+	now := time.Now()
+
+	ospfNeighborsCacheMu.Lock()
+	if !ospfNeighborsCachedAt.IsZero() && now.Sub(ospfNeighborsCachedAt) < ospfNeighborsCacheTTL {
+		cached := ospfNeighborsCachedCnt
+		ospfNeighborsCacheMu.Unlock()
+		return cached
+	}
+	ospfNeighborsCacheMu.Unlock()
+
+	frrOut, _ := sysCmd.output("vtysh", "-c", "show ip ospf neighbor json")
+	neighborsCount := 0
+	if strings.Contains(string(frrOut), "nbrState") {
+		neighborsCount = 1
+	}
+
+	ospfNeighborsCacheMu.Lock()
+	ospfNeighborsCachedCnt = neighborsCount
+	ospfNeighborsCachedAt = now
+	ospfNeighborsCacheMu.Unlock()
+
+	return neighborsCount
 }
 
 func (ctl *SystemController) HandleStatus(c *gin.Context) {
@@ -206,11 +239,7 @@ func (ctl *SystemController) HandleGetOspf(c *gin.Context) {
 		log.Printf("[WARN] query ospf route counts err: %v", err)
 	}
 
-	frrOut, _ := sysCmd.output("vtysh", "-c", "show ip ospf neighbor json")
-	neighborsCount := 0
-	if strings.Contains(string(frrOut), "nbrState") {
-		neighborsCount = 1
-	}
+	neighborsCount := getCachedOspfNeighborsCount()
 
 	allowlist, err := ctl.repo.GetOspfPublishAllowlist()
 	if err != nil && err != sql.ErrNoRows {
