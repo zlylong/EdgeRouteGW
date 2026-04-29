@@ -30,6 +30,28 @@ func TestNormalizeRouteKey(t *testing.T) {
 	}
 }
 
+func TestValidateAdvertisableCIDR(t *testing.T) {
+	cases := []struct {
+		in      string
+		wantErr bool
+	}{
+		{"8.8.8.8/32", false},
+		{"10.0.0.0/8", true},
+		{"10.1.2.0/24", false},
+		{"172.16.0.0/12", true},
+		{"172.16.1.0/24", false},
+		{"192.168.0.0/16", true},
+		{"192.168.10.0/24", false},
+		{"0.0.0.0/0", true},
+	}
+	for _, tc := range cases {
+		err := validateAdvertisableCIDR(tc.in)
+		if (err != nil) != tc.wantErr {
+			t.Fatalf("validateAdvertisableCIDR(%q) err=%v wantErr=%v", tc.in, err, tc.wantErr)
+		}
+	}
+}
+
 func TestSyncStaticRoutesToOSPF_DedupSameIPCanonicalForm(t *testing.T) {
 	setupFeatureSuiteRouter(t)
 	writeTestGeoData(t)

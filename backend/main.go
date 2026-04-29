@@ -1063,62 +1063,6 @@ func applyOspfDeleteBatch(toDel []string) bool {
 	return true
 }
 
-func loadOspfPublishAllowlist() []*net.IPNet {
-	var raw string
-	if err := db.QueryRow("SELECT value FROM settings WHERE key='ospf_publish_allowlist'").Scan(&raw); err != nil {
-		return nil
-	}
-	raw = strings.TrimSpace(raw)
-	if raw == "" {
-		return nil
-	}
-	parts := strings.Split(raw, ",")
-	out := make([]*net.IPNet, 0, len(parts))
-	for _, p := range parts {
-		p = strings.TrimSpace(p)
-		if p == "" {
-			continue
-		}
-		_, ipNet, err := net.ParseCIDR(p)
-		if err != nil || ipNet == nil {
-			continue
-		}
-		if ip4 := ipNet.IP.To4(); ip4 == nil {
-			continue
-		}
-		out = append(out, ipNet)
-	}
-	return out
-}
-
-func routeAllowedByOspfPublishAllowlist(routeKey string, allowlist []*net.IPNet) bool {
-	if len(allowlist) == 0 {
-		return true
-	}
-	normalized, ok := normalizeRouteKey(routeKey)
-	if !ok {
-		return false
-	}
-	ipPart := normalized
-	if strings.Contains(normalized, "/") {
-		ipPart = strings.SplitN(normalized, "/", 2)[0]
-	}
-	ip := net.ParseIP(ipPart)
-	if ip == nil {
-		return false
-	}
-	ip4 := ip.To4()
-	if ip4 == nil {
-		return false
-	}
-	for _, n := range allowlist {
-		if n.Contains(ip4) {
-			return true
-		}
-	}
-	return false
-}
-
 func applyOspfAddBatch(toAdd []string) bool {
 	if len(toAdd) == 0 {
 		return false
@@ -1128,6 +1072,11 @@ func applyOspfAddBatch(toAdd []string) bool {
 	allowed := make([]string, 0, len(toAdd))
 	skipped := 0
 	for _, ip := range toAdd {
+		if err := validateAdvertisableCIDR(ip); err != nil {
+			skipped++
+			logGatewayEventThrottled("ospf_publish_policy_reject", 30*time.Second, "warn", "ospf", "publish_policy_reject", "OSPF publish route rejected by policy", map[string]interface{}{"route": ip, "reason": err.Error()})
+			continue
+		}
 		if !routeAllowedByOspfPublishAllowlist(ip, allowlist) {
 			skipped++
 			logGatewayEventThrottled("ospf_publish_allowlist_reject", 30*time.Second, "warn", "ospf", "publish_allowlist_reject", "OSPF publish route rejected by allowlist", map[string]interface{}{"route": ip})
