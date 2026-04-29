@@ -1063,12 +1063,77 @@ func applyOspfDeleteBatch(toDel []string) bool {
 	return true
 }
 
+func loadOspfPublishAllowlist() []*net.IPNet {
+	var raw string
+	if err := db.QueryRow("SELECT value FROM settings WHERE key='ospf_publish_allowlist'").Scan(&raw); err != nil {
+		return nil
+	}
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil
+	}
+	parts := strings.Split(raw, ",")
+	out := make([]*net.IPNet, 0, len(parts))
+	for _, p := range parts {
+		p = strings.TrimSpace(p)
+		if p == "" {
+			continue
+		}
+		_, ipNet, err := net.ParseCIDR(p)
+		if err != nil || ipNet == nil {
+			continue
+		}
+		if ip4 := ipNet.IP.To4(); ip4 == nil {
+			continue
+		}
+		out = append(out, ipNet)
+	}
+	return out
+}
+
+func routeAllowedByOspfPublishAllowlist(routeKey string, allowlist []*net.IPNet) bool {
+	if len(allowlist) == 0 {
+		return true
+	}
+	normalized, ok := normalizeRouteKey(routeKey)
+	if !ok {
+		return false
+	}
+	ipPart := normalized
+	if strings.Contains(normalized, "/") {
+		ipPart = strings.SplitN(normalized, "/", 2)[0]
+	}
+	ip := net.ParseIP(ipPart)
+	if ip == nil {
+		return false
+	}
+	ip4 := ip.To4()
+	if ip4 == nil {
+		return false
+	}
+	for _, n := range allowlist {
+		if n.Contains(ip4) {
+			return true
+		}
+	}
+	return false
+}
+
 func applyOspfAddBatch(toAdd []string) bool {
 	if len(toAdd) == 0 {
 		return false
 	}
+	allowlist := loadOspfPublishAllowlist()
 	var buf bytes.Buffer
+	allowed := make([]string, 0, len(toAdd))
+	skipped := 0
 	for _, ip := range toAdd {
+		if !routeAllowedByOspfPublishAllowlist(ip, allowlist) {
+			skipped++
+			logGatewayEventThrottled("ospf_publish_allowlist_reject", 30*time.Second, "warn", "ospf", "publish_allowlist_reject", "OSPF publish route rejected by allowlist", map[string]interface{}{"route": ip})
+			continue
+		}
+		allowed = append(allowed, ip)
 		addOspfLog("[ADD] " + ip + " to published_set")
 		routeStr := formatRouteCIDR(ip)
 		if routeStr == "" {
@@ -1076,17 +1141,27 @@ func applyOspfAddBatch(toAdd []string) bool {
 		}
 		buf.WriteString(fmt.Sprintf("ip route %s 127.0.0.1 tag 100\n", routeStr))
 	}
+	if len(allowed) == 0 {
+		if skipped > 0 {
+			log.Printf("[FRR] ADD blocked by ospf publish allowlist: requested=%d skipped=%d", len(toAdd), skipped)
+		}
+		return false
+	}
 	out, err := runVtyshConfigBatch(buf.String())
 	if err != nil {
-		log.Printf("[FRR] ADD batch=%d apply_failed: %v, out=%q", len(toAdd), err, strings.TrimSpace(out))
+		log.Printf("[FRR] ADD batch=%d apply_failed: %v, out=%q", len(allowed), err, strings.TrimSpace(out))
 		return false
 	}
 	tx, _ := db.Begin()
-	for _, ip := range toAdd {
+	for _, ip := range allowed {
 		tx.Exec("UPDATE routes_table SET status='published', last_seen=datetime('now'), miss_count=0 WHERE ip=?", ip)
 	}
 	tx.Commit()
-	log.Printf("[FRR] ADD batch=%d applied via vtysh", len(toAdd))
+	if skipped > 0 {
+		log.Printf("[FRR] ADD batch=%d applied via vtysh (allowlist_skipped=%d)", len(allowed), skipped)
+	} else {
+		log.Printf("[FRR] ADD batch=%d applied via vtysh", len(allowed))
+	}
 	return true
 }
 
@@ -2449,10 +2524,22 @@ func main() {
 	os.MkdirAll("/run/proxygw", 0755)
 	StartConnectionTracker()
 
-	sysCmd.run("sh", "-c", "ip rule del fwmark 1 lookup tproxy 2>/dev/null || true; ip rule add fwmark 1 lookup tproxy")
-	sysCmd.run("sh", "-c", "ip route del local default dev lo table tproxy 2>/dev/null || true; ip route add local default dev lo table tproxy")
-	sysCmd.run("sh", "-c", "ip -6 rule del fwmark 1 lookup tproxy 2>/dev/null || true; ip -6 rule add fwmark 1 lookup tproxy")
-	sysCmd.run("sh", "-c", "ip -6 route del local default dev lo table tproxy 2>/dev/null || true; ip -6 route add local default dev lo table tproxy")
+	_ = sysCmd.run("ip", "rule", "del", "fwmark", "1", "lookup", "tproxy")
+	if err := sysCmd.run("ip", "rule", "add", "fwmark", "1", "lookup", "tproxy"); err != nil {
+		log.Printf("[WARN] init ip rule v4 failed: %v", err)
+	}
+	_ = sysCmd.run("ip", "route", "del", "local", "default", "dev", "lo", "table", "tproxy")
+	if err := sysCmd.run("ip", "route", "add", "local", "default", "dev", "lo", "table", "tproxy"); err != nil {
+		log.Printf("[WARN] init ip route v4 failed: %v", err)
+	}
+	_ = sysCmd.run("ip", "-6", "rule", "del", "fwmark", "1", "lookup", "tproxy")
+	if err := sysCmd.run("ip", "-6", "rule", "add", "fwmark", "1", "lookup", "tproxy"); err != nil {
+		log.Printf("[WARN] init ip rule v6 failed: %v", err)
+	}
+	_ = sysCmd.run("ip", "-6", "route", "del", "local", "default", "dev", "lo", "table", "tproxy")
+	if err := sysCmd.run("ip", "-6", "route", "add", "local", "default", "dev", "lo", "table", "tproxy"); err != nil {
+		log.Printf("[WARN] init ip route v6 failed: %v", err)
+	}
 
 	r := gin.Default()
 	registerAPIRoutes(r)
