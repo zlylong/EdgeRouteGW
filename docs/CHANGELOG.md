@@ -6,6 +6,9 @@
   - `--index-only`：幂等创建关键索引 + `ANALYZE` + `PRAGMA optimize`
   - `--full`：在上述基础上执行 `VACUUM`（用于维护窗口）
 - 安装/更新脚本自动接入低风险优化：`install.sh` 与 `update.sh` 在服务启动后自动尝试执行 `db_optimize.sh --index-only`（存在性检查 + 失败不阻断主流程）。
+- 规则系统新增显式优先级能力：`rules.priority` 字段上线，匹配顺序统一为 `priority ASC, id ASC`。
+- 新增规则重排接口：`PUT /api/rules/reorder`，支持按规则 ID 列表批量重排优先级。
+- 新增重复规则防呆：创建规则时拦截重复 `type+value`，冲突返回 409。
 
 ### ⚡ 性能与优化 (Optimizations)
 - 补齐 `domain_geoip_lock` 访问路径索引：

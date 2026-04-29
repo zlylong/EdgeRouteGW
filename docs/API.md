@@ -56,7 +56,25 @@ Base URL: `http://<host>/api`
 - GET `/rules/categories`
 - GET `/rules`
 - POST `/rules`
+- PUT `/rules/reorder`
 - DELETE `/rules/:id`
+
+### 规则顺序与优先级
+
+- `GET /rules` 返回字段包含 `priority`。
+- 规则匹配顺序采用：`priority ASC, id ASC`。
+- 新增规则默认追加到末尾（较低优先级）。
+
+### PUT /rules/reorder
+
+请求：
+```json
+{ "ids": [3, 1, 2] }
+```
+
+行为：
+- 按 `ids` 顺序重排规则优先级（数组越靠前，优先级越高）。
+- 参数校验：空数组、重复 ID、非法/不存在 ID 会返回 400。
 
 ### POST /rules（域名规则约束）
 
