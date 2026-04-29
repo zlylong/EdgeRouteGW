@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"log"
 	"net"
-	"net/http"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -17,7 +16,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/gin-gonic/gin"
 	_ "github.com/mattn/go-sqlite3"
 )
 
@@ -2241,54 +2239,11 @@ func domainIPUpdater() {
 }
 
 func main() {
-	initDB()
-	go startTrafficMonitor()
-	go startNftablesMonitor()
-	syncFRRConfig()
-	go ospfController()
-	go cronUpdater()
-	go domainIPUpdater()
-	applyMosdnsConfig()
-	applyXrayConfig()
-	if err := applyNftablesConfig(); err != nil {
-		log.Printf("[WARN] applyNftablesConfig on startup failed: %v", err)
-	}
+	repo := NewAppRepository()
+	service := NewAppService(repo)
+	controller := NewAppController()
 
-	// Init connection tracking
-	os.MkdirAll("/run/proxygw", 0755)
-	StartConnectionTracker()
-
-	_ = sysCmd.run("ip", "rule", "del", "fwmark", "1", "lookup", "tproxy")
-	if err := sysCmd.run("ip", "rule", "add", "fwmark", "1", "lookup", "tproxy"); err != nil {
-		log.Printf("[WARN] init ip rule v4 failed: %v", err)
-	}
-	_ = sysCmd.run("ip", "route", "del", "local", "default", "dev", "lo", "table", "tproxy")
-	if err := sysCmd.run("ip", "route", "add", "local", "default", "dev", "lo", "table", "tproxy"); err != nil {
-		log.Printf("[WARN] init ip route v4 failed: %v", err)
-	}
-	_ = sysCmd.run("ip", "-6", "rule", "del", "fwmark", "1", "lookup", "tproxy")
-	if err := sysCmd.run("ip", "-6", "rule", "add", "fwmark", "1", "lookup", "tproxy"); err != nil {
-		log.Printf("[WARN] init ip rule v6 failed: %v", err)
-	}
-	_ = sysCmd.run("ip", "-6", "route", "del", "local", "default", "dev", "lo", "table", "tproxy")
-	if err := sysCmd.run("ip", "-6", "route", "add", "local", "default", "dev", "lo", "table", "tproxy"); err != nil {
-		log.Printf("[WARN] init ip route v6 failed: %v", err)
-	}
-
-	r := gin.Default()
-	registerAPIRoutes(r)
-
-	r.Use(func(c *gin.Context) {
-		if strings.HasPrefix(c.Request.URL.Path, "/ui") {
-			c.Header("Cache-Control", "no-cache, no-store, must-revalidate")
-			c.Header("Pragma", "no-cache")
-			c.Header("Expires", "0")
-		}
-		c.Next()
-	})
-	r.Static("/ui", getPath("frontend", "dist"))
-	r.GET("/", func(c *gin.Context) { c.Redirect(http.StatusFound, "/ui/") })
-
-	log.Println("ProxyGW backend starting on :80")
-	r.Run(":80")
+	service.Bootstrap()
+	r := controller.BuildRouter()
+	controller.Run(r)
 }
