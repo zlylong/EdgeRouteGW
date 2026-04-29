@@ -147,7 +147,7 @@ func getRemoteNodeDetails(c *gin.Context) {
 }
 
 func logAction(nodeId int64, action, status, logText string) {
-	db.Exec("INSERT INTO remote_node_logs (node_id, action, status, log_text) VALUES (?, ?, ?, ?)", nodeId, action, status, logText)
+	NewRemoteNodesRepository().InsertNodeLog(nodeId, action, status, logText)
 }
 
 var hostKeyFingerprintRe = regexp.MustCompile(`SHA256:[A-Za-z0-9+/=_-]+`)
@@ -196,7 +196,7 @@ func doDeployRoutine(id int64, req RemoteNodeReq, isUpdate bool, params map[stri
 
 	sshClient, err := connectWithAutoHostKey(id, &req)
 	if err != nil {
-		db.Exec("UPDATE remote_nodes SET status = 'Failed' WHERE id = ?", id)
+		NewRemoteNodesRepository().SetRemoteNodeStatus(id, "Failed")
 		logAction(id, "deploy", "failed", err.Error())
 		return
 	}
@@ -253,7 +253,7 @@ func doDeployRoutine(id int64, req RemoteNodeReq, isUpdate bool, params map[stri
 					tunnel_addr=excluded.tunnel_addr,
 					client_addr=excluded.client_addr`,
 			id, sPriv, sPub, cPriv, cPub, endpoint, port, tunnel, clientIP); err != nil {
-			db.Exec("UPDATE remote_nodes SET status = 'Failed' WHERE id = ?", id)
+			NewRemoteNodesRepository().SetRemoteNodeStatus(id, "Failed")
 			logAction(id, "deploy", "failed", fmt.Sprintf("Failed to persist WireGuard params: %v", err))
 			return
 		}
@@ -310,7 +310,7 @@ func doDeployRoutine(id int64, req RemoteNodeReq, isUpdate bool, params map[stri
 					port=excluded.port,
 					share_link=excluded.share_link`,
 			id, uuid, rPriv, rPub, shortId, serverName, dest, port, shareLink); err != nil {
-			db.Exec("UPDATE remote_nodes SET status = 'Failed' WHERE id = ?", id)
+			NewRemoteNodesRepository().SetRemoteNodeStatus(id, "Failed")
 			logAction(id, "deploy", "failed", fmt.Sprintf("Failed to persist VLESS params: %v", err))
 			return
 		}
@@ -322,7 +322,7 @@ func doDeployRoutine(id int64, req RemoteNodeReq, isUpdate bool, params map[stri
 	stdout, stderr, err := runRemoteCommand(sshClient, req, script)
 
 	if err != nil {
-		db.Exec("UPDATE remote_nodes SET status = 'Failed' WHERE id = ?", id)
+		NewRemoteNodesRepository().SetRemoteNodeStatus(id, "Failed")
 		failureLog := fmt.Sprintf("Deployment failed: %v", err)
 		if strings.TrimSpace(stdout) != "" {
 			failureLog += "\nstdout:\n" + strings.TrimSpace(stdout)
@@ -334,7 +334,7 @@ func doDeployRoutine(id int64, req RemoteNodeReq, isUpdate bool, params map[stri
 		return
 	}
 
-	db.Exec("UPDATE remote_nodes SET status = 'Online' WHERE id = ?", id)
+	NewRemoteNodesRepository().SetRemoteNodeStatus(id, "Online")
 	logAction(id, "deploy", "success", "Deployment successful. (Detailed output redacted for security)")
 }
 
@@ -419,7 +419,7 @@ func checkRemoteNode(c *gin.Context) {
 
 	client, err := remoteConnect(host, port, user, authType, credential, hostKey)
 	if err != nil {
-		db.Exec("UPDATE remote_nodes SET status = 'Offline' WHERE id = ?", id)
+		NewRemoteNodesRepository().SetRemoteNodeStatus(id, "Offline")
 		logAction(0, "check", "failed", fmt.Sprintf("Node %s SSH check failed: %v", id, err))
 		c.JSON(http.StatusOK, gin.H{"success": false, "status": "Offline", "reason": err.Error()})
 		return
@@ -438,7 +438,7 @@ func checkRemoteNode(c *gin.Context) {
 		status = "Offline"
 	}
 
-	db.Exec("UPDATE remote_nodes SET status = ? WHERE id = ?", status, id)
+	NewRemoteNodesRepository().SetRemoteNodeStatus(id, status)
 	c.JSON(http.StatusOK, gin.H{"success": true, "status": status})
 }
 
@@ -473,9 +473,9 @@ func regenerateRemoteNodeParams(c *gin.Context) {
 	}
 
 	paramsJSON, _ := json.Marshal(oldParams)
-	db.Exec("INSERT INTO remote_node_history (node_id, type, params) VALUES (?, ?, ?)", id, req.Type, string(paramsJSON))
+	NewRemoteNodesRepository().InsertRemoteNodeHistory(id, req.Type, string(paramsJSON))
 
-	db.Exec("UPDATE remote_nodes SET status = 'Deploying' WHERE id = ?", id)
+	NewRemoteNodesRepository().SetRemoteNodeStatus(id, "Deploying")
 
 	var intId int64
 	fmt.Sscanf(id, "%d", &intId)
@@ -519,7 +519,7 @@ func rollbackRemoteNode(c *gin.Context) {
 	var oldParams map[string]interface{}
 	json.Unmarshal([]byte(pjson), &oldParams)
 
-	db.Exec("UPDATE remote_nodes SET status = 'Deploying' WHERE id = ?", id)
+	NewRemoteNodesRepository().SetRemoteNodeStatus(id, "Deploying")
 
 	var intId int64
 	fmt.Sscanf(id, "%d", &intId)

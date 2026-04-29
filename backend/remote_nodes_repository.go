@@ -75,3 +75,15 @@ func (r *RemoteNodesRepository) GetHistoryParams(historyID int, nodeID string) (
 	err := r.db.QueryRow("SELECT params FROM remote_node_history WHERE id = ? AND node_id = ?", historyID, nodeID).Scan(&pjson)
 	return pjson, err
 }
+
+func (r *RemoteNodesRepository) InsertNodeLog(nodeID int64, action, status, logText string) {
+	_, _ = r.db.Exec("INSERT INTO remote_node_logs (node_id, action, status, log_text) VALUES (?, ?, ?, ?)", nodeID, action, status, logText)
+}
+
+func (r *RemoteNodesRepository) SetRemoteNodeStatus(id interface{}, status string) {
+	_, _ = r.db.Exec("UPDATE remote_nodes SET status = ? WHERE id = ?", status, id)
+}
+
+func (r *RemoteNodesRepository) InsertRemoteNodeHistory(nodeID string, nodeType, paramsJSON string) {
+	_, _ = r.db.Exec("INSERT INTO remote_node_history (node_id, type, params) VALUES (?, ?, ?)", nodeID, nodeType, paramsJSON)
+}
