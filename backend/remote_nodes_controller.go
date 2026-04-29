@@ -88,27 +88,10 @@ func (ctl *RemoteNodesController) RegisterRoutes(authed *gin.RouterGroup) {
 }
 
 func getRemoteNodes(c *gin.Context) {
-	rows, err := db.Query("SELECT id, name, type, ssh_host, region, status, remark, created_at FROM remote_nodes ORDER BY id DESC")
+	nodes, err := NewRemoteNodesRepository().ListRemoteNodes()
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
-	}
-	defer rows.Close()
-
-	var nodes []map[string]interface{}
-	for rows.Next() {
-		var id int
-		var name, ntype, host, region, status, remark, createdAt string
-		if err := rows.Scan(&id, &name, &ntype, &host, &region, &status, &remark, &createdAt); err != nil {
-			continue
-		}
-		nodes = append(nodes, map[string]interface{}{
-			"id": id, "name": name, "type": ntype, "ssh_host": host,
-			"region": region, "status": status, "remark": remark, "created_at": createdAt,
-		})
-	}
-	if nodes == nil {
-		nodes = []map[string]interface{}{}
 	}
 	c.JSON(http.StatusOK, nodes)
 }
@@ -460,11 +443,7 @@ func checkRemoteNode(c *gin.Context) {
 }
 
 func fetchNodeReq(id string) (RemoteNodeReq, error) {
-	var req RemoteNodeReq
-	err := db.QueryRow("SELECT name, type, ssh_host, ssh_port, ssh_user, ssh_auth_type, ssh_credential, ssh_host_key, region, remark FROM remote_nodes WHERE id = ?", id).
-		Scan(&req.Name, &req.Type, &req.SSHHost, &req.SSHPort, &req.SSHUser, &req.SSHAuthType, &req.SSHCredential, &req.SSHHostKey, &req.Region, &req.Remark)
-	req.SSHCredential = DecryptAES(req.SSHCredential)
-	return req, err
+	return NewRemoteNodesRepository().FetchNodeReq(id)
 }
 
 func regenerateRemoteNodeParams(c *gin.Context) {
@@ -507,23 +486,10 @@ func regenerateRemoteNodeParams(c *gin.Context) {
 
 func getRemoteNodeHistory(c *gin.Context) {
 	id := c.Param("id")
-	rows, err := db.Query("SELECT id, params, created_at FROM remote_node_history WHERE node_id = ? ORDER BY id DESC", id)
+	history, err := NewRemoteNodesRepository().ListRemoteNodeHistory(id)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
-	}
-	defer rows.Close()
-
-	var history []map[string]interface{}
-	for rows.Next() {
-		var hid int
-		var pjson, cat string
-		if err := rows.Scan(&hid, &pjson, &cat); err == nil {
-			history = append(history, map[string]interface{}{"id": hid, "params": pjson, "created_at": cat})
-		}
-	}
-	if history == nil {
-		history = []map[string]interface{}{}
 	}
 	c.JSON(http.StatusOK, history)
 }
@@ -544,8 +510,8 @@ func rollbackRemoteNode(c *gin.Context) {
 		return
 	}
 
-	var pjson string
-	if err := db.QueryRow("SELECT params FROM remote_node_history WHERE id = ? AND node_id = ?", reqBody.HistoryId, id).Scan(&pjson); err != nil {
+	pjson, err := NewRemoteNodesRepository().GetHistoryParams(reqBody.HistoryId, id)
+	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "History record not found"})
 		return
 	}
