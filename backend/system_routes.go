@@ -306,12 +306,29 @@ func registerSystemRoutes(api *gin.RouterGroup) {
 			mosdnsVer = strings.TrimSpace(string(mosdnsVersionOut))
 		}
 
+		interfaceOptions := listPrivateIPv4Interfaces()
+		managementIface, serviceIface := loadNetworkRoleSettings()
+		managementNetwork, ok := findNetworkByIface(interfaceOptions, managementIface)
+		if !ok && len(interfaceOptions) > 0 {
+			managementNetwork = interfaceOptions[0]
+		}
+		serviceNetwork, ok := findNetworkByIface(interfaceOptions, serviceIface)
+		if !ok {
+			serviceNetwork = managementNetwork
+		}
+		commit, binaryBuildTime := getBuildInfo()
+
 		c.JSON(http.StatusOK, gin.H{
 			"status": "running", "mode": mode,
 			"xray": xray, "ospf": frr, "mosdns": mosdns,
 			"xrayVersion": xrayVer, "geoVersion": geoVer, "mosdnsVersion": mosdnsVer,
 			"cpu": fmt.Sprintf("%.1f", cpu), "ram": fmt.Sprintf("%.1f", ram),
 			"up": upStr, "down": downStr,
+			"interface_options":  interfaceOptions,
+			"management_network": gin.H{"iface": managementNetwork.Name, "ip": managementNetwork.IPv4, "subnet": managementNetwork.Subnet},
+			"service_network":    gin.H{"iface": serviceNetwork.Name, "ip": serviceNetwork.IPv4, "subnet": serviceNetwork.Subnet},
+			"commit":             commit,
+			"binary_build_time":  binaryBuildTime,
 		})
 
 	})
