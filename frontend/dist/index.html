@@ -795,6 +795,7 @@ PersistentKeepalive = 25
                                 <thead class="bg-gray-50">
                                     <tr>
                                         <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">编号</th>
+                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">优先级</th>
                                         <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">规则类别</th>
                                         <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">匹配值</th>
                                         <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">匹配语义</th>
@@ -806,6 +807,7 @@ PersistentKeepalive = 25
                                 <tbody class="bg-white divide-y divide-gray-200">
                                     <tr v-for="rule in filteredRules" :key="rule.id">
                                         <td class="px-6 py-4 whitespace-nowrap font-mono text-sm text-gray-500">#{{ rule.id }}</td>
+                                        <td class="px-6 py-4 whitespace-nowrap font-mono text-sm text-gray-500">{{ rule.priority ?? 0 }}</td>
                                         <td class="px-6 py-4 whitespace-nowrap font-mono text-sm">{{ rule.type }}</td>
                                         <td class="px-6 py-4 whitespace-nowrap font-mono text-sm">{{ rule.value }}</td>
                                         <td class="px-6 py-4 whitespace-nowrap text-xs">
@@ -827,11 +829,13 @@ PersistentKeepalive = 25
                                             </span>
                                         </td>
                                         <td class="px-6 py-4 whitespace-nowrap text-right space-x-3">
+                                            <button @click="moveRule(rule.id, -1)" :disabled="!!ruleSearchId" class="text-blue-600 hover:text-blue-900 disabled:text-gray-300" title="上移优先级"><i class="fa-solid fa-arrow-up"></i></button>
+                                            <button @click="moveRule(rule.id, 1)" :disabled="!!ruleSearchId" class="text-blue-600 hover:text-blue-900 disabled:text-gray-300" title="下移优先级"><i class="fa-solid fa-arrow-down"></i></button>
                                             <button v-if="rule.group_id" @click="deleteRuleGroup(rule.group_id)" class="text-amber-600 hover:text-amber-900">删组</button>
                                             <button @click="deleteRule(rule.id)" class="text-red-600 hover:text-red-900">删除</button>
                                         </td>
                                     </tr>
-                                    <tr v-if="filteredRules.length === 0"><td colspan="7" class="px-6 py-4 text-center text-gray-500">暂无规则数据</td></tr>
+                                    <tr v-if="filteredRules.length === 0"><td colspan="8" class="px-6 py-4 text-center text-gray-500">暂无规则数据</td></tr>
                                 </tbody>
                             </table>
                         </div>
@@ -2326,6 +2330,25 @@ Mode C: 纯OSPF (恢复真实IP宣告)`)) {
                     }
                     loadData();
                 };
+                const moveRule = async (ruleId, direction) => {
+                    if (ruleSearchId.value) return showToast('已定位单条规则，请先清除定位再调整顺序', 'error');
+                    const list = Array.isArray(filteredRules.value) ? [...filteredRules.value] : [];
+                    const idx = list.findIndex(rule => String(rule.id) === String(ruleId));
+                    if (idx < 0) return;
+                    const swapIdx = idx + direction;
+                    if (swapIdx < 0 || swapIdx >= list.length) return;
+
+                    const ids = list.map(rule => rule.id);
+                    [ids[idx], ids[swapIdx]] = [ids[swapIdx], ids[idx]];
+
+                    const res = await apiFetch('/api/rules/reorder', { method: 'PUT', body: JSON.stringify({ ids }) });
+                    if (!res.ok) {
+                        const data = await res.json().catch(() => ({}));
+                        return showToast(data.error || '规则重排失败', 'error');
+                    }
+                    showToast('规则优先级已更新');
+                    await loadRules();
+                };
                 const deleteRule = (id) => { customConfirm("删除此分流规则？", async () => { await apiFetch(`/api/rules/${id}`, {method: 'DELETE'}); loadRules(); }); };
                 const deleteRuleGroup = (groupId) => { customConfirm(`删除分组 ${shortRuleGroup(groupId)} 下全部规则？`, async () => { const res = await apiFetch(`/api/rules/group/${groupId}`, {method: 'DELETE'}); if(!res.ok) { const data = await res.json().catch(() => ({})); showToast(data.error || '删组失败', 'error'); return; } showToast('分组规则已删除'); if (selectedRuleGroup.value === groupId) selectedRuleGroup.value = ''; loadRules(); }); };
                 const saveRuleGroupName = async () => { if (!selectedRuleGroup.value) return; const res = await apiFetch(`/api/rules/group/${selectedRuleGroup.value}`, { method: 'PUT', body: JSON.stringify({ group_name: editingRuleGroup.value || '' }) }); if(!res.ok) { const data = await res.json().catch(() => ({})); return showToast(data.error || '保存组备注失败', 'error'); } showToast('组备注已保存'); loadRules(); };
@@ -2388,7 +2411,7 @@ Mode C: 纯OSPF (恢复真实IP宣告)`)) {
                     showAclModal, aclForm, openAddAcl, saveAcl, deleteAcl, updateLanDefault, addProtectedIp, deleteProtectedIp,
                     currentConfigTab,
                     loadData,
-                    isSubmitting, isLoading, vlessParams, cron, saveCron, networkConfigForm, networkConfigSelecting, saveNetworkConfig, showPwdModal, pwdForm, logout, changePwd, toastMsg, toastType, confirmData, doConfirm, isUpdating, token, password, login, categories, geoQuery, showGeoSuggestions, geoSuggestionIndex, filteredGeoSuggestions, handleGeoInput, handleGeoInputBlur, moveGeoSuggestion, confirmGeoSuggestionOrQuery, applyGeoSuggestion, runGeoQuery, xrayConfigStr, mosdnsConfigStr, nftablesConfigStr, frrConfigStr, loadConfigs, newRule, ruleGroups, selectedRuleGroup, ruleSearchId, filteredRules, editingRuleGroup, shortRuleGroup, describeRulePattern, ruleValuePlaceholder, ruleValidationError, handleRuleValueFocus, handleRuleValueBlur, addRule, loadRules, saveRuleGroupName, activeTab, tabs, visibleTabs, uiMode, toggleUiMode, currentTabLabel, nodes, rules, dns, dnsLogs, ospf, ospfController, ospfControllerDirty, saveOspfController, resetOspfPending, sysStatus, applyConfig, toggleMode, changeMode, importNodeUrl, pingNodes, openAddNode, editNode, saveNode, showNodeModal, editingNode, deleteNode, toggleNode, deleteRule, deleteRuleGroup, saveDns, updateComp, showMosdnsRollbackModal, mosdnsVersions, selectedMosdnsRollbackVersion, openMosdnsRollbackModal, confirmMosdnsRollback, showRollbackModal, xrayVersions, selectedRollbackVersion, openRollbackModal, confirmRollback, remoteNodes, showRemoteNodeModal, showRemoteDetailsModal, selectedRemoteNode, remoteNodeForm, loadRemoteNodes, openAddRemoteNode, submitRemoteNode, viewRemoteNode, checkRemoteNode, confirmDeleteRemoteNode, copyText, importToLocal, isDeploying, showBatchModal, batchText, submitBatchNodes, showHistoryModal, nodeHistory, setDefaultNode, regenerateNode, loadNodeHistory, rollbackNode }
+                    isSubmitting, isLoading, vlessParams, cron, saveCron, networkConfigForm, networkConfigSelecting, saveNetworkConfig, showPwdModal, pwdForm, logout, changePwd, toastMsg, toastType, confirmData, doConfirm, isUpdating, token, password, login, categories, geoQuery, showGeoSuggestions, geoSuggestionIndex, filteredGeoSuggestions, handleGeoInput, handleGeoInputBlur, moveGeoSuggestion, confirmGeoSuggestionOrQuery, applyGeoSuggestion, runGeoQuery, xrayConfigStr, mosdnsConfigStr, nftablesConfigStr, frrConfigStr, loadConfigs, newRule, ruleGroups, selectedRuleGroup, ruleSearchId, filteredRules, editingRuleGroup, shortRuleGroup, describeRulePattern, ruleValuePlaceholder, ruleValidationError, handleRuleValueFocus, handleRuleValueBlur, addRule, loadRules, saveRuleGroupName, moveRule, activeTab, tabs, visibleTabs, uiMode, toggleUiMode, currentTabLabel, nodes, rules, dns, dnsLogs, ospf, ospfController, ospfControllerDirty, saveOspfController, resetOspfPending, sysStatus, applyConfig, toggleMode, changeMode, importNodeUrl, pingNodes, openAddNode, editNode, saveNode, showNodeModal, editingNode, deleteNode, toggleNode, deleteRule, deleteRuleGroup, saveDns, updateComp, showMosdnsRollbackModal, mosdnsVersions, selectedMosdnsRollbackVersion, openMosdnsRollbackModal, confirmMosdnsRollback, showRollbackModal, xrayVersions, selectedRollbackVersion, openRollbackModal, confirmRollback, remoteNodes, showRemoteNodeModal, showRemoteDetailsModal, selectedRemoteNode, remoteNodeForm, loadRemoteNodes, openAddRemoteNode, submitRemoteNode, viewRemoteNode, checkRemoteNode, confirmDeleteRemoteNode, copyText, importToLocal, isDeploying, showBatchModal, batchText, submitBatchNodes, showHistoryModal, nodeHistory, setDefaultNode, regenerateNode, loadNodeHistory, rollbackNode }
             }
         }).mount('#app');
     </script>
