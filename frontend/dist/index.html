@@ -1725,7 +1725,7 @@ window.onerror = function(msg, url, line, col, error) { alert("JS Error: " + msg
                         push_interval_seconds: parseInt(ospfController.value.push_interval_seconds, 10) || 1,
                         resolve_workers: parseInt(ospfController.value.resolve_workers, 10) || 1
                     };
-                    const res = await apiFetch('/api/ospf/settings', { method: 'POST', body: JSON.stringify(payload) });
+                    const res = await apiFetch('/api/ospf/settings?confirm=APPLY', { method: 'POST', body: JSON.stringify(payload) });
                     if (!res.ok) {
                         showToast('OSPF 推送控制保存失败', 'error');
                         return;
@@ -1748,7 +1748,7 @@ window.onerror = function(msg, url, line, col, error) { alert("JS Error: " + msg
                         showToast('请先选择管理网络和服务发布网络', 'error');
                         return;
                     }
-                    const res = await apiFetch('/api/network_config', {
+                    const res = await apiFetch('/api/network_config?confirm=APPLY', {
                         method: 'POST',
                         body: JSON.stringify(networkConfigForm.value)
                     });
@@ -2070,7 +2070,7 @@ window.onerror = function(msg, url, line, col, error) { alert("JS Error: " + msg
                     isLoading.value.apply = true;
                     isUpdating.value['apply'] = true;
                     showToast("配置已下发，服务将平滑重启...");
-                    await apiFetch('/api/apply', {method: 'POST'});
+                    await apiFetch('/api/apply?confirm=APPLY', {method: 'POST'});
                     setTimeout(() => { isUpdating.value['apply'] = false; loadData(); }, 1500);
                 };
 
@@ -2082,7 +2082,7 @@ window.onerror = function(msg, url, line, col, error) { alert("JS Error: " + msg
                     };
                     if(confirm(`确定切换至 ${descriptions[newMode]}？`)) {
                         try {
-                            const res = await apiFetch('/api/mode', { method: 'POST', body: JSON.stringify({ Mode: newMode }) });
+                            const res = await apiFetch('/api/mode?confirm=APPLY', { method: 'POST', body: JSON.stringify({ Mode: newMode }) });
                             if (!res.ok) {
                                 let msg = `切换失败: HTTP ${res.status}`;
                                 try {
@@ -2108,7 +2108,7 @@ Mode A: 全局网关 (nftables)
 Mode B: 旁路由纯Fake-IP (OSPF)
 Mode C: 纯OSPF (恢复真实IP宣告)`)) {
                         try {
-                            const res = await apiFetch('/api/mode', { method: 'POST', body: JSON.stringify({ Mode: newMode }) });
+                            const res = await apiFetch('/api/mode?confirm=APPLY', { method: 'POST', body: JSON.stringify({ Mode: newMode }) });
                             if (!res.ok) {
                                 let msg = `切换失败: HTTP ${res.status}`;
                                 try {
