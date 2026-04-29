@@ -18,17 +18,17 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-type NodesController struct{}
+type NodesController struct{ repo *NodesRepository }
 
-func NewNodesController() *NodesController { return &NodesController{} }
+func NewNodesController(repo *NodesRepository) *NodesController { return &NodesController{repo: repo} }
 
 func (ctl *NodesController) RegisterRoutes(api *gin.RouterGroup) {
 	api.GET("/nodes", func(c *gin.Context) {
 		var defNodeStr string
-		db.QueryRow("SELECT value FROM settings WHERE key='default_node_id'").Scan(&defNodeStr)
+		defNodeStr, _ = ctl.repo.GetDefaultNodeID()
 		defNodeId, _ := strconv.Atoi(defNodeStr)
 
-		rows, err := db.Query("SELECT id, name, grp, type, address, port, uuid, active, ping, COALESCE(params, '{}') FROM nodes")
+		rows, err := ctl.repo.ListNodes()
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "db query error"})
 			return
@@ -81,7 +81,7 @@ func (ctl *NodesController) RegisterRoutes(api *gin.RouterGroup) {
 	})
 
 	api.PUT("/nodes/:id/default", func(c *gin.Context) {
-		db.Exec("INSERT OR REPLACE INTO settings (key, value) VALUES ('default_node_id', ?)", c.Param("id"))
+		_ = ctl.repo.SetDefaultNodeID(c.Param("id"))
 		if err := applyNodeChangeDynamically(); err != nil {
 			log.Printf("[WARN] dynamic default node apply failed, fallback to scheduled apply: %v", err)
 			scheduleApplyFallbackIfRuntimeReady(false)
@@ -101,7 +101,7 @@ func (ctl *NodesController) RegisterRoutes(api *gin.RouterGroup) {
 		if n.Params == "" {
 			n.Params = "{}"
 		}
-		if _, err := db.Exec("INSERT INTO nodes (name, grp, type, address, port, uuid, params, active) VALUES (?, ?, ?, ?, ?, ?, ?, 1)", n.Name, n.Group, n.Type, n.Address, n.Port, n.UUID, n.Params); err != nil {
+		if err := ctl.repo.InsertNode(n.Name, n.Group, n.Type, n.Address, n.Port, n.UUID, n.Params); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "db error"})
 			return
 		}
@@ -180,7 +180,7 @@ func (ctl *NodesController) RegisterRoutes(api *gin.RouterGroup) {
 					c.JSON(http.StatusInternalServerError, gin.H{"error": "Marshal vmess params failed"})
 					return
 				}
-				if _, err := db.Exec("INSERT INTO nodes (name, grp, type, address, port, uuid, params, active) VALUES (?, 'Imported', 'Vmess', ?, ?, ?, ?, 1)", v.Ps, v.Add, portInt, v.Id, string(vmessParamsJson)); err != nil {
+				if err := ctl.repo.InsertNode(v.Ps, "Imported", "Vmess", v.Add, portInt, v.Id, string(vmessParamsJson)); err != nil {
 					c.JSON(http.StatusInternalServerError, gin.H{"error": "db error"})
 					return
 				}
@@ -251,7 +251,7 @@ func (ctl *NodesController) RegisterRoutes(api *gin.RouterGroup) {
 						return
 					}
 
-					if _, err := db.Exec("INSERT INTO nodes (name, grp, type, address, port, uuid, params, active) VALUES (?, 'Imported', 'Vless', ?, ?, ?, ?, 1)", alias, host, portInt, uuid, string(paramsJson)); err != nil {
+					if err := ctl.repo.InsertNode(alias, "Imported", "Vless", host, portInt, uuid, string(paramsJson)); err != nil {
 						c.JSON(http.StatusInternalServerError, gin.H{"error": "db error"})
 						return
 					}
@@ -311,7 +311,7 @@ func (ctl *NodesController) RegisterRoutes(api *gin.RouterGroup) {
 				}
 
 				paramsJson, _ := json.Marshal(params)
-				if _, err := db.Exec("INSERT INTO nodes (name, grp, type, address, port, uuid, params, active) VALUES (?, 'Imported', 'Wireguard', ?, ?, '', ?, 1)", alias, host, portInt, string(paramsJson)); err != nil {
+				if err := ctl.repo.InsertNode(alias, "Imported", "Wireguard", host, portInt, "", string(paramsJson)); err != nil {
 					c.JSON(http.StatusInternalServerError, gin.H{"error": "db error"})
 					return
 				}
@@ -327,7 +327,7 @@ func (ctl *NodesController) RegisterRoutes(api *gin.RouterGroup) {
 	})
 
 	api.POST("/nodes/ping", func(c *gin.Context) {
-		rows, err := db.Query("SELECT id, type, address, port FROM nodes")
+		rows, err := ctl.repo.ListPingTargets()
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "db query error"})
 			return
@@ -388,7 +388,7 @@ func (ctl *NodesController) RegisterRoutes(api *gin.RouterGroup) {
 					}
 				}
 
-				if _, err := db.Exec("UPDATE nodes SET ping=? WHERE id=?", ping, nid); err != nil {
+				if err := ctl.repo.UpdateNodePing(nid, ping); err != nil {
 					log.Printf("[WARN] update node ping failed id=%d err=%v", nid, err)
 				}
 			}(id, ntype, address, port)
@@ -419,7 +419,7 @@ func (ctl *NodesController) RegisterRoutes(api *gin.RouterGroup) {
 		if n.Params == "" {
 			n.Params = "{}"
 		}
-		if _, err := db.Exec("UPDATE nodes SET name=?, grp=?, type=?, address=?, port=?, uuid=?, params=? WHERE id=?", n.Name, n.Group, n.Type, n.Address, n.Port, n.UUID, n.Params, c.Param("id")); err != nil {
+		if err := ctl.repo.UpdateNodeByID(c.Param("id"), n.Name, n.Group, n.Type, n.Address, n.Port, n.UUID, n.Params); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "db error"})
 			return
 		}
@@ -432,7 +432,7 @@ func (ctl *NodesController) RegisterRoutes(api *gin.RouterGroup) {
 
 	api.DELETE("/nodes/:id", func(c *gin.Context) {
 		removedTag := nodeIDToTag(c.Param("id"))
-		if _, err := db.Exec("DELETE FROM nodes WHERE id=?", c.Param("id")); err != nil {
+		if err := ctl.repo.DeleteNodeByID(c.Param("id")); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "db error"})
 			return
 		}
@@ -444,7 +444,7 @@ func (ctl *NodesController) RegisterRoutes(api *gin.RouterGroup) {
 	})
 
 	api.PUT("/nodes/:id/toggle", func(c *gin.Context) {
-		if _, err := db.Exec("UPDATE nodes SET active = NOT active WHERE id=?", c.Param("id")); err != nil {
+		if err := ctl.repo.ToggleNodeByID(c.Param("id")); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "db error"})
 			return
 		}
