@@ -78,6 +78,7 @@ func registerAPIRoutes(r *gin.Engine) {
 			c.JSON(http.StatusOK, gin.H{
 				"success": true,
 				"dry_run": true,
+				"action":  "apply_config",
 				"plan": gin.H{
 					"mosdns":       applyMosdns,
 					"xray":         applyXray,

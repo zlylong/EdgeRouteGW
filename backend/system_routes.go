@@ -116,13 +116,24 @@ func requireHighRiskMutationGuard(c *gin.Context, action string) bool {
 		confirm = strings.TrimSpace(c.Query("confirm"))
 	}
 	if confirm != "APPLY" {
+		path := c.FullPath()
+		if path == "" {
+			path = c.Request.URL.Path
+		}
 		logGatewayEvent("warn", "api", "high_risk_guard_blocked", "high risk mutation blocked by confirm guard", map[string]interface{}{
 			"source_ip": c.ClientIP(),
 			"method":    c.Request.Method,
-			"path":      c.FullPath(),
+			"path":      path,
 			"action":    action,
 		})
-		c.JSON(http.StatusForbidden, gin.H{"success": false, "error": "high-risk mutation requires confirmation", "hint": "set header X-ProxyGW-Confirm: APPLY or query ?confirm=APPLY"})
+		c.JSON(http.StatusForbidden, gin.H{
+			"success":    false,
+			"error":      "high-risk mutation requires confirmation",
+			"error_code": "HIGH_RISK_CONFIRM_REQUIRED",
+			"action":     action,
+			"path":       path,
+			"hint":       "set header X-ProxyGW-Confirm: APPLY or query ?confirm=APPLY",
+		})
 		return false
 	}
 	return true
@@ -384,7 +395,7 @@ func registerSystemRoutes(api *gin.RouterGroup) {
 			return
 		}
 		if isDryRun(c) {
-			c.JSON(http.StatusOK, gin.H{"success": true, "dry_run": true, "planned": gin.H{"management_iface": req.ManagementIface, "service_iface": req.ServiceIface, "actions": []string{"update settings.management_iface", "update settings.service_iface", "syncFRRConfig"}}})
+			c.JSON(http.StatusOK, gin.H{"success": true, "dry_run": true, "action": "network_config", "plan": gin.H{"management_iface": req.ManagementIface, "service_iface": req.ServiceIface, "actions": []string{"update settings.management_iface", "update settings.service_iface", "syncFRRConfig"}}})
 			return
 		}
 		if _, err := db.Exec("INSERT OR REPLACE INTO settings (key, value) VALUES ('management_iface', ?)", req.ManagementIface); err != nil {
@@ -414,7 +425,7 @@ func registerSystemRoutes(api *gin.RouterGroup) {
 			return
 		}
 		if isDryRun(c) {
-			c.JSON(http.StatusOK, gin.H{"success": true, "dry_run": true, "planned": gin.H{"mode": req.Mode, "actions": []string{"set mode", "syncFRRConfig", "applyNftablesConfig", "applyMosdnsConfig", "applyXrayConfig", "service reconcile", "route state finalize"}}})
+			c.JSON(http.StatusOK, gin.H{"success": true, "dry_run": true, "action": "mode_switch", "plan": gin.H{"mode": req.Mode, "actions": []string{"set mode", "syncFRRConfig", "applyNftablesConfig", "applyMosdnsConfig", "applyXrayConfig", "service reconcile", "route state finalize"}}})
 			return
 		}
 		if err := applyModeChange(req.Mode); err != nil {
@@ -653,7 +664,7 @@ func registerSystemRoutes(api *gin.RouterGroup) {
 			}
 		}
 		if isDryRun(c) {
-			c.JSON(http.StatusOK, gin.H{"success": true, "dry_run": true, "planned": gin.H{"push_batch_limit": batchLimit, "push_interval_seconds": intervalSeconds, "resolve_workers": resolveWorkers, "publish_ip_allowlist": allowlist}})
+			c.JSON(http.StatusOK, gin.H{"success": true, "dry_run": true, "action": "ospf_settings", "plan": gin.H{"push_batch_limit": batchLimit, "push_interval_seconds": intervalSeconds, "resolve_workers": resolveWorkers, "publish_ip_allowlist": allowlist}})
 			return
 		}
 
