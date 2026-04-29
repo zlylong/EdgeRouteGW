@@ -48,6 +48,10 @@ func registerAPIRoutes(r *gin.Engine) {
 	registerNftablesRoutes(authed)
 
 	authed.POST("/apply", func(c *gin.Context) {
+		if !requireHighRiskMutationGuard(c, "apply_config") {
+			return
+		}
+
 		var req struct {
 			Mosdns      *bool `json:"mosdns"`
 			Xray        *bool `json:"xray"`
@@ -68,6 +72,19 @@ func registerAPIRoutes(r *gin.Engine) {
 		}
 		if req.DynamicXray != nil {
 			dynamicXray = *req.DynamicXray
+		}
+
+		if isDryRun(c) {
+			c.JSON(http.StatusOK, gin.H{
+				"success": true,
+				"dry_run": true,
+				"plan": gin.H{
+					"mosdns":       applyMosdns,
+					"xray":         applyXray,
+					"dynamic_xray": dynamicXray,
+				},
+			})
+			return
 		}
 
 		if applyMosdns {
