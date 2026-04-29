@@ -33,31 +33,6 @@ func splitRuleBatchValues(raw string) []string {
 	return values
 }
 
-func collectRuleGroups() []map[string]interface{} {
-	rows, err := db.Query(`SELECT group_id, COALESCE(NULLIF(group_name, ''), group_id) AS display_name, COUNT(*) AS rule_count FROM rules WHERE COALESCE(group_id, '') <> '' GROUP BY group_id, group_name ORDER BY MIN(id) ASC`)
-	if err != nil {
-		return []map[string]interface{}{}
-	}
-	defer rows.Close()
-	groups := make([]map[string]interface{}, 0)
-	for rows.Next() {
-		var groupID, displayName string
-		var ruleCount int
-		if err := rows.Scan(&groupID, &displayName, &ruleCount); err != nil {
-			continue
-		}
-		groups = append(groups, map[string]interface{}{
-			"group_id":   groupID,
-			"group_name": strings.TrimSpace(displayName),
-			"rule_count": ruleCount,
-		})
-	}
-	if groups == nil {
-		return []map[string]interface{}{}
-	}
-	return groups
-}
-
 func newRuleGroupID() string {
 	return fmt.Sprintf("rg-%x", time.Now().UnixNano())
 }
@@ -69,14 +44,14 @@ func rulesContainBatchSeparator(raw string) bool {
 var policySingleNodeRe = regexp.MustCompile(`^proxy-(\d+)$`)
 var policyHARe = regexp.MustCompile(`^ha-(\d+)-(\d+)$`)
 
-func validateRulePolicy(policy string) error {
+func validateRulePolicy(repo *RulesRepository, policy string) error {
 	if policy == "direct" || policy == "block" || policy == "proxy" {
 		return nil
 	}
 	if m := policySingleNodeRe.FindStringSubmatch(policy); len(m) == 2 {
 		nodeID, _ := strconv.Atoi(m[1])
-		var cnt int
-		if err := db.QueryRow("SELECT COUNT(*) FROM nodes WHERE id=?", nodeID).Scan(&cnt); err != nil {
+		cnt, err := repo.CountNodeByID(nodeID)
+		if err != nil {
 			return fmt.Errorf("invalid policy")
 		}
 		if cnt == 0 {
@@ -90,8 +65,8 @@ func validateRulePolicy(policy string) error {
 		if aID == bID {
 			return fmt.Errorf("invalid policy: HA nodes must be different")
 		}
-		var cnt int
-		if err := db.QueryRow("SELECT COUNT(*) FROM nodes WHERE id IN (?,?)", aID, bID).Scan(&cnt); err != nil {
+		cnt, err := repo.CountNodesByIDs(aID, bID)
+		if err != nil {
 			return fmt.Errorf("invalid policy")
 		}
 		if cnt != 2 {
@@ -102,9 +77,16 @@ func validateRulePolicy(policy string) error {
 	return fmt.Errorf("invalid policy")
 }
 
-type RulesController struct{}
+type RulesController struct {
+	repo *RulesRepository
+}
 
-func NewRulesController() *RulesController { return &RulesController{} }
+func NewRulesController(repo *RulesRepository) *RulesController {
+	if repo == nil {
+		repo = NewRulesRepository()
+	}
+	return &RulesController{repo: repo}
+}
 
 func (ctl *RulesController) RegisterRoutes(api *gin.RouterGroup) {
 	api.GET("/rules/categories", func(c *gin.Context) {
@@ -190,36 +172,12 @@ func (ctl *RulesController) RegisterRoutes(api *gin.RouterGroup) {
 
 	api.GET("/rules", func(c *gin.Context) {
 		groupFilter := strings.TrimSpace(c.Query("group_id"))
-		query := "SELECT id, type, value, policy, COALESCE(group_id, ''), COALESCE(group_name, '') FROM rules"
-		args := make([]interface{}, 0, 1)
-		if groupFilter != "" {
-			query += " WHERE COALESCE(group_id, '') = ?"
-			args = append(args, groupFilter)
-		}
-		query += " ORDER BY id ASC"
-		rows, err := db.Query(query, args...)
+		rules, err := ctl.repo.ListRules(groupFilter)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "db query error"})
 			return
 		}
-		defer rows.Close()
-		var rules []map[string]interface{}
-		for rows.Next() {
-			var id int
-			var rtype, value, policy, groupID, groupName string
-			if err := rows.Scan(&id, &rtype, &value, &policy, &groupID, &groupName); err != nil {
-				continue
-			}
-			rules = append(rules, map[string]interface{}{"id": id, "type": rtype, "value": value, "policy": policy, "group_id": groupID, "group_name": groupName})
-		}
-		if err := rows.Err(); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "db rows error"})
-			return
-		}
-		if rules == nil {
-			rules = make([]map[string]interface{}, 0)
-		}
-		c.JSON(http.StatusOK, gin.H{"rules": rules, "groups": collectRuleGroups()})
+		c.JSON(http.StatusOK, gin.H{"rules": rules, "groups": ctl.repo.CollectRuleGroups()})
 	})
 
 	api.POST("/rules", func(c *gin.Context) {
@@ -297,7 +255,7 @@ func (ctl *RulesController) RegisterRoutes(api *gin.RouterGroup) {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid ip/cidr rule value"})
 			return
 		}
-		if err := validateRulePolicy(r.Policy); err != nil {
+		if err := validateRulePolicy(ctl.repo, r.Policy); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
 		}
@@ -346,12 +304,11 @@ func (ctl *RulesController) RegisterRoutes(api *gin.RouterGroup) {
 			return
 		}
 		payload.GroupName = strings.TrimSpace(payload.GroupName)
-		res, err := db.Exec("UPDATE rules SET group_name=? WHERE group_id=?", payload.GroupName, groupID)
+		affected, err := ctl.repo.UpdateRuleGroupName(groupID, payload.GroupName)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "db error"})
 			return
 		}
-		affected, _ := res.RowsAffected()
 		if affected == 0 {
 			c.JSON(http.StatusNotFound, gin.H{"error": "group not found"})
 			return
@@ -365,17 +322,16 @@ func (ctl *RulesController) RegisterRoutes(api *gin.RouterGroup) {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "group_id required"})
 			return
 		}
-		var domainCount int
-		if err := db.QueryRow("SELECT COUNT(*) FROM rules WHERE group_id=? AND type='domain'", groupID).Scan(&domainCount); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "db error"})
-			return
-		}
-		res, err := db.Exec("DELETE FROM rules WHERE group_id=?", groupID)
+		domainCount, err := ctl.repo.CountDomainRulesInGroup(groupID)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "db error"})
 			return
 		}
-		affected, _ := res.RowsAffected()
+		affected, err := ctl.repo.DeleteRulesByGroupID(groupID)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "db error"})
+			return
+		}
 		if affected == 0 {
 			c.JSON(http.StatusNotFound, gin.H{"error": "group not found"})
 			return
@@ -390,11 +346,11 @@ func (ctl *RulesController) RegisterRoutes(api *gin.RouterGroup) {
 
 	api.DELETE("/rules/:id", func(c *gin.Context) {
 		ruleID := c.Param("id")
-		var ruleType string
-		if err := db.QueryRow("SELECT type FROM rules WHERE id=?", ruleID).Scan(&ruleType); err != nil {
+		ruleType, err := ctl.repo.GetRuleTypeByID(ruleID)
+		if err != nil {
 			ruleType = ""
 		}
-		if _, err := db.Exec("DELETE FROM rules WHERE id=?", ruleID); err != nil {
+		if err := ctl.repo.DeleteRuleByID(ruleID); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "db error"})
 			return
 		}
