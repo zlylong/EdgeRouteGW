@@ -56,4 +56,14 @@ test.describe('ProxyGW Test Tools UI', () => {
         const count = await okBadges.count();
         expect(count).toBeGreaterThan(0);
     });
+
+    test('should run geo data query', async ({ page }) => {
+        const input = page.locator('input[placeholder*="geoip:cn"]');
+        await input.fill('geoip:cn');
+        await page.click('button:has-text("资产查询")');
+
+        // Check for result container
+        await expect(page.locator('text=查询结果:')).toBeVisible({ timeout: 10000 });
+        await expect(page.locator('text=规则有效')).toBeVisible();
+    });
 });
