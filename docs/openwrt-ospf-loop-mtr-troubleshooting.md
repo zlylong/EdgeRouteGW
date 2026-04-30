@@ -134,31 +134,19 @@ nft insert rule inet proxygw prerouting ip saddr 192.168.100.0/24 ip protocol ic
 
 该规则仅用于应急，问题收敛后应删除。
 
-### 最终修复（已验证，OpenWrt 侧）
+### 最终修复（按生产目标：继续使用 OSPF 发布并经 ProxyGW 代理）
 
-针对诊断目标 `1.1.1.1`，在 OpenWrt 主路由添加高优先级主机路由，强制走 WAN，避免被 OSPF 回注到 ProxyGW：
+不引入 `1.1.1.1/32` 独立静态旁路，保持 OSPF 发布路径生效。
 
-```bash
-ip route replace 1.1.1.1/32 via 192.168.20.1 dev eth0 metric 1
-ip route flush cache
-```
+已执行回退：
+- 删除 OpenWrt 上 `1.1.1.1/32 -> WAN` 的临时诊断路由与 UCI 持久化项。
+- 当前恢复为 OSPF 路径：`1.1.1.1 via 192.168.100.204 dev br-lan metric 20`。
 
-持久化（UCI）：
+验证（`192.168.100.251`）：
+- `mtr -n -r -c 5 -w -T -P 443 1.1.1.1`：可达（0% 丢包）。
+- ProxyGW `nft prerouting` 的 `proxy_default_v4` 计数在压测后显著增长，证明客户端流量确实进入 ProxyGW 并被 TProxy 接管。
 
-```bash
-idx=$(uci add network route)
-uci set network.$idx.interface='wan'
-uci set network.$idx.target='1.1.1.1'
-uci set network.$idx.netmask='255.255.255.255'
-uci set network.$idx.gateway='192.168.20.1'
-uci set network.$idx.metric='1'
-uci commit network
-/etc/init.d/network reload
-```
-
-现场回归（`192.168.100.251`）：
-- `mtr -n -r -c 8 -w 1.1.1.1`：不再出现 `192.168.100.1 <-> 192.168.100.204` 往返，恢复公网路径。
-- `mtr -n -r -c 8 -w -T -P 443 1.1.1.1`：保持可达，业务路径正常。
+> 说明：默认 ICMP `mtr` 在该拓扑下会出现 `192.168.100.1 <-> 192.168.100.204` 诊断回注现象，这不代表 TCP/UDP 代理业务异常。生产可用性判定请以 TCP/UDP 流量与代理计数器为准。
 
 ## 6) 运维建议
 
