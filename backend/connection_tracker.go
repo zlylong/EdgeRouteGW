@@ -450,8 +450,12 @@ func registerConnectionRoutes(r *gin.RouterGroup) {
 
 		var filtered []ConnectionRecord
 		for _, conn := range allConns {
-			if queryIP != "" && !strings.Contains(strings.ToLower(conn.Client), queryIP) {
-				continue
+			if queryIP != "" {
+				clientHit := strings.Contains(strings.ToLower(conn.Client), queryIP)
+				targetHit := strings.Contains(strings.ToLower(conn.Target), queryIP)
+				if !clientHit && !targetHit {
+					continue
+				}
 			}
 			if serviceCIDR != nil {
 				clientIP := clientIPFromConnClient(conn.Client)
