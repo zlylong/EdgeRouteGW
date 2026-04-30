@@ -38,7 +38,7 @@ if [ ! -d "$REPO_DIR/.git" ]; then
     echo "[0/6] Cloning EdgeRouteGW repository..."
     apt-get update >/dev/null 2>&1 || true
     apt-get install -y git >/dev/null 2>&1 || true
-    git clone https://github.com/zlylong/proxygw.git "$REPO_DIR"
+    git clone https://github.com/zlylong/EdgeRouteGW.git "$REPO_DIR"
 fi
 
 # Switch to repo dir before proceeding
@@ -147,9 +147,9 @@ if [ -z "$PROXYGW_LATEST" ]; then
     PROXYGW_LATEST="v1.7.1"
 fi
 if [ "$ARCH" = "x86_64" ]; then
-    wget -q -4 -O "$REPO_DIR/backend/proxygw-backend" "https://github.com/zlylong/proxygw/releases/download/${PROXYGW_LATEST}/proxygw-backend-linux-amd64"
+    wget -q -4 -O "$REPO_DIR/backend/proxygw-backend" "https://github.com/zlylong/EdgeRouteGW/releases/download/${PROXYGW_LATEST}/proxygw-backend-linux-amd64"
 elif [ "$ARCH" = "aarch64" ]; then
-    wget -q -4 -O "$REPO_DIR/backend/proxygw-backend" "https://github.com/zlylong/proxygw/releases/download/${PROXYGW_LATEST}/proxygw-backend-linux-arm64"
+    wget -q -4 -O "$REPO_DIR/backend/proxygw-backend" "https://github.com/zlylong/EdgeRouteGW/releases/download/${PROXYGW_LATEST}/proxygw-backend-linux-arm64"
 fi
 chmod +x "$REPO_DIR/backend/proxygw-backend"
 

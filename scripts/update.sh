@@ -46,9 +46,9 @@ fi
 
 echo "Using release tag: $PROXYGW_LATEST"
 if [ "$ARCH" = "x86_64" ]; then
-    wget -q -4 -O "$TMP_BACKEND" "https://github.com/zlylong/proxygw/releases/download/${PROXYGW_LATEST}/proxygw-backend-linux-amd64"
+    wget -q -4 -O "$TMP_BACKEND" "https://github.com/zlylong/EdgeRouteGW/releases/download/${PROXYGW_LATEST}/proxygw-backend-linux-amd64"
 elif [ "$ARCH" = "aarch64" ]; then
-    wget -q -4 -O "$TMP_BACKEND" "https://github.com/zlylong/proxygw/releases/download/${PROXYGW_LATEST}/proxygw-backend-linux-arm64"
+    wget -q -4 -O "$TMP_BACKEND" "https://github.com/zlylong/EdgeRouteGW/releases/download/${PROXYGW_LATEST}/proxygw-backend-linux-arm64"
 fi
 chmod +x "$TMP_BACKEND"
 mv "$TMP_BACKEND" "$REPO_DIR/backend/proxygw-backend"
