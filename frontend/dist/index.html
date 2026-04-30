@@ -272,13 +272,12 @@
                                             <th class="p-3 border-b text-sm font-semibold text-gray-600">局域网客户端</th>
                                             <th class="p-3 border-b text-sm font-semibold text-gray-600">协议</th>
                                             <th class="p-3 border-b text-sm font-semibold text-gray-600">目标地址</th>
-                                            <th class="p-3 border-b text-sm font-semibold text-gray-600">规则编号</th>
                                             <th class="p-3 border-b text-sm font-semibold text-gray-600">规则匹配值</th>
                                         </tr>
                                     </thead>
                                     <tbody class="text-sm divide-y divide-gray-100">
                                         <tr v-if="filteredConnections.length === 0">
-                                            <td colspan="6" class="p-8 text-center text-gray-400">暂无连接数据...</td>
+                                            <td colspan="5" class="p-8 text-center text-gray-400">暂无连接数据...</td>
                                         </tr>
                                         <tr v-for="(conn, idx) in filteredConnections" :key="idx" class="hover:bg-blue-50 transition-colors">
                                             <td class="p-3 text-gray-500 font-mono text-xs">{{ conn.time }}</td>
@@ -290,13 +289,8 @@
                                                 </span>
                                             </td>
                                             <td class="p-3 text-gray-700 font-mono">{{ conn.target }}</td>
-                                            <td class="p-3 text-blue-600 font-mono text-xs">
-                                                <a v-if="conn.rule_id" href="#" @click.prevent="goToRule(conn.rule_id)" class="hover:underline">#{{ conn.rule_id }}</a>
-                                                <span v-else>-</span>
-                                            </td>
                                             <td class="p-3 text-gray-500 font-mono text-xs">
-                                                <a v-if="conn.rule_id && conn.match_value" href="#" @click.prevent="goToRule(conn.rule_id)" class="font-bold text-gray-700 hover:underline">{{ conn.match_value }}</a>
-                                                <div v-else class="font-bold text-gray-700">{{ conn.match_value || "-" }}</div>
+                                                <div class="font-bold text-gray-700">{{ conn.match_value || "-" }}</div>
                                                 <div v-if="!conn.rule_id && conn.unmatched_reason" class="text-[10px] text-amber-600">未关联原因: {{ conn.unmatched_reason }}</div>
                                                 <div v-if="conn.policy" class="text-[10px] text-gray-400">绑定策略: {{ conn.policy }}</div>
                                             </td>
@@ -794,7 +788,6 @@ PersistentKeepalive = 25
                             <table class="min-w-full divide-y divide-gray-200">
                                 <thead class="bg-gray-50">
                                     <tr>
-                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">编号</th>
                                         <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">优先级</th>
                                         <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">规则类别</th>
                                         <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">匹配值</th>
@@ -806,7 +799,6 @@ PersistentKeepalive = 25
                                 </thead>
                                 <tbody class="bg-white divide-y divide-gray-200">
                                     <tr v-for="rule in filteredRules" :key="rule.id">
-                                        <td class="px-6 py-4 whitespace-nowrap font-mono text-sm text-gray-500">#{{ rule.id }}</td>
                                         <td class="px-6 py-4 whitespace-nowrap font-mono text-sm text-gray-500">{{ rule.priority ?? 0 }}</td>
                                         <td class="px-6 py-4 whitespace-nowrap font-mono text-sm">{{ rule.type }}</td>
                                         <td class="px-6 py-4 whitespace-nowrap font-mono text-sm">{{ rule.value }}</td>
@@ -835,7 +827,7 @@ PersistentKeepalive = 25
                                             <button @click="deleteRule(rule.id)" class="text-red-600 hover:text-red-900">删除</button>
                                         </td>
                                     </tr>
-                                    <tr v-if="filteredRules.length === 0"><td colspan="8" class="px-6 py-4 text-center text-gray-500">暂无规则数据</td></tr>
+                                    <tr v-if="filteredRules.length === 0"><td colspan="7" class="px-6 py-4 text-center text-gray-500">暂无规则数据</td></tr>
                                 </tbody>
                             </table>
                         </div>
