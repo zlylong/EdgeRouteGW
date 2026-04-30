@@ -448,17 +448,11 @@ func registerConnectionRoutes(r *gin.RouterGroup) {
 		allConns := GetRecentConnections()
 		serviceCIDR := serviceNetworkCIDR()
 
-		if ip == "" {
-			c.JSON(http.StatusOK, gin.H{
-				"success": true,
-				"data":    []ConnectionRecord{},
-			})
-			return
-		}
+		queryIP := strings.ToLower(strings.TrimSpace(ip))
 
 		var filtered []ConnectionRecord
 		for _, conn := range allConns {
-			if !strings.Contains(strings.ToLower(conn.Client), strings.ToLower(ip)) {
+			if queryIP != "" && !strings.Contains(strings.ToLower(conn.Client), queryIP) {
 				continue
 			}
 			if serviceCIDR != nil {
