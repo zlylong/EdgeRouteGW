@@ -411,16 +411,11 @@ func attachRuleMatchMeta(records []ConnectionRecord) []ConnectionRecord {
 
 func serviceNetworkCIDR() *net.IPNet {
 	ensureDefaultNetworkRoleSettings()
-	options := listPrivateIPv4Interfaces()
-	_, serviceIface := loadNetworkRoleSettings()
-	serviceNetwork, ok := findNetworkByIface(options, serviceIface)
-	if !ok {
-		if len(options) == 0 {
-			return nil
-		}
-		serviceNetwork = options[0]
+	_, subnet := getPrimaryLANIPAndSubnet()
+	if strings.TrimSpace(subnet) == "" {
+		return nil
 	}
-	_, cidr, err := net.ParseCIDR(strings.TrimSpace(serviceNetwork.Subnet))
+	_, cidr, err := net.ParseCIDR(strings.TrimSpace(subnet))
 	if err != nil {
 		return nil
 	}
