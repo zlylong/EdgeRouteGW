@@ -1280,7 +1280,7 @@ PersistentKeepalive = 25
     <script>
 window.onerror = function(msg, url, line, col, error) { alert("JS Error: " + msg + " at line " + line); };
 
-        const { createApp, ref, computed, onMounted, watch } = Vue;
+        const { createApp, ref, computed, onMounted, watch, nextTick } = Vue;
 
         createApp({
             setup() {
@@ -1291,6 +1291,12 @@ window.onerror = function(msg, url, line, col, error) { alert("JS Error: " + msg
                 const syslogs = ref({ proxygw: '', xray: '', mosdns: '', alerts: '', nft: '' });
                 const currentLogTab = ref('proxygw');
                 const syslogsContainer = ref(null);
+                const scrollToBottom = () => {
+                    if (syslogsContainer.value) {
+                        syslogsContainer.value.scrollTop = syslogsContainer.value.scrollHeight;
+                    }
+                };
+
 
                 const fetchSyslogs = async (service) => {
                     try {
@@ -1307,7 +1313,9 @@ window.onerror = function(msg, url, line, col, error) { alert("JS Error: " + msg
                             if (res.ok) {
                                 const data = await res.json();
                                 if (data.success && Array.isArray(data.events)) {
-                                    syslogs.value.alerts = data.events.map(ev => `[${ev.ts}] [${String(ev.level || '').toUpperCase()}] [${ev.module}/${ev.event_type}] ${ev.message}${ev.trace_id ? ' trace=' + ev.trace_id : ''}${ev.path ? ' path=' + ev.path : ''}${ev.status ? ' status=' + ev.status : ''}${ev.duration_ms ? ' cost=' + ev.duration_ms + 'ms' : ''}${ev.details ? ' details=' + ev.details : ''}`).join('\n');
+                                    // Alerts (Gateway Events) are queried DESC from DB, but we reverse them here to show new logs at the bottom
+                                    syslogs.value.alerts = data.events.reverse().map(ev => `[${ev.ts}] [${String(ev.level || '').toUpperCase()}] [${ev.module}/${ev.event_type}] ${ev.message}${ev.trace_id ? ' trace=' + ev.trace_id : ''}${ev.path ? ' path=' + ev.path : ''}${ev.status ? ' status=' + ev.status : ''}${ev.duration_ms ? ' cost=' + ev.duration_ms + 'ms' : ''}${ev.details ? ' details=' + ev.details : ''}`).join('\n');
+                                    nextTick(scrollToBottom);
                                 }
                             }
                         } else if (service === 'nft') {
@@ -1331,6 +1339,7 @@ window.onerror = function(msg, url, line, col, error) { alert("JS Error: " + msg
                                         lines.push(`${item.name}: packets=${item.packets} bytes=${item.bytes}`);
                                     });
                                     syslogs.value.nft = lines.join('\n');
+                                    nextTick(scrollToBottom);
                                 }
                             }
                         } else {
@@ -1339,6 +1348,7 @@ window.onerror = function(msg, url, line, col, error) { alert("JS Error: " + msg
                                 const data = await res.json();
                                 if (data.success) {
                                     syslogs.value[service] = data.logs;
+                                    nextTick(scrollToBottom);
                                 }
                             }
                         }
