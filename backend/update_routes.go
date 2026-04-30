@@ -30,14 +30,21 @@ func updateGeodata() error {
 	cmds := [][]string{
 		{"unzip", "-qo", rulesZip, "direct-list.txt", "geoip.dat", "geosite.dat", "-d", tmpDir},
 		{"cp", filepath.Join(tmpDir, "direct-list.txt"), getPath("core", "mosdns", "geosite_cn.txt")},
-		{"cp", filepath.Join(tmpDir, "geoip.dat"), getPath("core", "mosdns", "geoip.dat")},
-		{"cp", filepath.Join(tmpDir, "geosite.dat"), getPath("core", "mosdns", "geosite.dat")},
+		{"cp", filepath.Join(tmpDir, "geoip.dat"), getPath("core", "xray", "geoip.dat")},
+		{"cp", filepath.Join(tmpDir, "geosite.dat"), getPath("core", "xray", "geosite.dat")},
 	}
 	for _, c := range cmds {
 		if err := sysCmd.run(c[0], c[1:]...); err != nil {
 			return fmt.Errorf("extraction/copy failed: %v", err)
 		}
 	}
+
+	// Ensure mosdns has symlinks to xray geodata to save space and maintain consistency
+	_ = os.Remove(getPath("core", "mosdns", "geoip.dat"))
+	_ = os.Remove(getPath("core", "mosdns", "geosite.dat"))
+	_ = os.Symlink("../xray/geoip.dat", getPath("core", "mosdns", "geoip.dat"))
+	_ = os.Symlink("../xray/geosite.dat", getPath("core", "mosdns", "geosite.dat"))
+
 	if err := os.WriteFile(getPath("core", "mosdns", "geodata.ver"), []byte(tag), 0644); err != nil {
 		return fmt.Errorf("write geodata version failed: %v", err)
 	}

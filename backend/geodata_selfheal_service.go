@@ -9,6 +9,26 @@ import (
 const minHealthyGeodataSize int64 = 1024 * 1024 // 1MB
 
 func ensureGeodataHealthy() {
+	// If both xray assets are missing or too small, trigger a full bootstrap from remote
+	xrayGeoIP := getPath("core", "xray", "geoip.dat")
+	xrayGeoSite := getPath("core", "xray", "geosite.dat")
+
+	needsBootstrap := false
+	if info, err := os.Stat(xrayGeoIP); err != nil || info.Size() < minHealthyGeodataSize {
+		needsBootstrap = true
+	} else if info, err := os.Stat(xrayGeoSite); err != nil || info.Size() < minHealthyGeodataSize {
+		needsBootstrap = true
+	}
+
+	if needsBootstrap {
+		log.Printf("[INFO] geodata missing or corrupted, triggering remote bootstrap...")
+		if err := updateGeodata(); err != nil {
+			log.Printf("[ERROR] geodata bootstrap failed: %v", err)
+		} else {
+			log.Printf("[INFO] geodata bootstrap successful")
+		}
+	}
+
 	pairs := []struct {
 		name string
 		dst  string
