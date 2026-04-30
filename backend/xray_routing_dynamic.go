@@ -52,7 +52,7 @@ func getActiveNodeContext() (map[int]struct{}, int) {
 	return active, defaultID
 }
 
-func outboundTagForPolicy(policy string, active map[int]struct{}, defaultID int) string {
+func outboundTagForPolicy(policy string, active map[int]struct{}, defaultID int, strict bool) string {
 	policy = strings.TrimSpace(strings.ToLower(policy))
 	switch {
 	case policy == "direct", policy == "block":
@@ -60,7 +60,7 @@ func outboundTagForPolicy(policy string, active map[int]struct{}, defaultID int)
 	case strings.HasPrefix(policy, "proxy-"):
 		idStr := strings.TrimPrefix(policy, "proxy-")
 		id, _ := strconv.Atoi(idStr)
-		if _, ok := active[id]; ok {
+		if _, ok := active[id]; ok || strict {
 			return fmt.Sprintf("proxy-%d-out", id)
 		}
 	case strings.HasPrefix(policy, "ha-"):
@@ -73,6 +73,9 @@ func outboundTagForPolicy(policy string, active map[int]struct{}, defaultID int)
 			}
 			if _, ok := active[second]; ok {
 				return fmt.Sprintf("proxy-%d-out", second)
+			}
+			if strict {
+				return fmt.Sprintf("proxy-%d-out", first)
 			}
 		}
 	case policy == "proxy":
@@ -91,6 +94,9 @@ func syncXrayRoutingRulesDynamically() error {
 		mode = "A"
 	}
 	active, defaultID := getActiveNodeContext()
+	var failoverMode string
+	_ = db.QueryRow("SELECT value FROM settings WHERE key='node_failover_mode'").Scan(&failoverMode)
+	strictFailover := normalizeNodeFailoverMode(strings.TrimSpace(strings.ToLower(failoverMode))) == "strict"
 	cfg := map[string]interface{}{
 		"routing": map[string]interface{}{
 			"domainStrategy": "IPIfNonMatch",
@@ -119,7 +125,7 @@ func syncXrayRoutingRulesDynamically() error {
 		rule := map[string]interface{}{
 			"type":        "field",
 			"ruleTag":     fmt.Sprintf("db-rule-%d", id),
-			"outboundTag": outboundTagForPolicy(policy, active, defaultID),
+			"outboundTag": outboundTagForPolicy(policy, active, defaultID, strictFailover),
 		}
 		switch rtype {
 		case "domain":

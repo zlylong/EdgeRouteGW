@@ -101,7 +101,7 @@ func applyXrayConfigInternal(restart bool) error {
 	db.QueryRow("SELECT value FROM settings WHERE key='mode'").Scan(&mode)
 	config := buildBaseXrayConfig(mode)
 
-	rows, err := db.Query("SELECT id, name, type, address, port, uuid, COALESCE(params, '{}') FROM nodes WHERE active=1")
+	rows, err := db.Query("SELECT id, name, type, address, port, uuid, COALESCE(params, '{}'), active FROM nodes")
 	if err != nil {
 		return err
 	}
@@ -115,11 +115,14 @@ func applyXrayConfigInternal(restart bool) error {
 	for rows.Next() {
 		var name, ntype, address, uuid, paramsStr string
 		var port, id int
-		if err := rows.Scan(&id, &name, &ntype, &address, &port, &uuid, &paramsStr); err != nil {
+		var active bool
+		if err := rows.Scan(&id, &name, &ntype, &address, &port, &uuid, &paramsStr, &active); err != nil {
 			continue
 		}
 
-		activeIds = append(activeIds, id)
+		if active {
+			activeIds = append(activeIds, id)
+		}
 
 		ntypeLow := strings.ToLower(ntype)
 
@@ -294,6 +297,9 @@ func applyXrayConfigInternal(restart bool) error {
 	if err := db.QueryRow("SELECT value FROM settings WHERE key='lan_default_policy'").Scan(&defaultPolicy); err != nil || strings.TrimSpace(defaultPolicy) == "" {
 		defaultPolicy = "proxy"
 	}
+	var failoverMode string
+	_ = db.QueryRow("SELECT value FROM settings WHERE key='node_failover_mode'").Scan(&failoverMode)
+	strictFailover := normalizeNodeFailoverMode(strings.TrimSpace(strings.ToLower(failoverMode))) == "strict"
 	catchAllRule := map[string]interface{}{
 		"type":    "field",
 		"network": "tcp,udp",
@@ -402,6 +408,9 @@ func applyXrayConfigInternal(restart bool) error {
 		if ot, ok := r["outboundTag"].(string); ok {
 			if strings.HasPrefix(ot, "proxy-") || ot == "proxy" {
 				if _, exists := validOutbounds[ot]; !exists {
+					if strictFailover {
+						continue
+					}
 					delete(r, "balancerTag")
 					r["outboundTag"] = "direct"
 				}
@@ -409,6 +418,9 @@ func applyXrayConfigInternal(restart bool) error {
 		}
 		if bt, ok := r["balancerTag"].(string); ok {
 			if _, exists := validBalancers[bt]; !exists {
+				if strictFailover {
+					continue
+				}
 				delete(r, "balancerTag")
 				r["outboundTag"] = "direct"
 			}

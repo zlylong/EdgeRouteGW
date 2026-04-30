@@ -7,7 +7,7 @@ import (
 	"testing"
 )
 
-func renderXrayConfigForFallbackTest(t *testing.T, mode, lanPolicy string) map[string]any {
+func renderXrayConfigForFallbackTest(t *testing.T, mode, lanPolicy, failoverMode string, nodeActive bool) map[string]any {
 	t.Helper()
 	tdb, _ := setupTestDB(t)
 	db = tdb
@@ -22,10 +22,17 @@ func renderXrayConfigForFallbackTest(t *testing.T, mode, lanPolicy string) map[s
 	if _, err := db.Exec(`INSERT OR REPLACE INTO settings(key,value) VALUES ('default_node_id','3')`); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := db.Exec(`INSERT OR REPLACE INTO settings(key,value) VALUES ('node_failover_mode',?)`, failoverMode); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := db.Exec(`DELETE FROM rules; INSERT INTO rules(type, value, policy) VALUES ('geosite', 'anthropic', 'proxy-3')`); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := db.Exec(`INSERT INTO nodes(id, name, grp, type, address, port, uuid, params, active, ping) VALUES (3, 'n3', 'g', 'Vless', '1.1.1.1', 443, 'u3', '{}', 1, 20)`); err != nil {
+	activeVal := 0
+	if nodeActive {
+		activeVal = 1
+	}
+	if _, err := db.Exec(`INSERT INTO nodes(id, name, grp, type, address, port, uuid, params, active, ping) VALUES (3, 'n3', 'g', 'Vless', '1.1.1.1', 443, 'u3', '{}', ?, 20)`, activeVal); err != nil {
 		t.Fatal(err)
 	}
 
@@ -61,7 +68,7 @@ func renderXrayConfigForFallbackTest(t *testing.T, mode, lanPolicy string) map[s
 }
 
 func TestApplyXrayConfigModeADefaultFallbackDirect(t *testing.T) {
-	cfg := renderXrayConfigForFallbackTest(t, "A", "proxy")
+	cfg := renderXrayConfigForFallbackTest(t, "A", "proxy", "normal", true)
 	rules := cfg["routing"].(map[string]any)["rules"].([]any)
 	last := rules[len(rules)-1].(map[string]any)
 	if last["ruleTag"] != "default-fallback" {
@@ -79,7 +86,7 @@ func TestApplyXrayConfigModeADefaultFallbackDirect(t *testing.T) {
 }
 
 func TestApplyXrayConfigModeBFallbackRespectsProxyPolicy(t *testing.T) {
-	cfg := renderXrayConfigForFallbackTest(t, "B", "proxy")
+	cfg := renderXrayConfigForFallbackTest(t, "B", "proxy", "normal", true)
 	rules := cfg["routing"].(map[string]any)["rules"].([]any)
 	last := rules[len(rules)-1].(map[string]any)
 	if last["ruleTag"] != "default-fallback" {
@@ -87,6 +94,31 @@ func TestApplyXrayConfigModeBFallbackRespectsProxyPolicy(t *testing.T) {
 	}
 	if last["outboundTag"] != "proxy-3-out" {
 		t.Fatalf("mode B fallback outboundTag want proxy-3-out got %#v", last["outboundTag"])
+	}
+}
+
+func TestApplyXrayConfigStrictModeKeepsProxyWhenNodeInactive(t *testing.T) {
+	cfg := renderXrayConfigForFallbackTest(t, "B", "proxy", "strict", false)
+	rules := cfg["routing"].(map[string]any)["rules"].([]any)
+	matched := false
+	for _, raw := range rules {
+		r, ok := raw.(map[string]any)
+		if !ok {
+			continue
+		}
+		domainRaw, ok := r["domain"].([]any)
+		if !ok || len(domainRaw) == 0 {
+			continue
+		}
+		if domainRaw[0] == "geosite:anthropic" {
+			matched = true
+			if r["outboundTag"] != "proxy-3-out" {
+				t.Fatalf("strict mode should keep proxy-3-out, got %#v", r["outboundTag"])
+			}
+		}
+	}
+	if !matched {
+		t.Fatalf("expected geosite:anthropic rule in routing rules")
 	}
 }
 
@@ -104,7 +136,7 @@ func findRuleByTag(rules []any, tag string) (map[string]any, int) {
 }
 
 func TestApplyXrayConfigNoModeAQuicXrayRule(t *testing.T) {
-	cfg := renderXrayConfigForFallbackTest(t, "A", "proxy")
+	cfg := renderXrayConfigForFallbackTest(t, "A", "proxy", "normal", true)
 	rules := cfg["routing"].(map[string]any)["rules"].([]any)
 	if r, _ := findRuleByTag(rules, "mode-a-disable-quic"); r != nil {
 		t.Fatalf("mode A should not include mode-a-disable-quic in xray routing: %#v", r)

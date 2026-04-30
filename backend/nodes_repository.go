@@ -12,6 +12,18 @@ func (r *NodesRepository) GetDefaultNodeID() (string, error) {
 	return value, err
 }
 
+func (r *NodesRepository) GetNodeFailoverMode() (string, error) {
+	var value string
+	err := db.QueryRow("SELECT value FROM settings WHERE key='node_failover_mode'").Scan(&value)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return "normal", nil
+		}
+		return "", err
+	}
+	return normalizeNodeFailoverMode(value), nil
+}
+
 func (r *NodesRepository) ListNodes() (*sql.Rows, error) {
 	return db.Query("SELECT id, name, grp, type, address, port, uuid, active, ping, COALESCE(params, '{}') FROM nodes")
 }
@@ -19,6 +31,18 @@ func (r *NodesRepository) ListNodes() (*sql.Rows, error) {
 func (r *NodesRepository) SetDefaultNodeID(id string) error {
 	_, err := db.Exec("INSERT OR REPLACE INTO settings (key, value) VALUES ('default_node_id', ?)", id)
 	return err
+}
+
+func (r *NodesRepository) SetNodeFailoverMode(mode string) error {
+	_, err := db.Exec("INSERT OR REPLACE INTO settings (key, value) VALUES ('node_failover_mode', ?)", normalizeNodeFailoverMode(mode))
+	return err
+}
+
+func normalizeNodeFailoverMode(mode string) string {
+	if mode == "strict" {
+		return "strict"
+	}
+	return "normal"
 }
 
 func (r *NodesRepository) InsertNode(name, groupName, nodeType, address string, port int, uuid, params string) error {

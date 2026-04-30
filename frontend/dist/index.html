@@ -397,12 +397,24 @@
                     <!-- Nodes -->
 
                     <div v-if="activeTab === 'nodes'" key="nodes">
-                        <div class="flex justify-between mb-4">
+                        <div class="flex justify-between mb-4 items-start gap-4">
                             <div class="space-x-2">
                                 <button @click="importNodeUrl" class="bg-blue-600 text-white px-4 py-2 rounded shadow hover:bg-blue-700"><i class="fa-solid fa-link mr-2"></i>一键 URL 导入</button>
                                 <button @click="openAddNode" class="bg-gray-200 text-gray-700 px-4 py-2 rounded shadow hover:bg-gray-300"><i class="fa-solid fa-plus mr-2"></i>手动添加</button>
                             </div>
-                            <button @click="pingNodes" class="bg-green-600 text-white px-4 py-2 rounded shadow hover:bg-green-700"><i class="fa-solid fa-bolt mr-2"></i>TCPing 测速</button>
+                            <div class="flex items-center gap-2">
+                                <div class="text-right mr-2">
+                                    <div class="text-xs text-gray-500">节点失效回退模式</div>
+                                    <div class="text-xs" :class="nodeFailoverMode==='strict' ? 'text-orange-600' : 'text-gray-500'">
+                                        {{ nodeFailoverMode==='strict' ? '严格：不中断回退直连' : '普通：失效时可回退直连' }}
+                                    </div>
+                                </div>
+                                <select v-model="nodeFailoverMode" @change="saveNodeFailoverMode" class="border rounded px-2 py-2 text-sm focus:outline-blue-500">
+                                    <option value="normal">普通模式</option>
+                                    <option value="strict">严格模式</option>
+                                </select>
+                                <button @click="pingNodes" class="bg-green-600 text-white px-4 py-2 rounded shadow hover:bg-green-700"><i class="fa-solid fa-bolt mr-2"></i>TCPing 测速</button>
+                            </div>
                         </div>
                         <div class="bg-white rounded-lg shadow overflow-hidden">
                             <table class="min-w-full divide-y divide-gray-200">
@@ -1641,6 +1653,7 @@ window.onerror = function(msg, url, line, col, error) { alert("JS Error: " + msg
 
 
                 const nodes = ref([]);
+                const nodeFailoverMode = ref('normal');
 
                 const rules = ref([]);
                 const ruleGroups = ref([]);
@@ -1903,6 +1916,17 @@ window.onerror = function(msg, url, line, col, error) { alert("JS Error: " + msg
                 };
 
                 const setDefaultNode = async (id) => { await apiFetch(`/api/nodes/${id}/default`, {method: "PUT"}); showToast("已设为默认节点"); loadData(); };
+                const saveNodeFailoverMode = async () => {
+                    await apiFetch('/api/nodes/failover_mode', { method: 'PUT', body: JSON.stringify({ mode: nodeFailoverMode.value }) });
+                    showToast(nodeFailoverMode.value === 'strict' ? '已切换为严格模式' : '已切换为普通模式');
+                    loadData();
+                };
+                const loadNodeFailoverMode = async () => {
+                    const res = await apiFetch('/api/nodes/failover_mode');
+                    if (!res.ok) return;
+                    const data = await res.json().catch(() => ({}));
+                    nodeFailoverMode.value = (data && data.mode === 'strict') ? 'strict' : 'normal';
+                };
                 const loadNodeHistory = async (id) => {
                     const res = await apiFetch('/api/remote_nodes/' + id + '/history');
                     nodeHistory.value = await res.json();
@@ -2096,7 +2120,10 @@ window.onerror = function(msg, url, line, col, error) { alert("JS Error: " + msg
                     }
                     if(token.value && activeTab.value === 'lan_acls') apiFetch('/api/lan_acls').then(r=>r.json()).then(d => { lanAcls.value = d.acls || []; defaultLanPolicy.value = d.default_policy || 'proxy'; });
                     if(token.value && activeTab.value === 'protected_ips') apiFetch('/api/protected_ips').then(r=>r.json()).then(d => { protectedIps.value = d.items || []; });
-                    if(token.value && activeTab.value === 'nodes') apiFetch('/api/nodes').then(r=>r.json()).then(d => nodes.value = d);
+                    if(token.value && activeTab.value === 'nodes') {
+                        apiFetch('/api/nodes').then(r=>r.json()).then(d => nodes.value = d);
+                        loadNodeFailoverMode();
+                    }
                     if(token.value && activeTab.value === 'remote_nodes') loadRemoteNodes();
                     if(token.value && (activeTab.value === 'rules' || activeTab.value === 'geo_query')) {
                         if(activeTab.value === 'rules' && !isRuleValueEditing.value && !isRuleGroupEditing.value) loadRules();
@@ -2404,7 +2431,7 @@ Mode C: 纯OSPF (恢复真实IP宣告)`)) {
                     showAclModal, aclForm, openAddAcl, saveAcl, deleteAcl, updateLanDefault, addProtectedIp, deleteProtectedIp,
                     currentConfigTab,
                     loadData,
-                    isSubmitting, isLoading, vlessParams, cron, saveCron, networkConfigForm, networkConfigSelecting, saveNetworkConfig, showPwdModal, pwdForm, logout, changePwd, toastMsg, toastType, confirmData, doConfirm, isUpdating, token, password, login, categories, geoQuery, showGeoSuggestions, geoSuggestionIndex, filteredGeoSuggestions, handleGeoInput, handleGeoInputBlur, moveGeoSuggestion, confirmGeoSuggestionOrQuery, applyGeoSuggestion, runGeoQuery, xrayConfigStr, mosdnsConfigStr, nftablesConfigStr, frrConfigStr, loadConfigs, newRule, ruleGroups, selectedRuleGroup, ruleSearchId, filteredRules, editingRuleGroup, shortRuleGroup, describeRulePattern, ruleValuePlaceholder, ruleValidationError, handleRuleValueFocus, handleRuleValueBlur, addRule, loadRules, saveRuleGroupName, moveRule, activeTab, tabs, visibleTabs, uiMode, toggleUiMode, currentTabLabel, nodes, rules, dns, dnsLogs, ospf, ospfController, ospfControllerDirty, saveOspfController, resetOspfPending, sysStatus, applyConfig, toggleMode, changeMode, importNodeUrl, pingNodes, openAddNode, editNode, saveNode, showNodeModal, editingNode, deleteNode, toggleNode, deleteRule, deleteRuleGroup, saveDns, updateComp, showMosdnsRollbackModal, mosdnsVersions, selectedMosdnsRollbackVersion, openMosdnsRollbackModal, confirmMosdnsRollback, showRollbackModal, xrayVersions, selectedRollbackVersion, openRollbackModal, confirmRollback, remoteNodes, showRemoteNodeModal, showRemoteDetailsModal, selectedRemoteNode, remoteNodeForm, loadRemoteNodes, openAddRemoteNode, submitRemoteNode, viewRemoteNode, checkRemoteNode, confirmDeleteRemoteNode, copyText, importToLocal, isDeploying, showBatchModal, batchText, submitBatchNodes, showHistoryModal, nodeHistory, setDefaultNode, regenerateNode, loadNodeHistory, rollbackNode }
+                    isSubmitting, isLoading, vlessParams, cron, saveCron, networkConfigForm, networkConfigSelecting, saveNetworkConfig, showPwdModal, pwdForm, logout, changePwd, toastMsg, toastType, confirmData, doConfirm, isUpdating, token, password, login, categories, geoQuery, showGeoSuggestions, geoSuggestionIndex, filteredGeoSuggestions, handleGeoInput, handleGeoInputBlur, moveGeoSuggestion, confirmGeoSuggestionOrQuery, applyGeoSuggestion, runGeoQuery, xrayConfigStr, mosdnsConfigStr, nftablesConfigStr, frrConfigStr, loadConfigs, newRule, ruleGroups, selectedRuleGroup, ruleSearchId, filteredRules, editingRuleGroup, shortRuleGroup, describeRulePattern, ruleValuePlaceholder, ruleValidationError, handleRuleValueFocus, handleRuleValueBlur, addRule, loadRules, saveRuleGroupName, moveRule, activeTab, tabs, visibleTabs, uiMode, toggleUiMode, currentTabLabel, nodes, rules, dns, dnsLogs, ospf, ospfController, ospfControllerDirty, saveOspfController, resetOspfPending, sysStatus, applyConfig, toggleMode, changeMode, importNodeUrl, pingNodes, openAddNode, editNode, saveNode, showNodeModal, editingNode, deleteNode, toggleNode, deleteRule, deleteRuleGroup, saveDns, updateComp, showMosdnsRollbackModal, mosdnsVersions, selectedMosdnsRollbackVersion, openMosdnsRollbackModal, confirmMosdnsRollback, showRollbackModal, xrayVersions, selectedRollbackVersion, openRollbackModal, confirmRollback, remoteNodes, showRemoteNodeModal, showRemoteDetailsModal, selectedRemoteNode, remoteNodeForm, loadRemoteNodes, openAddRemoteNode, submitRemoteNode, viewRemoteNode, checkRemoteNode, confirmDeleteRemoteNode, copyText, importToLocal, isDeploying, showBatchModal, batchText, submitBatchNodes, showHistoryModal, nodeHistory, setDefaultNode, nodeFailoverMode, saveNodeFailoverMode, regenerateNode, loadNodeHistory, rollbackNode }
             }
         }).mount('#app');
     </script>

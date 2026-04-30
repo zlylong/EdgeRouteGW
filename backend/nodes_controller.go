@@ -23,6 +23,38 @@ type NodesController struct{ repo *NodesRepository }
 func NewNodesController(repo *NodesRepository) *NodesController { return &NodesController{repo: repo} }
 
 func (ctl *NodesController) RegisterRoutes(api *gin.RouterGroup) {
+	api.GET("/nodes/failover_mode", func(c *gin.Context) {
+		mode, err := ctl.repo.GetNodeFailoverMode()
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "db error"})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"mode": mode})
+	})
+
+	api.PUT("/nodes/failover_mode", func(c *gin.Context) {
+		var req struct {
+			Mode string `json:"mode"`
+		}
+		if c.BindJSON(&req) != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "bad request"})
+			return
+		}
+		if req.Mode != "strict" && req.Mode != "normal" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "mode must be strict or normal"})
+			return
+		}
+		if err := ctl.repo.SetNodeFailoverMode(req.Mode); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "db error"})
+			return
+		}
+		if err := applyNodeChangeDynamically(); err != nil {
+			log.Printf("[WARN] dynamic node failover mode apply failed, fallback to scheduled apply: %v", err)
+			scheduleApplyFallbackIfRuntimeReady(false)
+		}
+		c.JSON(http.StatusOK, gin.H{"success": true, "mode": normalizeNodeFailoverMode(req.Mode)})
+	})
+
 	api.GET("/nodes", func(c *gin.Context) {
 		var defNodeStr string
 		defNodeStr, _ = ctl.repo.GetDefaultNodeID()
