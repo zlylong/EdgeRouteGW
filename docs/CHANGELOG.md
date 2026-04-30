@@ -1,6 +1,13 @@
 ## [Unreleased]
 
 ### ✨ 新增 (Features)
+- 节点管理新增“节点失效回退模式”：
+  - `normal`（默认）：规则节点失效时允许回退 `direct`
+  - `strict`：规则节点失效时保持指向节点出站，不回退直连
+- 新增节点失效回退模式 API：
+  - `GET /api/nodes/failover_mode`
+  - `PUT /api/nodes/failover_mode`
+- 节点管理页新增严格/普通模式切换开关，并实时下发生效。
 - 新增数据库一键优化脚本 `scripts/db_optimize.sh`：
   - 自动备份 `proxygw.db`（时间戳命名）
   - `--index-only`：幂等创建关键索引 + `ANALYZE` + `PRAGMA optimize`

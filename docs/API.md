@@ -49,7 +49,26 @@ Base URL: `http://<host>/api`
 - POST `/nodes/import`（支持 vmess:// 与 vless://）
 - POST `/nodes/ping`
 - PUT `/nodes/:id/toggle`
+- PUT `/nodes/:id/default`
 - DELETE `/nodes/:id`
+
+### 节点失效回退模式
+
+- GET `/nodes/failover_mode`
+- PUT `/nodes/failover_mode`
+
+请求示例：
+```json
+{ "mode": "normal" }
+```
+或
+```json
+{ "mode": "strict" }
+```
+
+语义：
+- `normal`（默认）：当规则绑定的节点不可用时，允许回退到 `direct`（避免全断网）。
+- `strict`：当规则绑定的节点不可用时，不回退 `direct`，保持规则继续指向节点出站（用于“宁可失败也不直连”的场景）。
 
 ## 规则管理
 
