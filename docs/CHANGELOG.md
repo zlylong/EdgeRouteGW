@@ -35,6 +35,8 @@
 - 修复 Mode C 下 `fwmark 0x1 -> table tproxy` 规则偶发丢失导致“仅命中代理规则目标（如 1.1.1.1）不可达”的问题：后端启动后新增 TPROXY 路由策略自愈巡检（每 30 秒），发现缺失时自动补回 `ip rule` 与 `table tproxy` 本地回注路由。
 - 首页系统信息改为动态读取：显示 ProxyGW 版本（Git tag）、系统版本（`/etc/os-release`）、Xray 版本与 FRR 版本，替代硬编码文案。
 - 修复首页版本信息显示为 Unknown 的兼容性问题：系统版本改用 POSIX `. /etc/os-release` 读取；FRR 版本改为 `vtysh -c 'show version'` 提取首行，避免 `vtysh -v/--version` 在 Debian FRR 包中不支持导致的空值。
+- OSPF 邻居状态统计改为解析 `show ip ospf neighbor json` 实际结构并按 `nbrState` 计数，修复仅字符串包含判断导致的状态误报。
+- 新增 OSPF 发布策略测试：覆盖默认路由/保留地址/RFC1918 超网段拒绝，以及普通主机路由与细粒度子网允许场景。
 
 ## [1.6.15] - 2026-04-29
 ### 🚀 稳定版发布 (Stable)

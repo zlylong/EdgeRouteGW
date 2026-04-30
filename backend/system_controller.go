@@ -2,6 +2,7 @@ package main
 
 import (
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
@@ -43,7 +44,11 @@ func getCachedOspfNeighborsCount() int {
 
 	frrOut, _ := sysCmd.output("vtysh", "-c", "show ip ospf neighbor json")
 	neighborsCount := 0
-	if strings.Contains(string(frrOut), "nbrState") {
+	var payload interface{}
+	if err := json.Unmarshal(frrOut, &payload); err == nil {
+		neighborsCount = countOspfNeighborStates(payload)
+	}
+	if neighborsCount == 0 && strings.Contains(string(frrOut), "nbrState") {
 		neighborsCount = 1
 	}
 
@@ -53,6 +58,31 @@ func getCachedOspfNeighborsCount() int {
 	ospfNeighborsCacheMu.Unlock()
 
 	return neighborsCount
+}
+
+func countOspfNeighborStates(v interface{}) int {
+	switch x := v.(type) {
+	case map[string]interface{}:
+		total := 0
+		for k, child := range x {
+			if k == "nbrState" {
+				if s, ok := child.(string); ok && strings.TrimSpace(s) != "" {
+					total++
+				}
+				continue
+			}
+			total += countOspfNeighborStates(child)
+		}
+		return total
+	case []interface{}:
+		total := 0
+		for _, child := range x {
+			total += countOspfNeighborStates(child)
+		}
+		return total
+	default:
+		return 0
+	}
 }
 
 func (ctl *SystemController) HandleStatus(c *gin.Context) {
