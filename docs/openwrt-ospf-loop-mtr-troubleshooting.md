@@ -124,19 +124,41 @@ mtr -n -r -c 5 -w -T -P 443 1.1.1.1
 
 抓包证据（ProxyGW `eth1`）显示同一 ICMP Echo 序列号被重复看到，符合 OSPF 回注循环特征（仅发生在 ICMP 诊断流）。
 
-### 临时止血（ProxyGW 侧）
+### 应急止血（可选，ProxyGW 侧）
 
-在 ProxyGW 上插入 ICMP 丢弃规则，立刻打断回注环：
+若现场需要先快速打断回注，可临时插入 ICMP 丢弃：
 
 ```bash
 nft insert rule inet proxygw prerouting ip saddr 192.168.100.0/24 ip protocol icmp counter drop comment "break_icmp_loop_tmp"
 ```
 
-效果：
-- TCP 代理业务不受影响（TProxy 仍处理 `tcp/udp`）
-- ICMP `mtr` 不再出现 100.1/100.204 往返，而是快速终止于 `???`
+该规则仅用于应急，问题收敛后应删除。
 
-> 该规则是应急止血，不是最终设计。最终仍建议在主路由（OpenWrt）侧通过策略路由或测试目标静态路由避免将诊断 ICMP 送入 OSPF 回注路径。
+### 最终修复（已验证，OpenWrt 侧）
+
+针对诊断目标 `1.1.1.1`，在 OpenWrt 主路由添加高优先级主机路由，强制走 WAN，避免被 OSPF 回注到 ProxyGW：
+
+```bash
+ip route replace 1.1.1.1/32 via 192.168.20.1 dev eth0 metric 1
+ip route flush cache
+```
+
+持久化（UCI）：
+
+```bash
+idx=$(uci add network route)
+uci set network.$idx.interface='wan'
+uci set network.$idx.target='1.1.1.1'
+uci set network.$idx.netmask='255.255.255.255'
+uci set network.$idx.gateway='192.168.20.1'
+uci set network.$idx.metric='1'
+uci commit network
+/etc/init.d/network reload
+```
+
+现场回归（`192.168.100.251`）：
+- `mtr -n -r -c 8 -w 1.1.1.1`：不再出现 `192.168.100.1 <-> 192.168.100.204` 往返，恢复公网路径。
+- `mtr -n -r -c 8 -w -T -P 443 1.1.1.1`：保持可达，业务路径正常。
 
 ## 6) 运维建议
 
