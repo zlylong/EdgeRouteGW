@@ -2058,12 +2058,10 @@ window.onerror = function(msg, url, line, col, error) { alert("JS Error: " + msg
 
                 
                 const fetchConnections = async () => {
-                    if (!connSearch.value || connSearch.value.trim() === '') {
-                        connections.value = [];
-                        return;
-                    }
                     try {
-                        const res = await fetch('/api/connections?ip=' + encodeURIComponent(connSearch.value.trim()), { headers: { 'Authorization': 'Bearer ' + localStorage.getItem('token') } });
+                        const q = (connSearch.value || '').trim();
+                        const url = q ? ('/api/connections?ip=' + encodeURIComponent(q)) : '/api/connections';
+                        const res = await fetch(url, { headers: { 'Authorization': 'Bearer ' + localStorage.getItem('token') } });
                         if (res.ok) {
                             const data = await res.json();
                             if (data.success && data.data) {
