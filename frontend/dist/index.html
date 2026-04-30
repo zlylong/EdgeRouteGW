@@ -845,71 +845,7 @@ PersistentKeepalive = 25
                         </div>
                     </div>
 
-                    <!-- Geo 查询验证 -->
-                    <div v-else-if="activeTab === 'geo_query'" key="geo_query" class="space-y-6">
-                        <div class="bg-white p-6 rounded-lg shadow space-y-4">
-                            <div class="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_auto] gap-4 items-end">
-                                <div class="flex-1 relative">
-                                    <label class="block text-sm font-medium text-gray-700 mb-1">Geo 查询输入</label>
-                                    <input v-model="geoQuery.input" @focus="showGeoSuggestions = true" @blur="handleGeoInputBlur" @input="handleGeoInput" @keydown.down.prevent="moveGeoSuggestion(1)" @keydown.up.prevent="moveGeoSuggestion(-1)" @keydown.enter.prevent="confirmGeoSuggestionOrQuery" @keydown.esc.prevent="showGeoSuggestions = false" type="text" class="border border-gray-300 rounded px-3 py-2 w-full h-[42px]" placeholder="输入域名/IP，或 geoip:cn / geosite:gfw">
-                                    <div v-if="showGeoSuggestions && filteredGeoSuggestions.length" class="absolute z-20 mt-1 w-full bg-white border border-gray-200 rounded-lg shadow-lg max-h-64 overflow-y-auto">
-                                        <button type="button" v-for="(item, idx) in filteredGeoSuggestions" :key="item" @mousedown.prevent="applyGeoSuggestion(item)" :class="idx === geoSuggestionIndex ? 'bg-blue-100 text-blue-800' : 'text-gray-700 hover:bg-blue-50'" class="w-full text-left px-3 py-2 text-sm font-mono">{{ item }}</button>
-                                    </div>
-                                </div>
-                                <button @click="runGeoQuery" :disabled="geoQuery.loading" class="bg-blue-600 text-white px-4 py-2 rounded shadow hover:bg-blue-700 disabled:opacity-50 h-[42px] whitespace-nowrap">
-                                    <i v-if="geoQuery.loading" class="fas fa-spinner fa-spin mr-2"></i><i v-else class="fa-solid fa-magnifying-glass mr-2"></i>开始查询
-                                </button>
-                            </div>
-                            <div class="text-xs text-gray-500">域名/IP：查询命中 Geo 规则；Geo 规则：提取包含的域名/IP，用于验证规则是否正确。支持示例：`geosite:gfw`、`geoip:cn`。</div>
-                        </div>
-
-                        <div class="bg-white p-6 rounded-lg shadow" v-if="geoQuery.result">
-                            <div class="flex flex-col gap-2 border-b pb-3 mb-4">
-                                <div class="text-lg font-medium text-gray-800">查询结果</div>
-                                <div class="text-sm text-gray-500 font-mono">{{ geoQuery.result.input }}</div>
-                            </div>
-
-                            <div v-if="geoQuery.result.mode === 'lookup'" class="space-y-4">
-                                <div class="border rounded-lg p-4 bg-gray-50">
-                                    <div class="text-sm font-medium text-gray-700 mb-3">DNS 解析结果</div>
-                                    <div class="flex flex-wrap gap-2" v-if="(geoQuery.result.resolved_ips || []).length">
-                                        <span v-for="item in geoQuery.result.resolved_ips" :key="'resolved-' + item" class="px-2 py-1 rounded bg-slate-100 text-slate-800 text-xs font-mono">{{ item }}</span>
-                                    </div>
-                                    <div v-else class="text-sm text-gray-400">无解析结果</div>
-                                </div>
-                                <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                                    <div class="border rounded-lg p-4 bg-gray-50">
-                                        <div class="text-sm font-medium text-gray-700 mb-3">GeoIP 命中</div>
-                                        <div class="flex flex-wrap gap-2" v-if="(geoQuery.result.geoip_matches || []).length">
-                                            <span v-for="item in geoQuery.result.geoip_matches" :key="'geoip-' + item" class="px-2 py-1 rounded bg-blue-100 text-blue-800 text-xs font-mono">geoip:{{ item }}</span>
-                                        </div>
-                                        <div v-else class="text-sm text-gray-400">无匹配</div>
-                                    </div>
-                                    <div class="border rounded-lg p-4 bg-gray-50">
-                                        <div class="text-sm font-medium text-gray-700 mb-3">Geosite 命中</div>
-                                        <div class="flex flex-wrap gap-2" v-if="(geoQuery.result.geosite_matches || []).length">
-                                            <span v-for="item in geoQuery.result.geosite_matches" :key="'geosite-' + item" class="px-2 py-1 rounded bg-green-100 text-green-800 text-xs font-mono">geosite:{{ item }}</span>
-                                        </div>
-                                        <div v-else class="text-sm text-gray-400">无匹配</div>
-                                    </div>
-                                </div>
-                            </div>
-
-                            <div v-else class="space-y-4">
-                                <div class="flex flex-wrap gap-3 text-sm">
-                                    <span class="px-2 py-1 rounded bg-gray-100 text-gray-700 font-mono">{{ geoQuery.result.rule }}</span>
-                                    <span class="px-2 py-1 rounded text-xs font-bold" :class="geoQuery.result.exists ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'">{{ geoQuery.result.exists ? '规则有效' : '规则不存在' }}</span>
-                                    <span class="px-2 py-1 rounded bg-blue-50 text-blue-700 text-xs">共 {{ geoQuery.result.count || 0 }} 条</span>
-                                </div>
-                                <div class="border rounded-lg bg-[#1e1e1e] text-[#d1fae5] font-mono text-xs p-4 overflow-y-auto" style="min-height: 16rem; max-height: 40rem; white-space: pre-wrap;">
-                                    <template v-if="(geoQuery.result.values || []).length">
-                                        <div v-for="(item, idx) in geoQuery.result.values" :key="idx">{{ item }}</div>
-                                    </template>
-                                    <div v-else class="text-gray-400">无内容。若该规则应存在但结果为空，可据此判断输入的 Geo 规则有问题。</div>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
+                    
 
                     <div v-else-if="activeTab === 'test_tools'" key="test_tools" class="space-y-6">
                         <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -976,9 +912,78 @@ PersistentKeepalive = 25
                                 </div>
                             </div>
                         </div>
-                    </div>
 
-                    <!-- DNS -->
+                        <!-- Geo Data Query (Merged) -->
+                        <div class="bg-white p-6 rounded-lg shadow space-y-4">
+                            <h3 class="text-lg font-bold border-b pb-2 flex items-center">
+                                <i class="fa-solid fa-magnifying-glass-location text-indigo-500 mr-2"></i>Geo 数据资产查询
+                            </h3>
+                            <div class="flex flex-col space-y-4">
+                                <div class="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_auto] gap-4 items-end">
+                                    <div class="flex-1 relative">
+                                        <label class="block text-sm font-medium text-gray-700 mb-1">域名/IP/规则名</label>
+                                        <input v-model="geoQuery.input" @focus="showGeoSuggestions = true" @blur="handleGeoInputBlur" @input="handleGeoInput" @keydown.down.prevent="moveGeoSuggestion(1)" @keydown.up.prevent="moveGeoSuggestion(-1)" @keydown.enter.prevent="confirmGeoSuggestionOrQuery" @keydown.esc.prevent="showGeoSuggestions = false" type="text" class="border border-gray-300 rounded px-3 py-2 w-full h-[42px] font-mono text-sm" placeholder="输入域名/IP，或 geoip:cn / geosite:gfw">
+                                        <div v-if="showGeoSuggestions && filteredGeoSuggestions.length" class="absolute z-20 mt-1 w-full bg-white border border-gray-200 rounded-lg shadow-lg max-h-64 overflow-y-auto">
+                                            <button type="button" v-for="(item, idx) in filteredGeoSuggestions" :key="item" @mousedown.prevent="applyGeoSuggestion(item)" :class="idx === geoSuggestionIndex ? 'bg-blue-100 text-blue-800' : 'text-gray-700 hover:bg-blue-50'" class="w-full text-left px-3 py-2 text-sm font-mono">{{ item }}</button>
+                                        </div>
+                                    </div>
+                                    <button @click="runGeoQuery" :disabled="geoQuery.loading" class="bg-indigo-600 text-white px-6 py-2 rounded shadow hover:bg-indigo-700 disabled:opacity-50 h-[42px] whitespace-nowrap">
+                                        <i v-if="geoQuery.loading" class="fas fa-spinner fa-spin mr-2"></i><i v-else class="fa-solid fa-search mr-2"></i>资产查询
+                                    </button>
+                                </div>
+                                <div class="text-[11px] text-gray-400 bg-gray-50 p-2 rounded">
+                                    提示：输入域名/IP查询命中的 Geo 规则；输入 `geosite:xxx` 或 `geoip:xxx` 提取并验证资产库内包含的具体条目。
+                                </div>
+
+                                <div v-if="geoQuery.result" class="mt-4 border-t pt-4 space-y-4">
+                                    <div class="flex items-center justify-between">
+                                        <div class="text-sm font-bold text-gray-700">查询结果: <span class="font-mono ml-2 text-blue-600">{{ geoQuery.result.input }}</span></div>
+                                        <button @click="geoQuery.result = null" class="text-xs text-gray-400 hover:text-gray-600">清除结果</button>
+                                    </div>
+
+                                    <div v-if="geoQuery.result.mode === 'lookup'" class="space-y-3">
+                                        <div class="p-3 bg-gray-50 rounded border">
+                                            <div class="text-xs font-bold text-gray-500 mb-2 uppercase">DNS 解析结果</div>
+                                            <div class="flex flex-wrap gap-2" v-if="(geoQuery.result.resolved_ips || []).length">
+                                                <span v-for="item in geoQuery.result.resolved_ips" :key="'resolved-' + item" class="px-2 py-0.5 rounded bg-white border text-slate-700 text-xs font-mono">{{ item }}</span>
+                                            </div>
+                                            <div v-else class="text-xs text-gray-400 italic">无解析记录</div>
+                                        </div>
+                                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                            <div class="p-3 bg-blue-50 rounded border border-blue-100">
+                                                <div class="text-xs font-bold text-blue-600 mb-2 uppercase">GeoIP 命中</div>
+                                                <div class="flex flex-wrap gap-2" v-if="(geoQuery.result.geoip_matches || []).length">
+                                                    <span v-for="item in geoQuery.result.geoip_matches" :key="'geoip-' + item" class="px-2 py-0.5 rounded bg-blue-600 text-white text-[10px] font-mono font-bold">geoip:{{ item }}</span>
+                                                </div>
+                                                <div v-else class="text-xs text-gray-400 italic">无匹配</div>
+                                            </div>
+                                            <div class="p-3 bg-green-50 rounded border border-green-100">
+                                                <div class="text-xs font-bold text-green-600 mb-2 uppercase">Geosite 命中</div>
+                                                <div class="flex flex-wrap gap-2" v-if="(geoQuery.result.geosite_matches || []).length">
+                                                    <span v-for="item in geoQuery.result.geosite_matches" :key="'geosite-' + item" class="px-2 py-0.5 rounded bg-green-600 text-white text-[10px] font-mono font-bold">geosite:{{ item }}</span>
+                                                </div>
+                                                <div v-else class="text-xs text-gray-400 italic">无匹配</div>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <div v-else class="space-y-3">
+                                        <div class="flex items-center gap-3">
+                                            <span class="px-2 py-1 rounded text-xs font-bold" :class="geoQuery.result.exists ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'">{{ geoQuery.result.exists ? '规则有效' : '资产库未找到此规则' }}</span>
+                                            <span class="text-xs text-gray-500" v-if="geoQuery.result.exists">包含条目: {{ geoQuery.result.count || 0 }}</span>
+                                        </div>
+                                        <div class="border rounded bg-[#1e1e1e] text-[#d1fae5] font-mono text-[10px] p-3 overflow-y-auto max-h-64 scrollbar-thin">
+                                            <template v-if="(geoQuery.result.values || []).length">
+                                                <div v-for="(item, idx) in geoQuery.result.values" :key="idx" class="border-b border-gray-800 py-0.5">{{ item }}</div>
+                                            </template>
+                                            <div v-else class="text-gray-600 italic">资产库中无匹配条目或规则定义为空</div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+<!-- DNS -->
                     <div v-else-if="activeTab === 'dns'" key="dns" class="space-y-6">
                         <div class="grid grid-cols-1 gap-6 max-w-3xl mx-auto">
                             <div class="bg-white p-6 rounded-lg shadow">
@@ -1698,7 +1703,6 @@ window.onerror = function(msg, url, line, col, error) { alert("JS Error: " + msg
                     { id: 'ospf', icon: 'fa-project-diagram', label: 'OSPF 状态', hideModeA: true },
                     { id: 'configs', icon: 'fa-file-code', label: '配置信息面板' },
                     { id: 'syslogs', icon: 'fa-terminal', label: '核心日志面板' },
-                    { id: 'geo_query', icon: 'fa-magnifying-glass-location', label: 'Geo 查询验证' },
                     { id: 'test_tools', icon: 'fa-vial-circle-check', label: '诊断测试工具' },
                 ];
                 const hiddenInNormalTabs = new Set(['remote_nodes', 'configs', 'syslogs', 'protected_ips', 'connections']);
@@ -2252,7 +2256,7 @@ window.onerror = function(msg, url, line, col, error) { alert("JS Error: " + msg
                         loadNodeFailoverMode();
                     }
                     if(token.value && activeTab.value === 'remote_nodes') loadRemoteNodes();
-                    if(token.value && (activeTab.value === 'rules' || activeTab.value === 'geo_query')) {
+                    if(token.value && (activeTab.value === 'rules' || activeTab.value === 'test_tools')) {
                         if(activeTab.value === 'rules' && !isRuleValueEditing.value && !isRuleGroupEditing.value) loadRules();
                         if(categories.value.geosite.length===0) apiFetch('/api/rules/categories').then(r=>r.json()).then(d => categories.value = d);
                     }
