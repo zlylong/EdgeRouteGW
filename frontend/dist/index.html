@@ -1233,18 +1233,23 @@ PersistentKeepalive = 25
                     <div v-else-if="activeTab === 'syslogs'" key="syslogs" class="space-y-4 h-full flex flex-col pb-4">
                         <div class="flex justify-between items-center mb-2">
                             <h2 class="text-xl font-bold">核心系统日志</h2>
-                            <button @click="fetchSyslogs(currentLogTab)" class="bg-gray-200 hover:bg-gray-300 text-gray-800 px-3 py-1 rounded text-sm transition">
+                            
+                            <div class="flex items-center space-x-2 mr-4">
+                                <input type="checkbox" id="lockScroll" v-model="lockScroll" class="h-4 w-4 text-blue-600 border-gray-300 rounded">
+                                <label for="lockScroll" class="text-xs text-gray-500 font-medium cursor-pointer">锁定滚动(暂停追踪)</label>
+                            </div>
+                            <button @click="fetchSyslogs(currentLogTab, true)" class="bg-gray-200 hover:bg-gray-300 text-gray-800 px-3 py-1 rounded text-sm transition">
                                 <i class="fa-solid fa-sync mr-1"></i>刷新
                             </button>
                         </div>
                         
                         <div class="flex border-b border-gray-200">
-                            <button @click="currentLogTab = 'proxygw'; fetchSyslogs('proxygw')" :class="{'border-blue-500 text-blue-600': currentLogTab === 'proxygw', 'border-transparent text-gray-500 hover:text-gray-700': currentLogTab !== 'proxygw'}" class="whitespace-nowrap py-2 px-4 border-b-2 font-medium text-sm transition-colors focus:outline-none">ProxyGW (控制面)</button>
-                            <button @click="currentLogTab = 'xray'; fetchSyslogs('xray')" :class="{'border-blue-500 text-blue-600': currentLogTab === 'xray', 'border-transparent text-gray-500 hover:text-gray-700': currentLogTab !== 'xray'}" class="whitespace-nowrap py-2 px-4 border-b-2 font-medium text-sm transition-colors focus:outline-none">Xray-Core (转发面)</button>
-                            <button @click="currentLogTab = 'mosdns'; fetchSyslogs('mosdns')" :class="{'border-blue-500 text-blue-600': currentLogTab === 'mosdns', 'border-transparent text-gray-500 hover:text-gray-700': currentLogTab !== 'mosdns'}" class="whitespace-nowrap py-2 px-4 border-b-2 font-medium text-sm transition-colors focus:outline-none">Mosdns (解析面)</button>
+                            <button @click="currentLogTab = 'proxygw'; fetchSyslogs('proxygw', true)" :class="{'border-blue-500 text-blue-600': currentLogTab === 'proxygw', 'border-transparent text-gray-500 hover:text-gray-700': currentLogTab !== 'proxygw'}" class="whitespace-nowrap py-2 px-4 border-b-2 font-medium text-sm transition-colors focus:outline-none">ProxyGW (控制面)</button>
+                            <button @click="currentLogTab = 'xray'; fetchSyslogs('xray', true)" :class="{'border-blue-500 text-blue-600': currentLogTab === 'xray', 'border-transparent text-gray-500 hover:text-gray-700': currentLogTab !== 'xray'}" class="whitespace-nowrap py-2 px-4 border-b-2 font-medium text-sm transition-colors focus:outline-none">Xray-Core (转发面)</button>
+                            <button @click="currentLogTab = 'mosdns'; fetchSyslogs('mosdns', true)" :class="{'border-blue-500 text-blue-600': currentLogTab === 'mosdns', 'border-transparent text-gray-500 hover:text-gray-700': currentLogTab !== 'mosdns'}" class="whitespace-nowrap py-2 px-4 border-b-2 font-medium text-sm transition-colors focus:outline-none">Mosdns (解析面)</button>
 
-                            <button @click="currentLogTab = 'alerts'; fetchSyslogs('alerts')" :class="{'border-blue-500 text-blue-600': currentLogTab === 'alerts', 'border-transparent text-gray-500 hover:text-gray-700': currentLogTab !== 'alerts'}" class="whitespace-nowrap py-2 px-4 border-b-2 font-medium text-sm transition-colors focus:outline-none">告警事件流</button>
-                            <button @click="currentLogTab = 'nft'; fetchSyslogs('nft')" :class="{'border-blue-500 text-blue-600': currentLogTab === 'nft', 'border-transparent text-gray-500 hover:text-gray-700': currentLogTab !== 'nft'}" class="whitespace-nowrap py-2 px-4 border-b-2 font-medium text-sm transition-colors focus:outline-none">TProxy 命中计数</button>
+                            <button @click="currentLogTab = 'alerts'; fetchSyslogs('alerts', true)" :class="{'border-blue-500 text-blue-600': currentLogTab === 'alerts', 'border-transparent text-gray-500 hover:text-gray-700': currentLogTab !== 'alerts'}" class="whitespace-nowrap py-2 px-4 border-b-2 font-medium text-sm transition-colors focus:outline-none">告警事件流</button>
+                            <button @click="currentLogTab = 'nft'; fetchSyslogs('nft', true)" :class="{'border-blue-500 text-blue-600': currentLogTab === 'nft', 'border-transparent text-gray-500 hover:text-gray-700': currentLogTab !== 'nft'}" class="whitespace-nowrap py-2 px-4 border-b-2 font-medium text-sm transition-colors focus:outline-none">TProxy 命中计数</button>
                         </div>
 
                         <div class="bg-[#1e1e1e] text-[#00ff00] font-mono p-4 rounded-lg flex-1 overflow-y-auto text-xs shadow-inner" ref="syslogsContainer" style="min-height: 400px; white-space: pre-wrap;">{{ syslogs[currentLogTab] || 'Loading logs...' }}</div>
@@ -1290,15 +1295,26 @@ window.onerror = function(msg, url, line, col, error) { alert("JS Error: " + msg
                 
                 const syslogs = ref({ proxygw: '', xray: '', mosdns: '', alerts: '', nft: '' });
                 const currentLogTab = ref('proxygw');
+                const lockScroll = ref(false);
                 const syslogsContainer = ref(null);
-                const scrollToBottom = () => {
-                    if (syslogsContainer.value) {
-                        syslogsContainer.value.scrollTop = syslogsContainer.value.scrollHeight;
+                
+                
+                const scrollToBottom = (force = false) => {
+                    if (lockScroll.value && !force) return;
+                    const el = syslogsContainer.value;
+
+                    if (!el) return;
+                    
+                    // If not forced, only scroll if user is already near bottom (50px threshold)
+                    const isAtBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 50;
+                    if (force || isAtBottom) {
+                        el.scrollTop = el.scrollHeight;
                     }
                 };
 
 
-                const fetchSyslogs = async (service) => {
+
+                const fetchSyslogs = async (service, forceScroll = false) => {
                     try {
                         if (service === 'events') {
                             const res = await fetch('/api/events?limit=200', { headers: { 'Authorization': 'Bearer ' + localStorage.getItem('token') } });
@@ -1315,7 +1331,7 @@ window.onerror = function(msg, url, line, col, error) { alert("JS Error: " + msg
                                 if (data.success && Array.isArray(data.events)) {
                                     // Alerts (Gateway Events) are queried DESC from DB, but we reverse them here to show new logs at the bottom
                                     syslogs.value.alerts = data.events.reverse().map(ev => `[${ev.ts}] [${String(ev.level || '').toUpperCase()}] [${ev.module}/${ev.event_type}] ${ev.message}${ev.trace_id ? ' trace=' + ev.trace_id : ''}${ev.path ? ' path=' + ev.path : ''}${ev.status ? ' status=' + ev.status : ''}${ev.duration_ms ? ' cost=' + ev.duration_ms + 'ms' : ''}${ev.details ? ' details=' + ev.details : ''}`).join('\n');
-                                    nextTick(scrollToBottom);
+                                    nextTick(() => scrollToBottom(forceScroll));
                                 }
                             }
                         } else if (service === 'nft') {
@@ -1339,7 +1355,7 @@ window.onerror = function(msg, url, line, col, error) { alert("JS Error: " + msg
                                         lines.push(`${item.name}: packets=${item.packets} bytes=${item.bytes}`);
                                     });
                                     syslogs.value.nft = lines.join('\n');
-                                    nextTick(scrollToBottom);
+                                    nextTick(() => scrollToBottom(forceScroll));
                                 }
                             }
                         } else {
@@ -1348,15 +1364,11 @@ window.onerror = function(msg, url, line, col, error) { alert("JS Error: " + msg
                                 const data = await res.json();
                                 if (data.success) {
                                     syslogs.value[service] = data.logs;
-                                    nextTick(scrollToBottom);
+                                    nextTick(() => scrollToBottom(forceScroll));
                                 }
                             }
                         }
-                        setTimeout(() => {
-                            if (syslogsContainer.value) {
-                                syslogsContainer.value.scrollTop = syslogsContainer.value.scrollHeight;
-                            }
-                        }, 50);
+                        
                     } catch (e) {}
                 };
 
@@ -1699,6 +1711,7 @@ window.onerror = function(msg, url, line, col, error) { alert("JS Error: " + msg
                         dnsLogs.value = [];
                     }
                     connectWs(newTab);
+                    if (newTab === 'syslogs') nextTick(() => scrollToBottom(true));
                 });
 
                 const tabs = [
@@ -2579,7 +2592,7 @@ Mode C: 纯OSPF (恢复真实IP宣告)`)) {
                     if (document.visibilityState === 'visible') startVisiblePolling();
                 });
 
-                                return { syslogs, currentLogTab, syslogsContainer, fetchSyslogs, traffic, formatBytes,
+                                return { lockScroll, scrollToBottom, nextTick, syslogs, currentLogTab, syslogsContainer, fetchSyslogs, traffic, formatBytes,
                     connections, connSearch, filteredConnections, lanAcls, defaultLanPolicy, protectedIps, protectedIpForm, goToRule,
                     showAclModal, aclForm, openAddAcl, saveAcl, deleteAcl, updateLanDefault, addProtectedIp, deleteProtectedIp,
                     currentConfigTab,
