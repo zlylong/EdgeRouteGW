@@ -318,7 +318,7 @@ func (ctl *SystemController) HandleNetworkConfig(c *gin.Context) {
 		ManagementIface string `json:"management_iface"`
 		ServiceIface    string `json:"service_iface"`
 	}
-	if c.BindJSON(&req) != nil {
+	if err := decodeStrictJSON(c, &req, false); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "bad network config payload"})
 		return
 	}
@@ -357,7 +357,7 @@ func (ctl *SystemController) HandleMode(c *gin.Context) {
 	}
 	defer releaseLock()
 	var req struct{ Mode string }
-	if c.BindJSON(&req) != nil {
+	if err := decodeStrictJSON(c, &req, false); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "bad mode payload"})
 		return
 	}
@@ -403,7 +403,7 @@ func (ctl *SystemController) HandleOspfSettings(c *gin.Context) {
 		ResolveWorkers     int    `json:"resolve_workers"`
 		PublishIPAllowlist string `json:"publish_ip_allowlist"`
 	}
-	if c.BindJSON(&req) != nil {
+	if err := decodeStrictJSON(c, &req, false); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "bad ospf settings payload"})
 		return
 	}

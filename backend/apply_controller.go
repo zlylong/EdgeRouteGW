@@ -1,8 +1,6 @@
 package main
 
 import (
-	"errors"
-	"io"
 	"log"
 	"net/http"
 
@@ -31,7 +29,7 @@ func (ctl *ApplyController) HandleApply(c *gin.Context) {
 	applyMosdns := true
 	applyXray := true
 	dynamicXray := true
-	if err := c.ShouldBindJSON(&req); err != nil && !errors.Is(err, io.EOF) {
+	if err := decodeStrictJSON(c, &req, true); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "invalid apply payload"})
 		return
 	}

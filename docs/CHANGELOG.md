@@ -40,6 +40,7 @@
 - Nftables 应用流程增强为“预校验 + 运行时/配置双回滚”：先用 `nft -c -f` 校验新配置，再备份当前 ruleset 与 `/etc/nftables.conf`，若 `nft -f` 应用失败则自动回滚内核规则与配置文件，避免失败后留在半生效状态。
 - 高危变更接口新增并发互斥锁：`/api/apply`、网络配置、模式切换、OSPF 设置与 Pending 重置在同一 action 上不允许并发执行，冲突时返回 `409/HIGH_RISK_ACTION_BUSY`，避免并发写导致状态撕裂。
 - 命令执行日志增加敏感参数脱敏：`commandExecutor` 启动日志自动隐藏 `password/token/secret/api_key/authorization` 等参数值（含 `--key=value`、`--key value`、`Authorization: ...`），降低凭据泄露风险。
+- 高危接口参数校验收紧：`/api/apply`、`network_config`、`mode_switch`、`ospf_settings` 以及组件更新接口（xray/mosdns）改为严格 JSON 解码（`DisallowUnknownFields`），拒绝未知字段与多余 JSON 片段，降低误传参与污染风险。
 
 ## [1.6.15] - 2026-04-29
 ### 🚀 稳定版发布 (Stable)
