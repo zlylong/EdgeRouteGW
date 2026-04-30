@@ -2068,6 +2068,8 @@ window.onerror = function(msg, url, line, col, error) { alert("JS Error: " + msg
                             if (data.success && data.data) {
                                 connections.value = data.data;
                             }
+                        } else if (res.status === 401) {
+                            showToast('登录已失效，请重新登录后再查看连接追踪', 'error');
                         }
                     } catch (e) {}
                 };
