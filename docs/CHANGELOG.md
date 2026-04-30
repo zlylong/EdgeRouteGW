@@ -37,6 +37,7 @@
 - 修复首页版本信息显示为 Unknown 的兼容性问题：系统版本改用 POSIX `. /etc/os-release` 读取；FRR 版本改为 `vtysh -c 'show version'` 提取首行，避免 `vtysh -v/--version` 在 Debian FRR 包中不支持导致的空值。
 - OSPF 邻居状态统计改为解析 `show ip ospf neighbor json` 实际结构并按 `nbrState` 计数，修复仅字符串包含判断导致的状态误报。
 - 新增 OSPF 发布策略测试：覆盖默认路由/保留地址/RFC1918 超网段拒绝，以及普通主机路由与细粒度子网允许场景。
+- Nftables 应用流程增强为“预校验 + 运行时/配置双回滚”：先用 `nft -c -f` 校验新配置，再备份当前 ruleset 与 `/etc/nftables.conf`，若 `nft -f` 应用失败则自动回滚内核规则与配置文件，避免失败后留在半生效状态。
 
 ## [1.6.15] - 2026-04-29
 ### 🚀 稳定版发布 (Stable)

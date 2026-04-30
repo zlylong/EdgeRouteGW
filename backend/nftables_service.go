@@ -4,8 +4,10 @@ import (
 	"bytes"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"text/template"
+	"time"
 )
 
 const nftablesTmpl = `#!/usr/sbin/nft -f
@@ -207,12 +209,51 @@ func applyNftablesConfig() error {
 		return fmt.Errorf("failed to execute template: %v", err)
 	}
 
-	if err := os.WriteFile("/etc/nftables.conf", buf.Bytes(), 0755); err != nil {
-		return fmt.Errorf("failed to write config: %v", err)
+	newConfig := buf.Bytes()
+	stagingPath := "/etc/nftables.conf.proxygw.new"
+	activePath := "/etc/nftables.conf"
+	runtimeBackupPath := filepath.Join(os.TempDir(), "proxygw-nftables-runtime-backup.nft")
+
+	if err := os.WriteFile(stagingPath, newConfig, 0644); err != nil {
+		return fmt.Errorf("failed to stage nftables config: %v", err)
+	}
+	defer os.Remove(stagingPath)
+
+	if res := sysCmd.runCombinedOutput("nft", "-c", "-f", stagingPath); res.Err != nil {
+		return fmt.Errorf("nft config validation failed: %v, out: %s", res.Err, strings.TrimSpace(string(res.Output)))
 	}
 
-	if res := sysCmd.runCombinedOutput("nft", "-f", "/etc/nftables.conf"); res.Err != nil {
-		return fmt.Errorf("nft apply failed: %v, out: %s", res.Err, res.Output)
+	// Backup current runtime ruleset for rollback.
+	var haveRuntimeBackup bool
+	if res := sysCmd.runCombinedOutput("nft", "list", "ruleset"); res.Err == nil && len(bytes.TrimSpace(res.Output)) > 0 {
+		if err := os.WriteFile(runtimeBackupPath, res.Output, 0600); err == nil {
+			haveRuntimeBackup = true
+			defer os.Remove(runtimeBackupPath)
+		}
+	}
+
+	// Backup persisted config for rollback.
+	oldConfig, oldConfigErr := os.ReadFile(activePath)
+	hadOldConfig := oldConfigErr == nil
+
+	if err := os.WriteFile(activePath, newConfig, 0644); err != nil {
+		return fmt.Errorf("failed to write active nftables config: %v", err)
+	}
+
+	if res := sysCmd.runCombinedOutput("nft", "-f", activePath); res.Err != nil {
+		// Roll back runtime rules first if possible.
+		if haveRuntimeBackup {
+			if rb := sysCmd.runCombinedOutput("nft", "-f", runtimeBackupPath); rb.Err != nil {
+				logGatewayEventThrottled("nft_apply_runtime_rollback_failed", 2*time.Minute, "error", "nftables", "apply_runtime_rollback_failed", "failed to rollback nftables runtime ruleset after apply error", map[string]interface{}{"reason": rb.Err.Error(), "output": strings.TrimSpace(string(rb.Output))})
+			}
+		}
+		// Roll back persisted config file.
+		if hadOldConfig {
+			if werr := os.WriteFile(activePath, oldConfig, 0644); werr != nil {
+				logGatewayEventThrottled("nft_apply_config_rollback_failed", 2*time.Minute, "error", "nftables", "apply_config_rollback_failed", "failed to restore previous nftables config file", map[string]interface{}{"reason": werr.Error()})
+			}
+		}
+		return fmt.Errorf("nft apply failed (rolled back): %v, out: %s", res.Err, strings.TrimSpace(string(res.Output)))
 	}
 
 	return nil
