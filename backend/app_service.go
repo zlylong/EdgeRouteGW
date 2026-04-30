@@ -18,6 +18,7 @@ func NewAppService(repo *AppRepository) *AppService {
 
 func (s *AppService) Bootstrap() {
 	s.repo.InitDB()
+	ensureGeodataHealthy()
 	go startTrafficMonitor()
 	go startNftablesMonitor()
 	syncFRRConfig()

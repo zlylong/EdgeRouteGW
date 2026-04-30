@@ -155,3 +155,23 @@ nft insert rule inet proxygw prerouting ip saddr 192.168.100.0/24 ip protocol ic
 3. 排障时优先看 TCP 连通性（`mtr -T`, `curl -v`），不要仅凭 ICMP 结论判定环路。
 4. 每次 OSPF 模式切换后固定执行：邻居 Full、规则存在、`ip route get` 双验证。
 5. 若现场必须用 ICMP 压测，先在主路由配置诊断目标旁路（如 `1.1.1.1/32 -> WAN`），避免误判。
+
+## 7) Geosite/GeoIP 读取异常（`invalid geoip/geosite tag`）快速恢复
+
+当已知存在的标签（如 `fastly`）仍报 `invalid geoip tag`，优先检查 geodata 文件体积：
+
+```bash
+stat -c '%n %s' /root/proxygw/core/mosdns/geoip.dat /root/proxygw/core/mosdns/geosite.dat
+```
+
+若出现几十/几百字节（异常截断），可直接回填：
+
+```bash
+cp /root/proxygw/core/xray/geoip.dat /root/proxygw/core/mosdns/geoip.dat
+cp /root/proxygw/core/xray/geosite.dat /root/proxygw/core/mosdns/geosite.dat
+systemctl restart proxygw
+```
+
+已在后端加入启动自愈：
+- 启动时若 `core/mosdns/{geoip,geosite}.dat` 小于 `1MB`，自动使用 `core/xray/` 同名文件恢复。
+- 恢复动作会写入日志：`[WARN] geodata self-heal recovered ...`。
