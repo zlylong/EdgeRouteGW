@@ -78,7 +78,7 @@ func (ctl *SystemController) HandleStatus(c *gin.Context) {
 	}
 
 	frrVer := "Unknown"
-	if out, err := sysCmd.output("vtysh", "-v"); err == nil {
+	if out, err := sysCmd.output("vtysh", "-c", "show version"); err == nil {
 		line := strings.TrimSpace(string(out))
 		if line != "" {
 			frrVer = strings.Split(line, "\n")[0]
@@ -86,7 +86,7 @@ func (ctl *SystemController) HandleStatus(c *gin.Context) {
 	}
 
 	osVer := "Unknown"
-	if out, err := sysCmd.output("sh", "-c", "source /etc/os-release 2>/dev/null; echo ${PRETTY_NAME:-Unknown}"); err == nil {
+	if out, err := sysCmd.output("sh", "-c", ". /etc/os-release 2>/dev/null; echo ${PRETTY_NAME:-Unknown}"); err == nil {
 		osVer = strings.Trim(strings.TrimSpace(string(out)), "\"")
 	}
 

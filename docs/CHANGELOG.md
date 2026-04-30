@@ -34,6 +34,7 @@
 - 连接追踪在 Mode A 不再强制按 service network 子网过滤，避免透明代理单臂部署时因网段约束导致实时连接列表为空；Mode B/C 仍保持 service network 过滤。
 - 修复 Mode C 下 `fwmark 0x1 -> table tproxy` 规则偶发丢失导致“仅命中代理规则目标（如 1.1.1.1）不可达”的问题：后端启动后新增 TPROXY 路由策略自愈巡检（每 30 秒），发现缺失时自动补回 `ip rule` 与 `table tproxy` 本地回注路由。
 - 首页系统信息改为动态读取：显示 ProxyGW 版本（Git tag）、系统版本（`/etc/os-release`）、Xray 版本与 FRR 版本，替代硬编码文案。
+- 修复首页版本信息显示为 Unknown 的兼容性问题：系统版本改用 POSIX `. /etc/os-release` 读取；FRR 版本改为 `vtysh -c 'show version'` 提取首行，避免 `vtysh -v/--version` 在 Debian FRR 包中不支持导致的空值。
 
 ## [1.6.15] - 2026-04-29
 ### 🚀 稳定版发布 (Stable)
