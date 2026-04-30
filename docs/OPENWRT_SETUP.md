@@ -2,6 +2,8 @@
 
 为了让 ProxyGW 与 OpenWrt 完美配合，实现无缝的三种路由模式（特别是基于 OSPF 的旁路模式），请按照以下指南在 OpenWrt 中进行基础配置。
 
+> 排障补充：若出现 `mtr`/`ping` 与 OSPF 回流疑似问题，参考 `docs/openwrt-ospf-loop-mtr-troubleshooting.md`。
+
 ## 1. 基础要求
 - 假设 OpenWrt 主路由的 LAN IP 为：`192.168.20.1` (请根据实际情况替换)
 - 假设 ProxyGW 开发机的 IP 为：`192.168.20.155`
