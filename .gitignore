@@ -21,6 +21,10 @@ backend/proxygw.db-wal
 /core/mosdns/config.yaml
 /core/frr/frr.conf
 
+# GeoData Binaries
+/core/**/*.dat
+/core/mosdns/geodata.ver
+
 # Binaries & Artifacts
 /backend/proxygw
 /backend/proxygw-backend

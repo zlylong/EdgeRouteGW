@@ -223,6 +223,7 @@ func TestGeoQueryLookupAndExpand(t *testing.T) {
 }
 
 func TestGeoSiteTagMatchesDomain(t *testing.T) {
+	_ = setupFeatureSuiteRouter(t)
 	writeTestGeoData(t)
 	geositePath := getPath("core", "mosdns", "geosite.dat")
 
