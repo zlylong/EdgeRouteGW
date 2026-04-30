@@ -3,6 +3,8 @@ package main
 import (
 	"log"
 	"os"
+	"strings"
+	"time"
 )
 
 // AppService orchestrates subsystem startup.
@@ -31,6 +33,7 @@ func (s *AppService) Bootstrap() {
 	os.MkdirAll("/run/proxygw", 0755)
 	StartConnectionTracker()
 	s.initTPROXYRules()
+	go s.reconcileTPROXYRulesLoop()
 }
 
 func (s *AppService) initTPROXYRules() {
@@ -49,5 +52,43 @@ func (s *AppService) initTPROXYRules() {
 	_ = sysCmd.run("ip", "-6", "route", "del", "local", "default", "dev", "lo", "table", "tproxy")
 	if err := sysCmd.run("ip", "-6", "route", "add", "local", "default", "dev", "lo", "table", "tproxy"); err != nil {
 		log.Printf("[WARN] init ip route v6 failed: %v", err)
+	}
+}
+
+func hasTPROXYRuleV4() bool {
+	out, err := sysCmd.output("ip", "rule", "show")
+	if err != nil {
+		return false
+	}
+	s := string(out)
+	return strings.Contains(s, "fwmark 0x1 lookup tproxy") || strings.Contains(s, "fwmark 0x1 lookup 100")
+}
+
+func hasTPROXYRouteV4() bool {
+	out, err := sysCmd.output("ip", "route", "show", "table", "tproxy")
+	if err != nil {
+		return false
+	}
+	return strings.Contains(string(out), "local default dev lo")
+}
+
+func (s *AppService) reconcileTPROXYRulesLoop() {
+	ticker := time.NewTicker(30 * time.Second)
+	defer ticker.Stop()
+	for range ticker.C {
+		if !hasTPROXYRuleV4() {
+			if err := sysCmd.run("ip", "rule", "add", "fwmark", "1", "lookup", "tproxy"); err != nil {
+				log.Printf("[WARN] reconcile ip rule v4 failed: %v", err)
+			} else {
+				log.Printf("[INFO] reconciled missing ip rule: fwmark 1 lookup tproxy")
+			}
+		}
+		if !hasTPROXYRouteV4() {
+			if err := sysCmd.run("ip", "route", "add", "local", "default", "dev", "lo", "table", "tproxy"); err != nil {
+				log.Printf("[WARN] reconcile ip route v4 failed: %v", err)
+			} else {
+				log.Printf("[INFO] reconciled missing tproxy route table entry")
+			}
+		}
 	}
 }
