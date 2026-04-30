@@ -1,5 +1,5 @@
 #!/bin/bash
-# ProxyGW Update Script
+# EdgeRouteGW Update Script
 # Executes a full sync and rebuild from the remote repository.
 
 set -euo pipefail
@@ -16,7 +16,7 @@ cd "$REPO_DIR"
 apt-get update >/dev/null 2>&1 || true
 apt-get install -y jq >/dev/null 2>&1 || true
 
-echo "=== ProxyGW Update ==="
+echo "=== EdgeRouteGW Update ==="
 echo "[1/4] Pulling latest changes..."
 # Stop backend first to avoid runtime rewriting tracked files during git reset
 systemctl stop proxygw >/dev/null 2>&1 || true
@@ -58,7 +58,7 @@ echo "[3/4] Updating Systemd services (if changed)..."
 echo "[3/4] Creating Systemd services..."
 cat << 'SYS_EOF' > /etc/systemd/system/proxygw.service
 [Unit]
-Description=ProxyGW Backend Service
+Description=EdgeRouteGW Backend Service
 After=network.target network-online.target nss-lookup.target
 Wants=network-online.target
 

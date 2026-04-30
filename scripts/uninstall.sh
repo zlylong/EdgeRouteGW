@@ -1,9 +1,9 @@
 #!/bin/bash
-# ProxyGW Uninstall Script
+# EdgeRouteGW Uninstall Script
 
 set -euo pipefail
 
-echo "=== ProxyGW Uninstallation ==="
+echo "=== EdgeRouteGW Uninstallation ==="
 
 echo "[1/5] Stopping and disabling services..."
 systemctl disable --now proxygw mosdns xray frr || true

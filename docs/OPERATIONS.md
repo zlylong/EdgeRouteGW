@@ -1,6 +1,6 @@
 # 系统运维与故障排查手册
 
-本文档面向 ProxyGW 的系统管理员，提供服务的日常维护、平滑升级、数据备份以及故障排除的指导原则。
+本文档面向 EdgeRouteGW 的系统管理员，提供服务的日常维护、平滑升级、数据备份以及故障排除的指导原则。
 
 ## 🔧 自动化生命周期脚本
 
@@ -31,7 +31,7 @@
 
 ## ⚙️ 系统服务状态管理
 
-ProxyGW 基于标准的 Systemd 协同工作，日常系统诊断可使用标准命令：
+EdgeRouteGW 基于标准的 Systemd 协同工作，日常系统诊断可使用标准命令：
 
 ```bash
 # 查看所有关联服务的当前运行状态
@@ -108,8 +108,8 @@ sqlite3 /root/proxygw/config/proxygw.db "UPDATE users SET password_hash = '' WHE
 - **防环路漏配 (Mode C)**：如果在 Mode C 发现代理通缩、网速极慢或完全断网，请检查主路由上是否正确配置了源地址绕过（PBR 策略路由）以防止 OSPF 环路。
 
 ### 4. MikroTik ROS 防环路 PBR 配置示例 (Mode C 必备)
-在 Mode C 下，ProxyGW 会通过 OSPF 将大量的真实代理 IP 网段发给 ROS，这会覆盖 ROS 的默认路由。当 ProxyGW 自身向代理节点发起出站连接时，如果节点的 IP 刚好命中这些 OSPF 路由，流量又会被 ROS 踢回给 ProxyGW，造成死循环。
-您必须在 ROS 中强制让 ProxyGW 发出的流量直连公网。
+在 Mode C 下，EdgeRouteGW 会通过 OSPF 将大量的真实代理 IP 网段发给 ROS，这会覆盖 ROS 的默认路由。当 EdgeRouteGW 自身向代理节点发起出站连接时，如果节点的 IP 刚好命中这些 OSPF 路由，流量又会被 ROS 踢回给 EdgeRouteGW，造成死循环。
+您必须在 ROS 中强制让 EdgeRouteGW 发出的流量直连公网。
 
 > 完整新手配置与图形界面路径请同时参考：`docs/ROS_SETUP.md`（第 5 章 Mode C 防环路 PBR）。
 
@@ -162,10 +162,10 @@ systemctl restart proxygw
 ### 6. 开发机出现大量 `via 192.168.20.1 proto static metric 20` 是否环路
 
 这类路由本身不一定是 bug。危险在于：
-- 开发机（ProxyGW）访问某目标 `X` 时，下一跳是主路由 `192.168.20.1`
-- 主路由又因为 OSPF 把同一目标 `X` 回指到 ProxyGW
+- 开发机（EdgeRouteGW）访问某目标 `X` 时，下一跳是主路由 `192.168.20.1`
+- 主路由又因为 OSPF 把同一目标 `X` 回指到 EdgeRouteGW
 
-这会形成回弹闭环：`ProxyGW -> 主路由 -> ProxyGW`。
+这会形成回弹闭环：`EdgeRouteGW -> 主路由 -> EdgeRouteGW`。
 
 #### 系统级防护（已内置）
 - `syncStaticRoutesToOSPF()` 自动排除受保护节点地址（`nodes.address` / `remote_nodes.ssh_host` / `remote_node_wg.endpoint` / `remote_node_vless.dest` 及其解析 IP）
@@ -215,7 +215,7 @@ case "$INTERFACE" in
   *) exit 0 ;;
 esac
 
-PROXY_IP="192.168.10.9/32"   # 改成你的 ProxyGW LAN IP
+PROXY_IP="192.168.10.9/32"   # 改成你的 EdgeRouteGW LAN IP
 TABLE="100"
 
 WAN_DEV="$(ip -4 route show default | awk 'NR==1{print $5}')"
@@ -242,4 +242,4 @@ ip -4 rule show | grep "from 192.168.10.9/32"
 ip -4 route show table 100
 ```
 
-这条规则可确保 ProxyGW 自身出站永远走 WAN 主路，不受 OSPF 回流影响。
+这条规则可确保 EdgeRouteGW 自身出站永远走 WAN 主路，不受 OSPF 回流影响。

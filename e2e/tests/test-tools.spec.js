@@ -1,6 +1,6 @@
 const { test, expect } = require('@playwright/test');
 
-test.describe('ProxyGW Test Tools UI', () => {
+test.describe('EdgeRouteGW Test Tools UI', () => {
     test.beforeEach(async ({ page }) => {
         // Assume basic login logic is already handled by auth or just bypass if possible
         // For this test, we navigate directly to the app

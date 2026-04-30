@@ -1,9 +1,9 @@
-# ProxyGW - 现代化的透明代理网关
+# EdgeRouteGW - 现代化的透明代理网关
 
-ProxyGW 是一个高性能、易于使用的透明代理网关系统。它提供了美观的 Web 管理界面，让你能够轻松接管家庭或办公室的网络流量，实现智能分流。
+EdgeRouteGW 是一个高性能、易于使用的透明代理网关系统。它提供了美观的 Web 管理界面，让你能够轻松接管家庭或办公室的网络流量，实现智能分流。
 
 
-![ProxyGW Dashboard](docs/assets/dashboard.jpg)
+![EdgeRouteGW Dashboard](docs/assets/dashboard.jpg)
 
 ## ✨ 核心特性
 
@@ -28,7 +28,7 @@ bash <(curl -s -4 -L https://raw.githubusercontent.com/zlylong/proxygw/main/scri
 
 ## 🔑 初始登录
 
-为了系统安全，ProxyGW **没有默认固定密码**。首次安装完成后，请在服务器终端查看系统为您随机生成的初始密码：
+为了系统安全，EdgeRouteGW **没有默认固定密码**。首次安装完成后，请在服务器终端查看系统为您随机生成的初始密码：
 
 ```bash
 cat /root/proxygw/config/bootstrap_password.txt
@@ -39,35 +39,35 @@ cat /root/proxygw/config/bootstrap_password.txt
 
 ## 🕹️ 路由模式与使用指南
 
-ProxyGW 设计了三种物理隔离的网络接管模式，以适应不同级别的家庭/办公网络拓扑。
+EdgeRouteGW 设计了三种物理隔离的网络接管模式，以适应不同级别的家庭/办公网络拓扑。
 
 ### 🟢 Mode A: 全局网关劫持 (推荐新手使用)
-在这个模式下，ProxyGW 作为局域网的“旁路由”存在，强行接管所有设备的流量。
+在这个模式下，EdgeRouteGW 作为局域网的“旁路由”存在，强行接管所有设备的流量。
 **适用场景**：主路由是普通的家用路由器（如小米、TP-Link、华硕等），无需任何高级网络知识。
 
 **举例使用方式：**
-1. **全屋接管**：登录您家里的主路由器后台，找到 **DHCP 服务器设置**。将 **默认网关 (Default Gateway)** 和 **DNS 服务器** 修改为 ProxyGW 服务器的局域网 IP 地址（例如 `192.168.1.100`）。保存并重启路由器。此时，连上 WiFi 的所有设备都会自动翻墙。
-2. **单设备独享（按需科学）**：如果您不想影响家人，只想让自己的手机或电脑走代理。只需在手机/电脑的 WiFi 设置中，将 IP 获取方式从“自动(DHCP)”改为“手动/静态”，然后把 **网关** 和 **DNS** 填成 ProxyGW 的 IP 即可。
+1. **全屋接管**：登录您家里的主路由器后台，找到 **DHCP 服务器设置**。将 **默认网关 (Default Gateway)** 和 **DNS 服务器** 修改为 EdgeRouteGW 服务器的局域网 IP 地址（例如 `192.168.1.100`）。保存并重启路由器。此时，连上 WiFi 的所有设备都会自动翻墙。
+2. **单设备独享（按需科学）**：如果您不想影响家人，只想让自己的手机或电脑走代理。只需在手机/电脑的 WiFi 设置中，将 IP 获取方式从“自动(DHCP)”改为“手动/静态”，然后把 **网关** 和 **DNS** 填成 EdgeRouteGW 的 IP 即可。
 
 ### 🔵 Mode B: 混合 Fake-IP 模式 (零延迟 / 免防环路配置)
 这是极其纯粹且强大的性能模式。对于域名流量，Mosdns 会开启 Fake-IP，OSPF 向主路由宣告虚拟的 IP 池 (`198.18.0.0/16`)。而对于具体的 IP 规则（如自定义的特定 IP 段），系统也会将其通过 OSPF 下发。兼顾了 Fake-IP 的无污染与特定 IP 拦截的需求。
 **适用场景**：主路由是 ROS / OpenWrt 等支持 OSPF 的路由器。推荐不想折腾“防环路”的高级玩家。
 
 **举例使用方式：**
-1. 您的手机、电视和电脑的网关依然指向主路由器。**⚠ 但 DHCP 下发的 DNS 服务器，必须指向 ProxyGW 的 IP 地址**。
-2. 在主路由器中配置 OSPF，将 ProxyGW 设为邻居。
-3. **免疫环路**：因为您的海外节点真实 IP 不可能是 `198.18.x.x`，所以主路由永远不会将发往节点的包踢回给 ProxyGW，天然免疫 OSPF 环路。
+1. 您的手机、电视和电脑的网关依然指向主路由器。**⚠ 但 DHCP 下发的 DNS 服务器，必须指向 EdgeRouteGW 的 IP 地址**。
+2. 在主路由器中配置 OSPF，将 EdgeRouteGW 设为邻居。
+3. **免疫环路**：因为您的海外节点真实 IP 不可能是 `198.18.x.x`，所以主路由永远不会将发往节点的包踢回给 EdgeRouteGW，天然免疫 OSPF 环路。
 
 ### 🟣 Mode C: 纯 OSPF 动态旁路模式 (传统的真实 IP 分流)
-关闭 Fake-IP 功能。Mosdns 返回真实的海外目标 IP，ProxyGW 会将静态 IP 以及真实 GeoIP (如 Netflix, Telegram 等网段) 动态推给主路由。
+关闭 Fake-IP 功能。Mosdns 返回真实的海外目标 IP，EdgeRouteGW 会将静态 IP 以及真实 GeoIP (如 Netflix, Telegram 等网段) 动态推给主路由。
 **适用场景**：对 Fake-IP 机制敏感（如某些严格校验目标 IP 的 P2P 游戏或 App报错）的高级玩家。
 
 **💡 Mode C 独家特性：域名动态追踪与自愈**：
-在纯 OSPF 模式下，路由器的物理分流只能依赖**真实 IP**。但得益于 ProxyGW 底层的后台守护进程（Daemon），当您在管理面板添加一条普通 `domain`（域名）规则时，系统会在后台周期性地对其进行真实的 DNS 解析，并将解析出的最新 IP 动态推送给主路由的 OSPF 路由表。
+在纯 OSPF 模式下，路由器的物理分流只能依赖**真实 IP**。但得益于 EdgeRouteGW 底层的后台守护进程（Daemon），当您在管理面板添加一条普通 `domain`（域名）规则时，系统会在后台周期性地对其进行真实的 DNS 解析，并将解析出的最新 IP 动态推送给主路由的 OSPF 路由表。
 **优势**：完美解决了传统静态路由无法应对现代云服务 CDN 及 DNS 轮询 IP 频繁变动的问题，实现了域名路由的无感追踪与自愈。
 
-**注意防环路**：由于 OSPF 会播报真实的海外网段，如果您的代理节点 IP 刚好在这个网段里，就会形成死循环断网！您必须在主路由器上配置 **源地址绕过 (PBR 策略路由)**：让来自 ProxyGW IP 的流量强制走外网，无视 OSPF 路由。
-*(👉 ROS v7 示例：新建一个 `bypass_proxy` 路由表指向公网 WAN 口，然后执行 `/routing rule add src-address=<ProxyGW_IP>/32 action=lookup-only-in-table table=bypass_proxy`，详见[运维文档](./docs/OPERATIONS.md))*
+**注意防环路**：由于 OSPF 会播报真实的海外网段，如果您的代理节点 IP 刚好在这个网段里，就会形成死循环断网！您必须在主路由器上配置 **源地址绕过 (PBR 策略路由)**：让来自 EdgeRouteGW IP 的流量强制走外网，无视 OSPF 路由。
+*(👉 ROS v7 示例：新建一个 `bypass_proxy` 路由表指向公网 WAN 口，然后执行 `/routing rule add src-address=<EdgeRouteGW_IP>/32 action=lookup-only-in-table table=bypass_proxy`，详见[运维文档](./docs/OPERATIONS.md))*
 
 ### 🧩 域名规则语义（与 Xray 官方语义保持一致）
 

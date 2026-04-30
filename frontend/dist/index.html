@@ -6,7 +6,7 @@
     <meta http-equiv="Expires" content="0">
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ProxyGW 透明代理管理系统</title>
+    <title>EdgeRouteGW 透明代理管理系统</title>
     <script src="libs/vue.global.js"></script>
     <script src="libs/tailwindcss.js"></script>
     <link rel="stylesheet" href="libs/fontawesome/css/all.min.css">
@@ -182,7 +182,7 @@
 
         <div v-if="!token" class="absolute inset-0 bg-gray-900 bg-opacity-90 flex items-center justify-center z-50">
             <div class="bg-white p-8 rounded-lg shadow-2xl w-96">
-                <h2 class="text-2xl font-bold mb-6 text-center text-gray-800">ProxyGW 登录</h2>
+                <h2 class="text-2xl font-bold mb-6 text-center text-gray-800">EdgeRouteGW 登录</h2>
                 <input v-model="password" type="password" class="w-full border border-gray-300 p-3 mb-4 rounded focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder="请输入密码 (默认 admin)" @keyup.enter="login">
                 <button @click="login" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold p-3 rounded transition duration-200">登录系统</button>
             </div>
@@ -190,7 +190,7 @@
         <aside class="w-64 bg-gray-900 text-white flex flex-col shadow-xl z-10">
             <div class="p-6 flex items-center space-x-3 bg-gray-950">
                 <i class="fa-solid fa-network-wired text-blue-500 text-2xl"></i>
-                <span class="text-xl font-bold tracking-wider">ProxyGW</span>
+                <span class="text-xl font-bold tracking-wider">EdgeRouteGW</span>
             </div>
             <nav class="flex-1 mt-6">
                 <ul class="space-y-2">
@@ -209,7 +209,7 @@
                     <button @click="showPwdModal = true" class="hover:text-white transition"><i class="fa-solid fa-key"></i> 修改密码</button>
                     <button @click="logout" class="hover:text-white transition"><i class="fa-solid fa-arrow-right-from-bracket"></i> 退出</button>
                 </div>
-                <div>ProxyGW {{ sysStatus.appVersion || '-' }} | <a href="https://github.com/zlylong/proxygw" target="_blank" class="hover:text-blue-400 transition">GitHub项目地址</a> <br> {{ sysStatus.osVersion || '-' }} | Xray {{ sysStatus.xrayVersion || '-' }} | FRR {{ sysStatus.frrVersion || '-' }}<br>commit: {{ sysStatus.commit || '-' }} | binary: {{ sysStatus.binary_build_time || '-' }}</div>
+                <div>EdgeRouteGW {{ sysStatus.appVersion || '-' }} | <a href="https://github.com/zlylong/proxygw" target="_blank" class="hover:text-blue-400 transition">GitHub项目地址</a> <br> {{ sysStatus.osVersion || '-' }} | Xray {{ sysStatus.xrayVersion || '-' }} | FRR {{ sysStatus.frrVersion || '-' }}<br>commit: {{ sysStatus.commit || '-' }} | binary: {{ sysStatus.binary_build_time || '-' }}</div>
             </div>
         </aside>
 
@@ -1244,7 +1244,7 @@ PersistentKeepalive = 25
                         </div>
                         
                         <div class="flex border-b border-gray-200">
-                            <button @click="currentLogTab = 'proxygw'; fetchSyslogs('proxygw', true)" :class="{'border-blue-500 text-blue-600': currentLogTab === 'proxygw', 'border-transparent text-gray-500 hover:text-gray-700': currentLogTab !== 'proxygw'}" class="whitespace-nowrap py-2 px-4 border-b-2 font-medium text-sm transition-colors focus:outline-none">ProxyGW (控制面)</button>
+                            <button @click="currentLogTab = 'proxygw'; fetchSyslogs('proxygw', true)" :class="{'border-blue-500 text-blue-600': currentLogTab === 'proxygw', 'border-transparent text-gray-500 hover:text-gray-700': currentLogTab !== 'proxygw'}" class="whitespace-nowrap py-2 px-4 border-b-2 font-medium text-sm transition-colors focus:outline-none">EdgeRouteGW (控制面)</button>
                             <button @click="currentLogTab = 'xray'; fetchSyslogs('xray', true)" :class="{'border-blue-500 text-blue-600': currentLogTab === 'xray', 'border-transparent text-gray-500 hover:text-gray-700': currentLogTab !== 'xray'}" class="whitespace-nowrap py-2 px-4 border-b-2 font-medium text-sm transition-colors focus:outline-none">Xray-Core (转发面)</button>
                             <button @click="currentLogTab = 'mosdns'; fetchSyslogs('mosdns', true)" :class="{'border-blue-500 text-blue-600': currentLogTab === 'mosdns', 'border-transparent text-gray-500 hover:text-gray-700': currentLogTab !== 'mosdns'}" class="whitespace-nowrap py-2 px-4 border-b-2 font-medium text-sm transition-colors focus:outline-none">Mosdns (解析面)</button>
 

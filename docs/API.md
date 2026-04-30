@@ -1,9 +1,9 @@
-# ProxyGW API 文档
+# EdgeRouteGW API 文档
 
 Base URL: `http://<host>/api`
 
 ## 1. 系统架构与覆盖率
-ProxyGW 后端采用标准的分层架构（Controller/Service/Repository），核心 API 路由通过 `backend/api_routes.go` 注册。
+EdgeRouteGW 后端采用标准的分层架构（Controller/Service/Repository），核心 API 路由通过 `backend/api_routes.go` 注册。
 当前测试覆盖率：**100%** (所有 56 条路由均有测试覆盖)。
 
 ## 2. 认证

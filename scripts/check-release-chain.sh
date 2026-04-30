@@ -15,7 +15,7 @@ if [[ -z "$LATEST_VERSION" ]]; then
   exit 1
 fi
 
-grep -q "ProxyGW ${LATEST_VERSION}" "$FRONTEND" || {
+grep -q "EdgeRouteGW ${LATEST_VERSION}" "$FRONTEND" || {
   echo "failed: frontend version mismatch, expected ${LATEST_VERSION}"
   exit 1
 }
@@ -30,7 +30,7 @@ grep -q "Using fallback version ${LATEST_VERSION}..." "$UPDATE_SH" || {
   exit 1
 }
 
-if ! grep -q 'name: ProxyGW \${{ github.ref_name }} Stable' "$RELEASE_YML" \
+if ! grep -q 'name: EdgeRouteGW \${{ github.ref_name }} Stable' "$RELEASE_YML" \
    && ! grep -q "contains(github.ref_name, '-rc.')" "$RELEASE_YML"; then
   echo "failed: release workflow missing stable/pre-release title logic"
   exit 1

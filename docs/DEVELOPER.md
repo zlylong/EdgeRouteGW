@@ -1,10 +1,10 @@
 # 开发者与架构指南
 
-本文档面向对 ProxyGW 进行二次开发、或希望深入了解其底层网络机制的资深开发者与网络工程师。
+本文档面向对 EdgeRouteGW 进行二次开发、或希望深入了解其底层网络机制的资深开发者与网络工程师。
 
 ## 🏗️ 核心架构
 
-ProxyGW 是一个高度整合的网络系统。开发者坚信 **原生至上 (Native First)**，完全摒弃了 Docker 容器化带来的网络损耗、内核隔离复杂度以及额外开销，采用 Debian 原生裸机部署：
+EdgeRouteGW 是一个高度整合的网络系统。开发者坚信 **原生至上 (Native First)**，完全摒弃了 Docker 容器化带来的网络损耗、内核隔离复杂度以及额外开销，采用 Debian 原生裸机部署：
 
 - **后端 (Go 1.25+)**：基于 Gin 框架，处理配置文件的动态生成、节点并发测速、系统服务守护任务与 Web API 支持。
 - **前端 (Vue 3 + TailwindCSS)**：SPA 单页应用，极致的防抖与锁控制体验，编译产物存放在 `frontend/dist`，完全脱机可用。
@@ -20,7 +20,7 @@ ProxyGW 是一个高度整合的网络系统。开发者坚信 **原生至上 (N
 
 ## 🧠 网络分流与 Fake-IP 零延迟原理
 
-传统的透明代理在进行 DNS 解析时往往存在泄露或上游网络延迟（等待国外 DNS 返回真实 IP）。ProxyGW 实现了彻底的零延迟 Fake-IP 架构 (`198.18.0.0/16`) (对应 Mode B)：
+传统的透明代理在进行 DNS 解析时往往存在泄露或上游网络延迟（等待国外 DNS 返回真实 IP）。EdgeRouteGW 实现了彻底的零延迟 Fake-IP 架构 (`198.18.0.0/16`) (对应 Mode B)：
 
 1. **瞬时接管**：命中代理规则的域名（基于 `proxy_domains.txt`），Mosdns 将不再向上游发起真实的互联网解析请求，而是直接在 1 毫秒内返回一个保留的 `198.18.x.x` 假 IP。
 2. **流量重定向**：客户端（手机/PC）拿着这个假 IP 发送 TCP/UDP 流量，流量到达网关后被 Nftables 的 TProxy 规则劫持并丢给 Xray 的入站端口。
@@ -133,7 +133,7 @@ ProxyGW 是一个高度整合的网络系统。开发者坚信 **原生至上 (N
 
 ## 🛡️ 系统安全沙箱 (Systemd Hardening)
 
-所有关键组件（ProxyGW Backend, Xray, Mosdns）的守护进程均运行在受限的 Systemd 权限沙箱中，防范 Shell 注入与越权攻击：
+所有关键组件（EdgeRouteGW Backend, Xray, Mosdns）的守护进程均运行在受限的 Systemd 权限沙箱中，防范 Shell 注入与越权攻击：
 - `ProtectSystem=strict`: 锁定整个底层 Linux 文件系统为只读。
 - `ReadWritePaths=-/root/proxygw -/usr/local/bin -/etc/frr`: 基于最小权限原则，仅放开当前服务必要的读写目录。
 - `NoNewPrivileges=yes`: 彻底阻断任何形式的 SUID 提权操作。

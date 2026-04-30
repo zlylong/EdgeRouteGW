@@ -122,7 +122,7 @@ func getRemoteNodeDetails(c *gin.Context) {
 			node["wg"] = map[string]interface{}{
 				"server_pub": wg.ServerPub, "client_pub": wg.ClientPub,
 				"endpoint": wg.Endpoint, "port": wg.Port, "tunnel_addr": wg.TunnelAddr, "client_addr": wg.ClientAddr,
-				"share_link": remote_deploy.GenerateWireGuardShareLink(wg.ClientPriv, basic.Host, wg.Port, wg.ServerPub, wg.ClientAddr, "", "ProxyGW-"+basic.Host, 1420),
+				"share_link": remote_deploy.GenerateWireGuardShareLink(wg.ClientPriv, basic.Host, wg.Port, wg.ServerPub, wg.ClientAddr, "", "EdgeRouteGW-"+basic.Host, 1420),
 			}
 		}
 	} else if basic.Type == "vless" {
@@ -418,7 +418,7 @@ func regenerateRemoteNodeParams(c *gin.Context) {
 		if err == nil {
 			oldParams = map[string]interface{}{
 				"server_priv": wg.ServerPriv,
-				"share_link":  remote_deploy.GenerateWireGuardShareLink(wg.ClientPriv, req.SSHHost, wg.Port, wg.ServerPub, wg.ClientAddr, "", "ProxyGW-"+req.SSHHost, 1420),
+				"share_link":  remote_deploy.GenerateWireGuardShareLink(wg.ClientPriv, req.SSHHost, wg.Port, wg.ServerPub, wg.ClientAddr, "", "EdgeRouteGW-"+req.SSHHost, 1420),
 				"server_pub":  wg.ServerPub,
 				"client_priv": wg.ClientPriv,
 				"client_pub":  wg.ClientPub,

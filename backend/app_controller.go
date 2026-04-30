@@ -32,6 +32,6 @@ func (c *AppController) BuildRouter() *gin.Engine {
 }
 
 func (c *AppController) Run(r *gin.Engine) {
-	log.Println("ProxyGW backend starting on :80")
+	log.Println("EdgeRouteGW backend starting on :80")
 	r.Run(":80")
 }

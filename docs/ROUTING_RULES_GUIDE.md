@@ -1,6 +1,6 @@
 # 路由分流规则 (Routing Rules) 新手入门与原理解析
 
-在使用 ProxyGW 时，系统会自动处理复杂的流量分发和 DNS 劫持。但了解背后的“分流规则”（Routing Rules），能帮你更好地理解和排查哪些网站走代理，哪些走直连。
+在使用 EdgeRouteGW 时，系统会自动处理复杂的流量分发和 DNS 劫持。但了解背后的“分流规则”（Routing Rules），能帮你更好地理解和排查哪些网站走代理，哪些走直连。
 
 ---
 
@@ -21,13 +21,13 @@
 - **`geosite.dat`**：包含了海量域名的分类集合（如 `geosite:google`, `geosite:cn`）。
 - **`geoip.dat`**：包含了 IP 段的分类集合（如 `geoip:telegram`, `geoip:cn`）。
 
-ProxyGW 会定时从 GitHub 自动同步最新的 `v2ray-rules-dat`，你无需手动更新，即可保持分流名单的最新状态。
+EdgeRouteGW 会定时从 GitHub 自动同步最新的 `v2ray-rules-dat`，你无需手动更新，即可保持分流名单的最新状态。
 
 ---
 
 ## 3. 常见规则标签解释
 
-在 ProxyGW 面板或配置中，你经常会看到以下标签：
+在 EdgeRouteGW 面板或配置中，你经常会看到以下标签：
 
 ### 🇨🇳 国内直连白名单
 - `geosite:cn`：包含了绝大多数中国大陆公司的域名（淘宝、微信、B站等）。
@@ -47,20 +47,20 @@ ProxyGW 会定时从 GitHub 自动同步最新的 `v2ray-rules-dat`，你无需�
 
 ## 4. 三种工作模式下的分流差异
 
-ProxyGW 支持三种极其强大的透明路由模式，它们的分流逻辑在底层有所不同：
+EdgeRouteGW 支持三种极其强大的透明路由模式，它们的分流逻辑在底层有所不同：
 
 ### 🔴 Mode A (全局 TProxy 透明网关)
 **“宁可错杀，绝不放过”**
 所有的设备流量（不管三七二十一）全被强行塞进 Xray 的 TProxy 入口。Xray 内部会通过 `geosite:cn` 和 `geoip:cn` 规则去判断。
 - **优点**：不需要主路由器支持任何高级功能（如 OSPF）。
-- **缺点**：国内流量也会去网关内核“旅游”一圈，虽然后面直连了，但会白白消耗 ProxyGW 的软硬件性能。
+- **缺点**：国内流量也会去网关内核“旅游”一圈，虽然后面直连了，但会白白消耗 EdgeRouteGW 的软硬件性能。
 
 ### 🟢 Mode B (混合 Fake-IP OSPF 旁路)
 **“最完美的性能平衡”**
 当设备发起 DNS 请求时，内部的 Mosdns 会查规则：
-- 针对**域名**，Mosdns 会返回一个 **伪造的 IP (`198.18.x.x`)**。由于 OSPF 提前宣告了这个网段，流量被精准吸入 ProxyGW 进行代理。
+- 针对**域名**，Mosdns 会返回一个 **伪造的 IP (`198.18.x.x`)**。由于 OSPF 提前宣告了这个网段，流量被精准吸入 EdgeRouteGW 进行代理。
 - 针对你添加的**具体的规则 IP 或 GeoIP**，系统底层同时会将真实的网段宣告给 OSPF。
-- **优点**：性能极高，国内流量完全不经过 ProxyGW，而且同时兼容了域名伪造拦截与指定真实 IP 拦截，补齐了各种网络场景的短板。
+- **优点**：性能极高，国内流量完全不经过 EdgeRouteGW，而且同时兼容了域名伪造拦截与指定真实 IP 拦截，补齐了各种网络场景的短板。
 
 ### 🔵 Mode C (真实 IP OSPF 动态路由与追踪)
 **“用真实 IP 智能引流并动态追踪”**
@@ -72,7 +72,7 @@ ProxyGW 支持三种极其强大的透明路由模式，它们的分流逻辑在
 
 ## 5. 域名规则语义与模式限制（重要）
 
-ProxyGW 的 `domain` 规则语义与 Xray 官方 matcher 对齐：
+EdgeRouteGW 的 `domain` 规则语义与 Xray 官方 matcher 对齐：
 
 - `c.com`：仅根域（`full:c.com`）
 - `**.c.com`：根域 + 任意层子域（`domain:c.com`）
@@ -89,7 +89,7 @@ ProxyGW 的 `domain` 规则语义与 Xray 官方 matcher 对齐：
 
 ## 6. 规则优先级（priority）与冲突处理
 
-从当前版本开始，ProxyGW 支持显式规则优先级：
+从当前版本开始，EdgeRouteGW 支持显式规则优先级：
 
 - 规则执行顺序：`priority ASC, id ASC`
 - `priority` 越小，越先匹配。

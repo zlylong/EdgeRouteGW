@@ -109,7 +109,7 @@ func requireHighRiskMutationGuard(c *gin.Context, action string) bool {
 	if gin.Mode() == gin.TestMode {
 		return true
 	}
-	confirm := strings.TrimSpace(c.GetHeader("X-ProxyGW-Confirm"))
+	confirm := strings.TrimSpace(c.GetHeader("X-EdgeRouteGW-Confirm"))
 	if confirm == "" {
 		confirm = strings.TrimSpace(c.Query("confirm"))
 	}
@@ -130,7 +130,7 @@ func requireHighRiskMutationGuard(c *gin.Context, action string) bool {
 			"error_code": "HIGH_RISK_CONFIRM_REQUIRED",
 			"action":     action,
 			"path":       path,
-			"hint":       "set header X-ProxyGW-Confirm: APPLY or query ?confirm=APPLY",
+			"hint":       "set header X-EdgeRouteGW-Confirm: APPLY or query ?confirm=APPLY",
 		})
 		return false
 	}

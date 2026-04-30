@@ -128,7 +128,7 @@
 
 ### ✨ UI 优化 (UI)
 - **规则列表布局**：将“按组筛选”控件移至“规则类型”行内，优化界面空间利用率；隐藏“分组”列，降低表格拥挤度。
-# ProxyGW Changelog
+# EdgeRouteGW Changelog
 
 ## [1.6.5] - 2026-04-23
 ### 🚀 稳定版发布 (Stable)
@@ -232,7 +232,7 @@
 - **数据库迁移补齐**: 启动初始化新增 `lan_acls` 表与 `settings.lan_default_policy` 默认值，修复部分环境下 `/api/lan_acls` 500 连带影响页面状态的问题。
 
 ### 📝 文档 (Docs)
-- **OpenWrt 防环路指引固化**: 延续并固化主路由源地址旁路（PBR）方案，用于避免 `ProxyGW -> 主路由 -> ProxyGW` 回弹环路。
+- **OpenWrt 防环路指引固化**: 延续并固化主路由源地址旁路（PBR）方案，用于避免 `EdgeRouteGW -> 主路由 -> EdgeRouteGW` 回弹环路。
 - **运维排障口径统一**: 明确“应用层发布计数”与“主路由 OSPF 实际路由”可能存在短时/口径差异，排障以 FRR/主路由实时路由表为准。
 
 ## [1.5.21] - 2026-04-22
@@ -343,7 +343,7 @@
 ## [1.5.8] - 2026-04-20
 ### 📦 发布 (Release)
 - **稳定版补发**: 补发 `v1.5.8 Stable`，修正 GitHub Release 标题与更新说明，确保 Release 页面与 `docs/CHANGELOG.md` 1:1 对齐。
-- **发布工作流修复**: 修复 `.github/workflows/release.yml`，改为从 `docs/CHANGELOG.md` 自动提取对应版本段落作为 Release Notes，并统一使用 `ProxyGW <VERSION> Stable` 标题发布。
+- **发布工作流修复**: 修复 `.github/workflows/release.yml`，改为从 `docs/CHANGELOG.md` 自动提取对应版本段落作为 Release Notes，并统一使用 `EdgeRouteGW <VERSION> Stable` 标题发布。
 
 ## [1.5.7] - 2026-04-20
 ### 🐞 修复 (Bug Fixes)
@@ -420,7 +420,7 @@
 - **Nftables Loop Prevention**: 彻底重写  透明代理接管栈。在  链强制增设  防环路跳出规则，从内核态硬性切断 Xray 发出流量被自身二次劫持的致命死循环。
 - **IPv6 DNS/Traffic Leak Protection**: 在局域网透明代理链路中加入严苛的  规则。当客户端向双栈域名发起解析并试图通过 IPv6 通信时直接静默丢弃，强制回落至 IPv4 透明代理隧道，彻底封堵真 IP 裸奔漏洞。
 - **IP Rule Idempotency (内存泄漏修复)**: 重构了 Go 后端关于策略路由 () 的下发逻辑，引入幂等性检查与自动清理。修复了由于网关频繁热重载导致底层路由表无限膨胀（叠加近百条重复规则）并最终耗尽 CPU 的高危 BUG。
-- **Extreme Concurrency (Sysctl)**: 在自动化安装部署脚本  中固化 ProxyGW 专属的内核网络栈参数 ()：
+- **Extreme Concurrency (Sysctl)**: 在自动化安装部署脚本  中固化 EdgeRouteGW 专属的内核网络栈参数 ()：
   - 暴力提升连接跟踪表容量 ()，杜绝 P2P 和大并发场景下的  熔断。
   - 全局默认开启 **BBR** 拥塞控制算法与  队列，代理延迟与吞吐量提升至物理极限。
   - 正确开启 ，允许本机回环劫持，匹配透明代理的流量回注。

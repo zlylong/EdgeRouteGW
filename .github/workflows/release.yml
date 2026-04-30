@@ -48,7 +48,7 @@ jobs:
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
-          name: ${{ contains(github.ref_name, '-rc.') && format('ProxyGW {0} Pre-release', github.ref_name) || format('ProxyGW {0} Stable', github.ref_name) }}
+          name: ${{ contains(github.ref_name, '-rc.') && format('EdgeRouteGW {0} Pre-release', github.ref_name) || format('EdgeRouteGW {0} Stable', github.ref_name) }}
           prerelease: ${{ contains(github.ref_name, '-rc.') }}
           body_path: /tmp/release_notes.md
           files: |

@@ -1,12 +1,12 @@
-# ProxyGW 主路由配套配置指南 (OSPF/DNS/PBR)
+# EdgeRouteGW 主路由配套配置指南 (OSPF/DNS/PBR)
 
-为了让 ProxyGW 与您的主路由器完美配合并实现模式切换，本指南提供了 RouterOS (ROS) 和 OpenWrt 的配置示例。
+为了让 EdgeRouteGW 与您的主路由器完美配合并实现模式切换，本指南提供了 RouterOS (ROS) 和 OpenWrt 的配置示例。
 
 ---
 
 ## 1. 基础假设
 - **主路由 LAN IP**: `192.168.20.1`
-- **ProxyGW IP**: `192.168.20.155`
+- **EdgeRouteGW IP**: `192.168.20.155`
 - **内网网段**: `192.168.20.0/24`
 
 ---
@@ -67,7 +67,7 @@ ip -4 rule add pref 100 from "$PROXY_IP" table "$TABLE"
 ---
 
 ## 4. 排障：MTR/Ping 环路检测
-如果在 Mode C 下出现 `Request timeout` 或 MTR 路径在主路由与 ProxyGW 之间无限循环：
-1. 检查 ProxyGW 自身的 **默认网关** 是否指向主路由。
+如果在 Mode C 下出现 `Request timeout` 或 MTR 路径在主路由与 EdgeRouteGW 之间无限循环：
+1. 检查 EdgeRouteGW 自身的 **默认网关** 是否指向主路由。
 2. 检查主路由的 **PBR (策略路由)** 是否生效。
-3. 检查 ProxyGW 的 **保护 IP 列表** (Mode A) 或 **节点地址排除逻辑** (Mode B/C) 是否包含了您的代理节点 IP。
+3. 检查 EdgeRouteGW 的 **保护 IP 列表** (Mode A) 或 **节点地址排除逻辑** (Mode B/C) 是否包含了您的代理节点 IP。
