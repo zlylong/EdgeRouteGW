@@ -177,7 +177,7 @@ PrivateTmp=yes
 ProtectKernelTunables=yes
 ProtectControlGroups=yes
 RestrictSUIDSGID=yes
-ReadWritePaths=-/root/proxygw -/usr/local/bin -/etc/frr -/etc/nftables.conf
+ReadWritePaths=-/root/proxygw -/usr/local/bin -/etc/frr -/etc/nftables.conf -/etc/nftables.conf.proxygw.new -/etc/nftables.conf.proxygw.bak
 
 [Install]
 WantedBy=multi-user.target

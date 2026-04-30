@@ -334,7 +334,14 @@ test.describe('dashboard button e2e', () => {
     expect(state.lastDnsSave).toEqual({
       path: '/api/dns',
       method: 'POST',
-      body: { Local: '119.29.29.29', Remote: '1.1.1.1', Lazy: true, Mode: 'smart' }
+      body: {
+        Local: '119.29.29.29',
+        Remote: '1.1.1.1',
+        Lazy: true,
+        Mode: 'smart',
+        cache_size: null,
+        lazy_ttl: null
+      }
     });
   });
 });

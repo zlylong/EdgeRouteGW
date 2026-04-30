@@ -1,56 +1,34 @@
 ## [Unreleased]
 
 ### ✨ 新增 (Features)
-- 节点管理新增“节点失效回退模式”：
-  - `normal`（默认）：规则节点失效时允许回退 `direct`
-  - `strict`：规则节点失效时保持指向节点出站，不回退直连
-- 新增节点失效回退模式 API：
-  - `GET /api/nodes/failover_mode`
-  - `PUT /api/nodes/failover_mode`
-- 节点管理页新增严格/普通模式切换开关，并实时下发生效。
-- **新增测试与诊断 API**:
-  - `GET /api/test/trace?target=<host/ip>`: 模拟路由命中逻辑，用于调试分流规则。
-  - `GET /api/test/health_check`: 系统级组件健康自检 (DB, Xray, Mosdns, GeoData, OSPF/Nftables)。
-- 新增数据库一键优化脚本 `scripts/db_optimize.sh`：
-  - 自动备份 `proxygw.db`（时间戳命名）
-  - `--index-only`：幂等创建关键索引 + `ANALYZE` + `PRAGMA optimize`
-  - `--full`：在上述基础上执行 `VACUUM`（用于维护窗口）
-- 安装/更新脚本自动接入低风险优化：`install.sh` 与 `update.sh` 在服务启动后自动尝试执行 `db_optimize.sh --index-only`（存在性检查 + 失败不阻断主流程）。
-- 规则系统新增显式优先级能力：`rules.priority` 字段上线，匹配顺序统一为 `priority ASC, id ASC`。
-- 新增规则重排接口：`PUT /api/rules/reorder`，支持按规则 ID 列表批量重排优先级。
-- 新增重复规则防呆：创建规则时拦截重复 `type+value`，冲突返回 409。
+- **Mosdns 配置页面增强**: 
+  - 支持动态配置 `log_level`（日志等级）、`cache_size`（缓存条目数）和 `lazy_ttl`（懒加载生存时间）。
+  - DNS 设置面板新增高级参数调节，优化解析性能与内存占用。
+- **系统诊断与测试工具**:
+  - 新增“诊断测试工具”面板，集成路由追踪与系统体检。
+  - **路由追踪模拟**: 模拟输入域名/IP，实时显示命中的分流规则、出口策略及匹配原因。
+  - **系统健康自检**: 一键检查数据库、Xray、Mosdns、GeoData 资产以及 OSPF/Nftables 的运行状态。
 
 ### ⚡ 性能与优化 (Optimizations)
-- 补齐 `domain_geoip_lock` 访问路径索引：
-  - `idx_dgl_domain_resolver_ver (domain, resolver_group, geodata_ver)`
-  - 避免查询计划仅命中复合主键前缀导致的过滤不充分。
-- 补齐 `gateway_events` 常用筛选路径索引：
-  - `idx_gateway_events_module_level_id (module, level, id DESC)`
-  - 降低按模块/级别倒序分页查询时的全表扫描概率。
-
-### 📝 文档 (Docs)
-- `docs/OPERATIONS.md` 新增数据库优化章节：触发信号、`--index-only/--full` 使用建议、维护窗口与锁影响说明。
-- `README.md` 与运维文档补充“安装/升级后自动低风险 DB 优化”说明。
-
-### 🖥️ UI 优化 (UI)
-- 规则列表新增“优先级”列，直观显示 `priority`。
-- 规则列表新增“上移/下移”按钮，调用 `PUT /api/rules/reorder` 完成可视化重排。
-- 移除规则页“编号”列，避免编号语义干扰日常运维。
-- 实时连接追踪页移除“规则编号”列与编号关联跳转，仅保留“规则匹配值/未关联原因/绑定策略”展示。
+- **GeoData 资源一致性**: 将 Mosdns 的 `geoip.dat` 和 `geosite.dat` 资源改为指向 Xray 完整资产目录的符号链接，确保两者规则集版本严格对齐，同时大幅减少磁盘冗余。
+- **DNS 解析稳定性**: 优化了 Mosdns 的默认配置生成逻辑，使其在 A/B/C 三种模式下均能保持解析分流逻辑的一致性。
 
 ### 🐛 修复 (Fixes)
-- 实时连接追踪接口 `/api/connections` 结果现在强制限定在“服务发布网络（service network）”子网内，避免管理网络或其他网段连接混入追踪视图。
-- 修复 Xray geodata 资产路径配置错误：`XRAY_LOCATION_ASSET` 从 `core/mosdns` 更正为 `core/xray`，避免因误读 Mosdns 精简 geosite/geoip 数据导致规则标签被判定为“不支持”（如 `geosite:category-ads-all`）。
-- 连接追踪在 Mode A 不再强制按 service network 子网过滤，避免透明代理单臂部署时因网段约束导致实时连接列表为空；Mode B/C 仍保持 service network 过滤。
-- 修复 Mode C 下 `fwmark 0x1 -> table tproxy` 规则偶发丢失导致“仅命中代理规则目标（如 1.1.1.1）不可达”的问题：后端启动后新增 TPROXY 路由策略自愈巡检（每 30 秒），发现缺失时自动补回 `ip rule` 与 `table tproxy` 本地回注路由。
-- 首页系统信息改为动态读取：显示 ProxyGW 版本（Git tag）、系统版本（`/etc/os-release`）、Xray 版本与 FRR 版本，替代硬编码文案。
-- 修复首页版本信息显示为 Unknown 的兼容性问题：系统版本改用 POSIX `. /etc/os-release` 读取；FRR 版本改为 `vtysh -c 'show version'` 提取首行，避免 `vtysh -v/--version` 在 Debian FRR 包中不支持导致的空值。
-- OSPF 邻居状态统计改为解析 `show ip ospf neighbor json` 实际结构并按 `nbrState` 计数，修复仅字符串包含判断导致的状态误报。
-- 新增 OSPF 发布策略测试：覆盖默认路由/保留地址/RFC1918 超网段拒绝，以及普通主机路由与细粒度子网允许场景。
-- Nftables 应用流程增强为“预校验 + 运行时/配置双回滚”：先用 `nft -c -f` 校验新配置，再备份当前 ruleset 与 `/etc/nftables.conf`，若 `nft -f` 应用失败则自动回滚内核规则与配置文件，避免失败后留在半生效状态。
-- 高危变更接口新增并发互斥锁：`/api/apply`、网络配置、模式切换、OSPF 设置与 Pending 重置在同一 action 上不允许并发执行，冲突时返回 `409/HIGH_RISK_ACTION_BUSY`，避免并发写导致状态撕裂。
-- 命令执行日志增加敏感参数脱敏：`commandExecutor` 启动日志自动隐藏 `password/token/secret/api_key/authorization` 等参数值（含 `--key=value`、`--key value`、`Authorization: ...`），降低凭据泄露风险。
-- 高危接口参数校验收紧：`/api/apply`、`network_config`、`mode_switch`、`ospf_settings` 以及组件更新接口（xray/mosdns）改为严格 JSON 解码（`DisallowUnknownFields`），拒绝未知字段与多余 JSON 片段，降低误传参与污染风险。
+- **Web UI 布局与 Tab 逻辑修复**:
+  - 修复了 HTML 标签未闭合导致的页面布局重叠/崩溃问题。
+  - 重构了前端 Tab 切换的 `v-if / v-else-if` 条件链，确保各功能面板（Connections, Rules, DNS, Tools 等）在单页面应用中的渲染互斥性。
+  - 修正了 `Nodes` 节点管理区块曾被意外设置为 `v-if` 导致 Tab 链中断的故障。
+- **OSPF 路由状态残留修复**:
+  - 在路由下发逻辑中引入 `failed_policy` 状态，对违反私网拦截策略（如 192.168.0.0/16）的路由候选进行标记。
+  - 解决了 Pending Set 中僵尸路由数据无法清除的顽疾，保持待发布列表整洁。
+- **系统状态检测兼容性**:
+  - 修复了 Xray 流量统计 API 参数错误（从 `-name` 更正为 `-pattern`），恢复了首页流量统计状态的实时显示。
+  - 增强了 E2E 测试脚本的健壮性，自动处理登录与加载遮罩层，提升了 CI/CD 环节的稳定性。
+
+## [1.7.0] - 2026-04-30
+### 🚀 稳定版发布 (Stable)
+- 发布 v1.7.0 Stable，正式上线路由追踪诊断、系统自检工具以及 Mosdns 深度配置能力。
+- 修复了自 v1.6.15 以来积累的所有已知 UI 渲染与路由同步残留 Bug。
 
 ## [1.6.15] - 2026-04-29
 ### 🚀 稳定版发布 (Stable)
