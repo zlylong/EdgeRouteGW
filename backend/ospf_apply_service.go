@@ -8,6 +8,15 @@ import (
 	"time"
 )
 
+func contains(slice []string, val string) bool {
+	for _, item := range slice {
+		if item == val {
+			return true
+		}
+	}
+	return false
+}
+
 func applyOspfDeleteBatch(toDel []string) bool {
 	if len(toDel) == 0 {
 		return false
@@ -65,6 +74,14 @@ func applyOspfAddBatch(toAdd []string) bool {
 	if len(allowed) == 0 {
 		if skipped > 0 {
 			log.Printf("[FRR] ADD blocked by ospf publish allowlist: requested=%d skipped=%d", len(toAdd), skipped)
+			// GC blocked candidates: if a candidate is blocked by policy/allowlist,
+			// mark it as 'failed_policy' so it doesn't stay in 'candidate' forever.
+			tx, _ := db.Begin()
+			for _, ip := range toAdd {
+				// We don't want to keep retrying these in every sync cycle
+				tx.Exec("UPDATE routes_table SET status='failed_policy', miss_count=miss_count+1 WHERE ip=? AND status='candidate'", ip)
+			}
+			tx.Commit()
 		}
 		return false
 	}
@@ -76,6 +93,12 @@ func applyOspfAddBatch(toAdd []string) bool {
 	tx, _ := db.Begin()
 	for _, ip := range allowed {
 		tx.Exec("UPDATE routes_table SET status='published', last_seen=datetime('now'), miss_count=0 WHERE ip=?", ip)
+	}
+	// Also mark skipped ones in this batch if some were allowed
+	for _, ip := range toAdd {
+		if !contains(allowed, ip) {
+			tx.Exec("UPDATE routes_table SET status='failed_policy', miss_count=miss_count+1 WHERE ip=? AND status='candidate'", ip)
+		}
 	}
 	tx.Commit()
 	if skipped > 0 {
