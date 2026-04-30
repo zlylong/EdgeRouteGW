@@ -524,6 +524,38 @@ func TestFeatureSuite_DNSRulesAndNodes(t *testing.T) {
 			t.Fatalf("expected default node 1, got %s", defaultNode)
 		}
 
+		getFailover := httptest.NewRecorder()
+		r.ServeHTTP(getFailover, authedRequest(http.MethodGet, "/api/nodes/failover_mode"))
+		if getFailover.Code != http.StatusOK {
+			t.Fatalf("want 200 got %d", getFailover.Code)
+		}
+		var failoverPayload map[string]string
+		if err := json.Unmarshal(getFailover.Body.Bytes(), &failoverPayload); err != nil {
+			t.Fatal(err)
+		}
+		if failoverPayload["mode"] != "normal" {
+			t.Fatalf("expected default failover mode normal, got %q", failoverPayload["mode"])
+		}
+
+		setFailover := httptest.NewRecorder()
+		r.ServeHTTP(setFailover, authedJSONRequest(http.MethodPut, "/api/nodes/failover_mode", `{"mode":"strict"}`))
+		if setFailover.Code != http.StatusOK {
+			t.Fatalf("want 200 got %d body=%s", setFailover.Code, setFailover.Body.String())
+		}
+		var failoverMode string
+		if err := db.QueryRow("SELECT value FROM settings WHERE key='node_failover_mode'").Scan(&failoverMode); err != nil {
+			t.Fatal(err)
+		}
+		if failoverMode != "strict" {
+			t.Fatalf("expected failover mode strict, got %q", failoverMode)
+		}
+
+		badFailover := httptest.NewRecorder()
+		r.ServeHTTP(badFailover, authedJSONRequest(http.MethodPut, "/api/nodes/failover_mode", `{"mode":"invalid"}`))
+		if badFailover.Code != http.StatusBadRequest {
+			t.Fatalf("want 400 got %d", badFailover.Code)
+		}
+
 		shareLink := "vless://123e4567-e89b-12d3-a456-426614174000@hk.example.com:443?security=reality&sni=www.microsoft.com&fp=chrome&pbk=abc123&sid=abcd&type=tcp&flow=xtls-rprx-vision&encryption=none#hk-node"
 		importReq := httptest.NewRecorder()
 		r.ServeHTTP(importReq, authedJSONRequest(http.MethodPost, "/api/nodes/import", `{"Url":"`+shareLink+`"}`))

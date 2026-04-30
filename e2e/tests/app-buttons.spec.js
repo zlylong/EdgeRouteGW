@@ -12,6 +12,7 @@ async function mockDashboardApis(page) {
     toggleNodeCalls: 0,
     setDefaultNodeCalls: 0,
     deleteNodeCalls: 0,
+    setFailoverModeCalls: 0,
     lastImport: null,
     lastRegenerate: null,
     lastRollback: null,
@@ -22,6 +23,7 @@ async function mockDashboardApis(page) {
     lastNodeToggle: null,
     lastNodeDefault: null,
     lastNodeDelete: null,
+    lastFailoverMode: null,
     dns: { local: '223.5.5.5', remote: '8.8.8.8', lazy: true, mode: 'smart' },
     nodes: [
       { id: 1, name: 'n1', group: 'g1', type: 'Vmess', address: '1.1.1.1', port: 443, uuid: 'u1', active: true, ping: 10, params: '{}', is_default: false },
@@ -72,6 +74,12 @@ async function mockDashboardApis(page) {
       return json({ success: true });
     }
     if (path === '/api/nodes' && method === 'GET') return json(state.nodes);
+    if (path === '/api/nodes/failover_mode' && method === 'GET') return json({ mode: 'normal' });
+    if (path === '/api/nodes/failover_mode' && method === 'PUT') {
+      state.setFailoverModeCalls += 1;
+      state.lastFailoverMode = { path, method, body: req.postDataJSON() };
+      return json({ success: true, mode: state.lastFailoverMode.body.mode });
+    }
     if (path === '/api/nodes/1/toggle' && method === 'PUT') {
       state.toggleNodeCalls += 1;
       state.lastNodeToggle = { path, method };
@@ -220,11 +228,16 @@ test.describe('dashboard button e2e', () => {
     });
   });
 
-  test('node buttons dispatch toggle default and delete requests', async ({ page }) => {
+  test('node buttons dispatch toggle default delete and failover mode requests', async ({ page }) => {
     const state = await mockDashboardApis(page);
     await page.goto('/');
 
     await page.getByText('节点管理').click();
+
+    await page.locator('select').filter({ hasText: '普通模式严格模式' }).selectOption('strict');
+    await expect(page.getByText('已切换为严格模式')).toBeVisible();
+    expect(state.setFailoverModeCalls).toBe(1);
+    expect(state.lastFailoverMode).toEqual({ path: '/api/nodes/failover_mode', method: 'PUT', body: { mode: 'strict' } });
 
     let row = page.locator('tr', { hasText: 'n1' });
     await expect(row).toContainText('设为默认');
