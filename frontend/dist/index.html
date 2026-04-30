@@ -291,7 +291,7 @@
                                             <td class="p-3 text-gray-700 font-mono">{{ conn.target }}</td>
                                             <td class="p-3 text-gray-500 font-mono text-xs">
                                                 <div class="font-bold text-gray-700">{{ conn.match_value || "-" }}</div>
-                                                <div v-if="conn.rule_id" class="text-[10px] text-blue-600">关联规则: #{{ conn.rule_id }}（{{ conn.rule_type || 'unknown' }}）</div>
+                                                <button v-if="conn.rule_id" @click="goToRule(conn.rule_id)" class="text-[10px] text-blue-600 hover:text-blue-800 underline" title="跳转到规则页并定位该规则">关联规则: #{{ conn.rule_id }}（{{ conn.rule_type || 'unknown' }}）</button>
                                                 <div v-if="!conn.rule_id && conn.unmatched_reason" class="text-[10px] text-amber-600">未关联原因: {{ conn.unmatched_reason }}</div>
                                                 <div v-if="conn.policy" class="text-[10px] text-gray-400">绑定策略: {{ conn.policy }}</div>
                                             </td>
