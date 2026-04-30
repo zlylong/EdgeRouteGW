@@ -911,6 +911,73 @@ PersistentKeepalive = 25
                         </div>
                     </div>
 
+                    <div v-else-if="activeTab === 'test_tools'" key="test_tools" class="space-y-6">
+                        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                            <!-- Trace Tool -->
+                            <div class="bg-white p-6 rounded-lg shadow space-y-4">
+                                <h3 class="text-lg font-bold border-b pb-2 flex items-center">
+                                    <i class="fa-solid fa-route text-blue-500 mr-2"></i>路由命中追踪模拟
+                                </h3>
+                                <div class="flex gap-2">
+                                    <input v-model="traceInput" @keyup.enter="runTrace" type="text" class="flex-1 border rounded p-2 text-sm font-mono" placeholder="输入测试域名或 IP (例: google.com)">
+                                    <button @click="runTrace" :disabled="isTracing" class="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700 disabled:opacity-50">
+                                        <i v-if="isTracing" class="fas fa-spinner fa-spin mr-1"></i>追踪
+                                    </button>
+                                </div>
+                                <div v-if="traceResult" class="mt-4 p-4 bg-gray-50 rounded border text-sm space-y-2">
+                                    <div class="flex justify-between">
+                                        <span class="text-gray-500">目标类型:</span>
+                                        <span class="font-mono uppercase font-bold">{{ traceResult.type }}</span>
+                                    </div>
+                                    <div class="flex justify-between">
+                                        <span class="text-gray-500">匹配结果:</span>
+                                        <span class="px-2 py-0.5 rounded text-xs font-bold" 
+                                              :class="traceResult.outbound === 'direct' ? 'bg-gray-200 text-gray-700' : (traceResult.outbound === 'block' ? 'bg-red-100 text-red-700' : 'bg-blue-100 text-blue-700')">
+                                            {{ traceResult.outbound }}
+                                        </span>
+                                    </div>
+                                    <div v-if="traceResult.matched_rule" class="border-t pt-2 mt-2">
+                                        <div class="font-bold text-blue-600 mb-1">命中的规则:</div>
+                                        <div class="grid grid-cols-2 gap-x-4 gap-y-1 text-xs">
+                                            <span class="text-gray-400">ID:</span> <span class="font-mono">#{{ traceResult.matched_rule.id }}</span>
+                                            <span class="text-gray-400">类型:</span> <span>{{ traceResult.matched_rule.type }}</span>
+                                            <span class="text-gray-400">值:</span> <span class="font-mono">{{ traceResult.matched_rule.value }}</span>
+                                            <span class="text-gray-400">策略:</span> <span>{{ traceResult.matched_rule.policy }}</span>
+                                        </div>
+                                    </div>
+                                    <div class="border-t pt-2 mt-2 text-xs text-gray-500 italic">
+                                        原因: {{ traceResult.reason }}
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Health Check Tool -->
+                            <div class="bg-white p-6 rounded-lg shadow space-y-4">
+                                <h3 class="text-lg font-bold border-b pb-2 flex justify-between items-center">
+                                    <span><i class="fa-solid fa-heart-pulse text-red-500 mr-2"></i>系统组件自检</span>
+                                    <button @click="runHealthCheck" :disabled="isCheckingHealth" class="text-xs bg-gray-100 hover:bg-gray-200 px-2 py-1 rounded border">
+                                        <i v-if="isCheckingHealth" class="fas fa-spinner fa-spin mr-1"></i>重新检测
+                                    </button>
+                                </h3>
+                                <div class="space-y-3">
+                                    <div v-for="res in healthResults" :key="res.component" class="flex items-center justify-between p-3 rounded border" :class="res.status === 'OK' ? 'bg-green-50 border-green-100' : (res.status === 'Warn' ? 'bg-yellow-50 border-yellow-100' : 'bg-red-50 border-red-100')">
+                                        <div class="flex flex-col">
+                                            <span class="font-bold text-sm">{{ res.component }}</span>
+                                            <span v-if="res.details" class="text-[10px] text-gray-500">{{ res.details }}</span>
+                                        </div>
+                                        <div class="flex items-center">
+                                            <i class="fa-solid mr-2" :class="res.status === 'OK' ? 'fa-circle-check text-green-600' : (res.status === 'Warn' ? 'fa-triangle-exclamation text-yellow-600' : 'fa-circle-xmark text-red-600')"></i>
+                                            <span class="text-xs font-bold uppercase">{{ res.status }}</span>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div v-if="healthResults.length" class="text-[10px] text-gray-400 text-center">
+                                    当前运行模式: Mode {{ healthMode }}
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
                     <!-- DNS -->
                     <div v-else-if="activeTab === 'dns'" key="dns" class="space-y-6">
                         <div class="grid grid-cols-1 gap-6 max-w-3xl mx-auto">
@@ -1605,6 +1672,7 @@ window.onerror = function(msg, url, line, col, error) { alert("JS Error: " + msg
                     { id: 'remote_nodes', icon: 'fa-cloud-arrow-up', label: '节点自动部署' },
                     { id: 'rules', icon: 'fa-route', label: '路由分流规则' },
                     { id: 'geo_query', icon: 'fa-magnifying-glass-location', label: 'Geo 查询验证' },
+                    { id: 'test_tools', icon: 'fa-vial-circle-check', label: '诊断测试工具' },
                     { id: 'lan_acls', icon: 'fa-laptop-house', label: '设备分流规则', hideModeBC: true },
                     { id: 'protected_ips', icon: 'fa-shield-halved', label: '规则变更保护IP', hideModeBC: true },
                     { id: 'dns', icon: 'fa-globe', label: 'DNS 设置' },
@@ -2098,7 +2166,45 @@ window.onerror = function(msg, url, line, col, error) { alert("JS Error: " + msg
                     } catch (e) {}
                 };
 
+                const traceInput = ref('');
+                const traceResult = ref(null);
+                const isTracing = ref(false);
+                const healthResults = ref([]);
+                const isCheckingHealth = ref(false);
+                const healthMode = ref('');
+
+                const runTrace = async () => {
+                    const target = (traceInput.value || '').trim();
+                    if (!target) return showToast('请输入测试目标', 'error');
+                    isTracing.value = true;
+                    try {
+                        const res = await apiFetch('/api/test/trace?target=' + encodeURIComponent(target));
+                        if (!res.ok) throw new Error();
+                        traceResult.value = await res.json();
+                    } catch (e) {
+                        showToast('追踪失败', 'error');
+                    } finally {
+                        isTracing.value = false;
+                    }
+                };
+
+                const runHealthCheck = async () => {
+                    isCheckingHealth.value = true;
+                    try {
+                        const res = await apiFetch('/api/test/health_check');
+                        if (!res.ok) throw new Error();
+                        const data = await res.json();
+                        healthResults.value = data.results || [];
+                        healthMode.value = data.mode || '';
+                    } catch (e) {
+                        showToast('自检失败', 'error');
+                    } finally {
+                        isCheckingHealth.value = false;
+                    }
+                };
+
                 const loadData = async (isInit = false) => {
+                    if (token.value && activeTab.value === 'test_tools' && !healthResults.value.length) runHealthCheck();
                     if (token.value && !(activeTab.value === 'system' && networkConfigSelecting.value)) apiFetch('/api/status').then(r=>r.json()).then(d => { sysStatus.value = d; if (isInit === true) { networkConfigForm.value.management_iface = d?.management_network?.iface || ''; networkConfigForm.value.service_iface = d?.service_network?.iface || ''; } });
                     fetchTraffic();
                     if (activeTab.value === 'connections') fetchConnections();
@@ -2431,9 +2537,10 @@ Mode C: 纯OSPF (恢复真实IP宣告)`)) {
                     showAclModal, aclForm, openAddAcl, saveAcl, deleteAcl, updateLanDefault, addProtectedIp, deleteProtectedIp,
                     currentConfigTab,
                     loadData,
-                    isSubmitting, isLoading, vlessParams, cron, saveCron, networkConfigForm, networkConfigSelecting, saveNetworkConfig, showPwdModal, pwdForm, logout, changePwd, toastMsg, toastType, confirmData, doConfirm, isUpdating, token, password, login, categories, geoQuery, showGeoSuggestions, geoSuggestionIndex, filteredGeoSuggestions, handleGeoInput, handleGeoInputBlur, moveGeoSuggestion, confirmGeoSuggestionOrQuery, applyGeoSuggestion, runGeoQuery, xrayConfigStr, mosdnsConfigStr, nftablesConfigStr, frrConfigStr, loadConfigs, newRule, ruleGroups, selectedRuleGroup, ruleSearchId, filteredRules, editingRuleGroup, shortRuleGroup, describeRulePattern, ruleValuePlaceholder, ruleValidationError, handleRuleValueFocus, handleRuleValueBlur, addRule, loadRules, saveRuleGroupName, moveRule, activeTab, tabs, visibleTabs, uiMode, toggleUiMode, currentTabLabel, nodes, rules, dns, dnsLogs, ospf, ospfController, ospfControllerDirty, saveOspfController, resetOspfPending, sysStatus, applyConfig, toggleMode, changeMode, importNodeUrl, pingNodes, openAddNode, editNode, saveNode, showNodeModal, editingNode, deleteNode, toggleNode, deleteRule, deleteRuleGroup, saveDns, updateComp, showMosdnsRollbackModal, mosdnsVersions, selectedMosdnsRollbackVersion, openMosdnsRollbackModal, confirmMosdnsRollback, showRollbackModal, xrayVersions, selectedRollbackVersion, openRollbackModal, confirmRollback, remoteNodes, showRemoteNodeModal, showRemoteDetailsModal, selectedRemoteNode, remoteNodeForm, loadRemoteNodes, openAddRemoteNode, submitRemoteNode, viewRemoteNode, checkRemoteNode, confirmDeleteRemoteNode, copyText, importToLocal, isDeploying, showBatchModal, batchText, submitBatchNodes, showHistoryModal, nodeHistory, setDefaultNode, nodeFailoverMode, saveNodeFailoverMode, regenerateNode, loadNodeHistory, rollbackNode }
+                    isSubmitting, isLoading, vlessParams, cron, saveCron, networkConfigForm, networkConfigSelecting, saveNetworkConfig, showPwdModal, pwdForm, logout, changePwd, toastMsg, toastType, confirmData, doConfirm, isUpdating, token, password, login, categories, geoQuery, showGeoSuggestions, geoSuggestionIndex, filteredGeoSuggestions, handleGeoInput, handleGeoInputBlur, moveGeoSuggestion, confirmGeoSuggestionOrQuery, applyGeoSuggestion, runGeoQuery, xrayConfigStr, mosdnsConfigStr, nftablesConfigStr, frrConfigStr, loadConfigs, newRule, ruleGroups, selectedRuleGroup, ruleSearchId, filteredRules, editingRuleGroup, shortRuleGroup, describeRulePattern, ruleValuePlaceholder, ruleValidationError, handleRuleValueFocus, handleRuleValueBlur, addRule, loadRules, saveRuleGroupName, moveRule, activeTab, tabs, visibleTabs, uiMode, toggleUiMode, currentTabLabel, nodes, rules, dns, dnsLogs, ospf, ospfController, ospfControllerDirty, saveOspfController, resetOspfPending, sysStatus, applyConfig, toggleMode, changeMode, importNodeUrl, pingNodes, openAddNode, editNode, saveNode, showNodeModal, editingNode, deleteNode, toggleNode, deleteRule, deleteRuleGroup, saveDns, updateComp, showMosdnsRollbackModal, mosdnsVersions, selectedMosdnsRollbackVersion, openMosdnsRollbackModal, confirmMosdnsRollback, showRollbackModal, xrayVersions, selectedRollbackVersion, openRollbackModal, confirmRollback, remoteNodes, showRemoteNodeModal, showRemoteDetailsModal, selectedRemoteNode, remoteNodeForm, loadRemoteNodes, openAddRemoteNode, submitRemoteNode, viewRemoteNode, checkRemoteNode, confirmDeleteRemoteNode, copyText, importToLocal, isDeploying, showBatchModal, batchText, submitBatchNodes, showHistoryModal, nodeHistory,                    setDefaultNode, nodeFailoverMode, saveNodeFailoverMode, regenerateNode, loadNodeHistory, rollbackNode,
+                    traceInput, traceResult, isTracing, runTrace, healthResults, isCheckingHealth, runHealthCheck, healthMode }
             }
-        }).mount('#app');
+}).mount('#app');
     </script>
 </body>
 </html>
