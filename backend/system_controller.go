@@ -127,8 +127,8 @@ func (ctl *SystemController) HandleStatus(c *gin.Context) {
 		geoVer = info.ModTime().Format("2006-01-02")
 	}
 
-	upStats, _ := sysCmd.output(getPath("core", "xray", "xray"), "api", "statsquery", "-server=127.0.0.1:10085", "-name=inbound>>>api_inbound>>>traffic>>>uplink")
-	downStats, _ := sysCmd.output(getPath("core", "xray", "xray"), "api", "statsquery", "-server=127.0.0.1:10085", "-name=inbound>>>api_inbound>>>traffic>>>downlink")
+	upStats, _ := sysCmd.output(getPath("core", "xray", "xray"), "api", "statsquery", "-server=127.0.0.1:10085", "-pattern=inbound>>>api_inbound>>>traffic>>>uplink")
+	downStats, _ := sysCmd.output(getPath("core", "xray", "xray"), "api", "statsquery", "-server=127.0.0.1:10085", "-pattern=inbound>>>api_inbound>>>traffic>>>downlink")
 	upStr := "0 MB"
 	downStr := "0 MB"
 	if strings.Contains(string(upStats), "value") {
