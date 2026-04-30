@@ -115,9 +115,33 @@ mtr -n -r -c 5 -w -T -P 443 1.1.1.1
 
 ---
 
-## 5) 运维建议
+## 5) 251 客户端实测案例（已复现）
+
+在 `192.168.100.251` 上：
+
+- `mtr -n -r -c 10 -w -T -P 443 1.1.1.1`：2 跳直达，`0% loss`
+- `mtr -n -r -c 10 -w 1.1.1.1`（ICMP）：出现 `192.168.100.1 <-> 192.168.100.204` 往返
+
+抓包证据（ProxyGW `eth1`）显示同一 ICMP Echo 序列号被重复看到，符合 OSPF 回注循环特征（仅发生在 ICMP 诊断流）。
+
+### 临时止血（ProxyGW 侧）
+
+在 ProxyGW 上插入 ICMP 丢弃规则，立刻打断回注环：
+
+```bash
+nft insert rule inet proxygw prerouting ip saddr 192.168.100.0/24 ip protocol icmp counter drop comment "break_icmp_loop_tmp"
+```
+
+效果：
+- TCP 代理业务不受影响（TProxy 仍处理 `tcp/udp`）
+- ICMP `mtr` 不再出现 100.1/100.204 往返，而是快速终止于 `???`
+
+> 该规则是应急止血，不是最终设计。最终仍建议在主路由（OpenWrt）侧通过策略路由或测试目标静态路由避免将诊断 ICMP 送入 OSPF 回注路径。
+
+## 6) 运维建议
 
 1. **ProxyGW service/LAN IP 尽量固定**（避免 DHCP 变化造成 `/32` 规则漂移）。
 2. 保留主路由侧源地址旁路作为最终保险。
 3. 排障时优先看 TCP 连通性（`mtr -T`, `curl -v`），不要仅凭 ICMP 结论判定环路。
 4. 每次 OSPF 模式切换后固定执行：邻居 Full、规则存在、`ip route get` 双验证。
+5. 若现场必须用 ICMP 压测，先在主路由配置诊断目标旁路（如 `1.1.1.1/32 -> WAN`），避免误判。
