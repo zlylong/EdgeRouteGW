@@ -141,3 +141,36 @@ Base URL: `http://<host>/api`
 ## 一键应用
 
 - POST `/apply`
+
+## 诊断与测试
+
+### GET /test/trace
+模拟路由命中结果。
+参数：`target` (域名或 IP)
+返回：
+```json
+{
+  "target": "google.com",
+  "type": "domain",
+  "matched_rule": { "id": 1, "type": "geosite", "value": "google", "policy": "proxy-1" },
+  "outbound": "proxy-1-out",
+  "reason": "matched geosite:google"
+}
+```
+
+### GET /test/health_check
+执行全系统组件健康自检。
+返回：
+```json
+{
+  "success": true,
+  "mode": "B",
+  "results": [
+    { "component": "Database", "status": "OK", "details": "" },
+    { "component": "Xray", "status": "OK", "details": "" },
+    { "component": "Mosdns", "status": "OK", "details": "" },
+    { "component": "GeoData", "status": "OK", "details": "" },
+    { "component": "FRR/OSPF", "status": "OK", "details": "" }
+  ]
+}
+```

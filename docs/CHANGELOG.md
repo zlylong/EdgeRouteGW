@@ -8,6 +8,9 @@
   - `GET /api/nodes/failover_mode`
   - `PUT /api/nodes/failover_mode`
 - 节点管理页新增严格/普通模式切换开关，并实时下发生效。
+- **新增测试与诊断 API**:
+  - `GET /api/test/trace?target=<host/ip>`: 模拟路由命中逻辑，用于调试分流规则。
+  - `GET /api/test/health_check`: 系统级组件健康自检 (DB, Xray, Mosdns, GeoData, OSPF/Nftables)。
 - 新增数据库一键优化脚本 `scripts/db_optimize.sh`：
   - 自动备份 `proxygw.db`（时间戳命名）
   - `--index-only`：幂等创建关键索引 + `ANALYZE` + `PRAGMA optimize`

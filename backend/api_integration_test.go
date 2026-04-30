@@ -452,3 +452,21 @@ func TestNodeUpdateEndpointExists(t *testing.T) {
 		t.Fatalf("update not applied, got %s", name)
 	}
 }
+
+func TestNodeFailoverModeChange(t *testing.T) {
+	r := setupTestRouter(t)
+	body := `{"mode":"strict"}`
+	req := httptest.NewRequest(http.MethodPut, "/api/nodes/failover_mode", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer test-token")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("want 200 got %d body=%s", w.Code, w.Body.String())
+	}
+	var mode string
+	_ = db.QueryRow("SELECT value FROM settings WHERE key='node_failover_mode'").Scan(&mode)
+	if mode != "strict" {
+		t.Fatalf("unexpected mode in db: %s", mode)
+	}
+}

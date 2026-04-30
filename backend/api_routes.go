@@ -43,6 +43,9 @@ func registerAPIRoutes(r *gin.Engine) {
 	registerEventRoutes(authed)
 	registerNftablesRoutes(authed)
 
+	testCtl := NewTestController()
+	testCtl.RegisterRoutes(authed)
+
 	applyCtl := NewApplyController()
 	authed.POST("/apply", applyCtl.HandleApply)
 }
