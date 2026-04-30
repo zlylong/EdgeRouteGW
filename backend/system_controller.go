@@ -309,6 +309,11 @@ func (ctl *SystemController) HandleNetworkConfig(c *gin.Context) {
 	if !requireHighRiskMutationGuard(c, "network_config") {
 		return
 	}
+	releaseLock, ok := tryAcquireHighRiskMutationLock(c, "network_config")
+	if !ok {
+		return
+	}
+	defer releaseLock()
 	var req struct {
 		ManagementIface string `json:"management_iface"`
 		ServiceIface    string `json:"service_iface"`
@@ -346,6 +351,11 @@ func (ctl *SystemController) HandleMode(c *gin.Context) {
 	if !requireHighRiskMutationGuard(c, "mode_switch") {
 		return
 	}
+	releaseLock, ok := tryAcquireHighRiskMutationLock(c, "mode_switch")
+	if !ok {
+		return
+	}
+	defer releaseLock()
 	var req struct{ Mode string }
 	if c.BindJSON(&req) != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "bad mode payload"})
@@ -382,6 +392,11 @@ func (ctl *SystemController) HandleOspfSettings(c *gin.Context) {
 	if !requireHighRiskMutationGuard(c, "ospf_settings") {
 		return
 	}
+	releaseLock, ok := tryAcquireHighRiskMutationLock(c, "ospf_settings")
+	if !ok {
+		return
+	}
+	defer releaseLock()
 	var req struct {
 		PushBatchLimit     int    `json:"push_batch_limit"`
 		PushIntervalSecond int    `json:"push_interval_seconds"`
@@ -433,6 +448,11 @@ func (ctl *SystemController) HandleResetOspfPending(c *gin.Context) {
 	if !requireHighRiskMutationGuard(c, "ospf_reset_pending") {
 		return
 	}
+	releaseLock, ok := tryAcquireHighRiskMutationLock(c, "ospf_reset_pending")
+	if !ok {
+		return
+	}
+	defer releaseLock()
 	if isDryRun(c) {
 		c.JSON(http.StatusOK, gin.H{"success": true, "dry_run": true, "action": "ospf_reset_pending", "plan": gin.H{"scope": "routes_table WHERE status='candidate' AND source='static'", "effect": "delete pending static routes only; published/stable routes untouched"}})
 		return

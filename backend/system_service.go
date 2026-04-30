@@ -8,6 +8,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -134,6 +135,45 @@ func requireHighRiskMutationGuard(c *gin.Context, action string) bool {
 		return false
 	}
 	return true
+}
+
+var (
+	highRiskMutationLockMu   sync.Mutex
+	highRiskMutationInFlight = map[string]bool{}
+)
+
+func tryAcquireHighRiskMutationLock(c *gin.Context, action string) (func(), bool) {
+	if gin.Mode() == gin.TestMode {
+		return func() {}, true
+	}
+	highRiskMutationLockMu.Lock()
+	if highRiskMutationInFlight[action] {
+		highRiskMutationLockMu.Unlock()
+		path := c.FullPath()
+		if path == "" {
+			path = c.Request.URL.Path
+		}
+		logGatewayEventThrottled("high_risk_action_busy_"+action, 5*time.Second, "warn", "api", "high_risk_action_busy", "high-risk mutation action already in progress", map[string]interface{}{
+			"source_ip": c.ClientIP(),
+			"method":    c.Request.Method,
+			"path":      path,
+			"action":    action,
+		})
+		c.JSON(http.StatusConflict, gin.H{
+			"success":    false,
+			"error":      "high-risk mutation already in progress",
+			"error_code": "HIGH_RISK_ACTION_BUSY",
+			"action":     action,
+		})
+		return nil, false
+	}
+	highRiskMutationInFlight[action] = true
+	highRiskMutationLockMu.Unlock()
+	return func() {
+		highRiskMutationLockMu.Lock()
+		delete(highRiskMutationInFlight, action)
+		highRiskMutationLockMu.Unlock()
+	}, true
 }
 
 func isDryRun(c *gin.Context) bool {

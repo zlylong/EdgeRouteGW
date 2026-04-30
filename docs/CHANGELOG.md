@@ -38,6 +38,7 @@
 - OSPF 邻居状态统计改为解析 `show ip ospf neighbor json` 实际结构并按 `nbrState` 计数，修复仅字符串包含判断导致的状态误报。
 - 新增 OSPF 发布策略测试：覆盖默认路由/保留地址/RFC1918 超网段拒绝，以及普通主机路由与细粒度子网允许场景。
 - Nftables 应用流程增强为“预校验 + 运行时/配置双回滚”：先用 `nft -c -f` 校验新配置，再备份当前 ruleset 与 `/etc/nftables.conf`，若 `nft -f` 应用失败则自动回滚内核规则与配置文件，避免失败后留在半生效状态。
+- 高危变更接口新增并发互斥锁：`/api/apply`、网络配置、模式切换、OSPF 设置与 Pending 重置在同一 action 上不允许并发执行，冲突时返回 `409/HIGH_RISK_ACTION_BUSY`，避免并发写导致状态撕裂。
 
 ## [1.6.15] - 2026-04-29
 ### 🚀 稳定版发布 (Stable)

@@ -17,6 +17,11 @@ func (ctl *ApplyController) HandleApply(c *gin.Context) {
 	if !requireHighRiskMutationGuard(c, "apply_config") {
 		return
 	}
+	releaseLock, ok := tryAcquireHighRiskMutationLock(c, "apply_config")
+	if !ok {
+		return
+	}
+	defer releaseLock()
 
 	var req struct {
 		Mosdns      *bool `json:"mosdns"`
