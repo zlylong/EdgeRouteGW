@@ -5,6 +5,7 @@ import (
 	"log"
 	"os"
 	"sort"
+	"strconv"
 	"strings"
 )
 
@@ -125,7 +126,7 @@ func applyMosdnsConfig() error {
 	applyMutex.Lock()
 	defer applyMutex.Unlock()
 	log.Println("[AUDIT] Applying Mosdns Config")
-	var local, remote, lazyStr string
+	var local, remote, lazyStr, logLevel, cacheSizeStr, lazyTTLStr string
 
 	if err := db.QueryRow("SELECT value FROM settings WHERE key='dns_local'").Scan(&local); err != nil {
 		local = "119.29.29.29,223.5.5.5"
@@ -136,6 +137,18 @@ func applyMosdnsConfig() error {
 	if err := db.QueryRow("SELECT value FROM settings WHERE key='dns_lazy'").Scan(&lazyStr); err != nil {
 		lazyStr = "true"
 	}
+	if err := db.QueryRow("SELECT value FROM settings WHERE key='dns_log_level'").Scan(&logLevel); err != nil {
+		logLevel = "info"
+	}
+	if err := db.QueryRow("SELECT value FROM settings WHERE key='dns_cache_size'").Scan(&cacheSizeStr); err != nil {
+		cacheSizeStr = "10240"
+	}
+	if err := db.QueryRow("SELECT value FROM settings WHERE key='dns_lazy_ttl'").Scan(&lazyTTLStr); err != nil {
+		lazyTTLStr = "86400"
+	}
+
+	cacheSize, _ := strconv.Atoi(cacheSizeStr)
+	lazyTTL, _ := strconv.Atoi(lazyTTLStr)
 
 	var mode string
 	db.QueryRow("SELECT value FROM settings WHERE key='mode'").Scan(&mode)
@@ -147,7 +160,7 @@ func applyMosdnsConfig() error {
 		return fmt.Errorf("failed to write proxy_domains.txt: %v", err)
 	}
 
-	config := renderMosdnsConfig(local, remote, lazyStr == "true", mode)
+	config := renderMosdnsConfig(local, remote, lazyStr == "true", mode, logLevel, cacheSize, lazyTTL)
 
 	if err := os.WriteFile(getPath("core", "mosdns", "config.yaml"), []byte(config), 0644); err != nil {
 		return fmt.Errorf("failed to write mosdns config.yaml: %v", err)

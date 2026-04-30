@@ -1002,9 +1002,32 @@ PersistentKeepalive = 25
                                     </div>
                                     <div class="flex items-center mt-4">
                                         <input type="checkbox" v-model="dns.lazy" class="h-4 w-4 text-blue-600 border-gray-300 rounded">
-                                        <label class="ml-2 block text-sm text-gray-900">开启 Lazy Cache (加速 DNS 解析)</label>
+                                        <label class="ml-2 block text-sm text-gray-900 font-bold">开启 Lazy Cache (延迟刷新加速)</label>
                                     </div>
-                                    <button @click="saveDns" class="mt-4 bg-blue-600 text-white px-4 py-2 rounded shadow hover:bg-blue-700 w-full">保存并应用</button>
+                                    <div v-if="dns.lazy" class="grid grid-cols-2 gap-4 mt-2 p-3 bg-blue-50 rounded border border-blue-100">
+                                        <div>
+                                            <label class="block text-xs font-medium text-gray-600 mb-1">缓存条目上限 (Size)</label>
+                                            <input type="number" v-model="dns.cache_size" class="w-full border rounded p-1.5 text-sm">
+                                        </div>
+                                        <div>
+                                            <label class="block text-xs font-medium text-gray-600 mb-1">Lazy TTL (秒)</label>
+                                            <input type="number" v-model="dns.lazy_ttl" class="w-full border rounded p-1.5 text-sm">
+                                        </div>
+                                    </div>
+                                    <div class="mt-4 pt-4 border-t flex justify-between items-center">
+                                        <label class="block text-sm font-medium text-gray-700 mb-1">Mosdns 日志级别</label>
+                                        <button @click="resetDns" class="text-xs text-blue-600 hover:underline"><i class="fa-solid fa-undo mr-1"></i>恢复默认推荐值</button>
+                                    </div>
+                                    <select v-model="dns.log_level" class="w-full border border-gray-300 rounded-md py-2 px-3 text-sm focus:ring-blue-500 focus:border-blue-500">
+                                            <option value="debug">Debug (最详细)</option>
+                                            <option value="info">Info (标准)</option>
+                                            <option value="warn">Warn (仅警告)</option>
+                                            <option value="error">Error (仅错误)</option>
+                                        </select>
+                                    </div>
+                                    <button @click="saveDns" class="mt-6 bg-blue-600 text-white px-4 py-2 rounded shadow hover:bg-blue-700 w-full font-bold">
+                                        <i class="fa-solid fa-save mr-2"></i>保存并应用 Mosdns 配置
+                                    </button>
                                 </div>
                             </div>
                             
@@ -1807,7 +1830,7 @@ window.onerror = function(msg, url, line, col, error) { alert("JS Error: " + msg
                         geoQuery.value.loading = false;
                     }
                 };
-                const dns = ref({ local: '', remote: '', lazy: true, mode: 'smart' });
+                const dns = ref({ local: '', remote: '', lazy: true, mode: 'smart', log_level: 'info', cache_size: 10240, lazy_ttl: 86400 });
                 const dnsLogs = ref([]);
                 const ospf = ref({ neighbors: 0, published: 0, pending: 0, logs: [] });
                 const ospfController = ref({ push_batch_limit: 500, push_interval_seconds: 10, resolve_workers: 16 });
@@ -2479,7 +2502,19 @@ Mode C: 纯OSPF (恢复真实IP宣告)`)) {
                 const deleteRuleGroup = (groupId) => { customConfirm(`删除分组 ${shortRuleGroup(groupId)} 下全部规则？`, async () => { const res = await apiFetch(`/api/rules/group/${groupId}`, {method: 'DELETE'}); if(!res.ok) { const data = await res.json().catch(() => ({})); showToast(data.error || '删组失败', 'error'); return; } showToast('分组规则已删除'); if (selectedRuleGroup.value === groupId) selectedRuleGroup.value = ''; loadRules(); }); };
                 const saveRuleGroupName = async () => { if (!selectedRuleGroup.value) return; const res = await apiFetch(`/api/rules/group/${selectedRuleGroup.value}`, { method: 'PUT', body: JSON.stringify({ group_name: editingRuleGroup.value || '' }) }); if(!res.ok) { const data = await res.json().catch(() => ({})); return showToast(data.error || '保存组备注失败', 'error'); } showToast('组备注已保存'); loadRules(); };
 
-                const saveDns = async () => { await apiFetch('/api/dns', { method: 'POST', body: JSON.stringify({ Local: dns.value.local, Remote: dns.value.remote, Lazy: dns.value.lazy, Mode: dns.value.mode }) }); showToast("DNS 配置已保存！"); loadData(); }
+                const saveDns = async () => { await apiFetch('/api/dns', { method: 'POST', body: JSON.stringify({ Local: dns.value.local, Remote: dns.value.remote, Lazy: dns.value.lazy, Mode: dns.value.mode, log_level: dns.value.log_level, cache_size: parseInt(dns.value.cache_size, 10), lazy_ttl: parseInt(dns.value.lazy_ttl, 10) }) }); showToast("DNS 配置已保存！"); loadData(); }
+                const resetDns = () => {
+                    dns.value = {
+                        local: '119.29.29.29,223.5.5.5',
+                        remote: '1.1.1.1,8.8.8.8',
+                        lazy: true,
+                        mode: 'smart',
+                        log_level: 'info',
+                        cache_size: 10240,
+                        lazy_ttl: 86400
+                    };
+                    showToast("已重置为默认值（尚未保存）");
+                };
                 const updateComp = async (comp) => { 
                     customConfirm(`确认执行此操作？这可能需要几十秒时间下载更新。`, async () => {
                         isUpdating.value[comp] = true;

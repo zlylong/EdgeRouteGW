@@ -2,6 +2,7 @@ package main
 
 import (
 	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/gin-gonic/gin"
@@ -14,7 +15,7 @@ type DNSController struct {
 func NewDNSController(repo *DNSRepository) *DNSController { return &DNSController{repo: repo} }
 
 func (ctl *DNSController) GetDNS(c *gin.Context) {
-	local, remote, lazy, mode, err := ctl.repo.GetDNSSettingsWithDefaults()
+	local, remote, lazy, mode, logLevel, cacheSize, lazyTTL, err := ctl.repo.GetDNSSettingsWithDefaults()
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "db error"})
 		return
@@ -23,12 +24,23 @@ func (ctl *DNSController) GetDNS(c *gin.Context) {
 		mode = "smart"
 		_ = ctl.repo.UpsertSetting("dns_mode", mode)
 	}
-	c.JSON(http.StatusOK, gin.H{"local": local, "remote": remote, "lazy": lazy == "true", "mode": mode})
+	c.JSON(http.StatusOK, gin.H{
+		"local":      local,
+		"remote":     remote,
+		"lazy":       lazy == "true",
+		"mode":       mode,
+		"log_level":  logLevel,
+		"cache_size": cacheSize,
+		"lazy_ttl":   lazyTTL,
+	})
 }
 
 func (ctl *DNSController) SetDNS(c *gin.Context) {
 	var req struct {
 		Local, Remote, Mode string
+		LogLevel            string `json:"log_level"`
+		CacheSize           int    `json:"cache_size"`
+		LazyTTL             int    `json:"lazy_ttl"`
 		Lazy                bool
 	}
 	if c.BindJSON(&req) != nil {
@@ -51,6 +63,7 @@ func (ctl *DNSController) SetDNS(c *gin.Context) {
 	if mode == "" {
 		mode = "smart"
 	}
+
 	if err := ctl.repo.UpdateSetting("dns_local", local); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "db error"})
 		return
@@ -67,6 +80,17 @@ func (ctl *DNSController) SetDNS(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "db error"})
 		return
 	}
+
+	if req.LogLevel != "" {
+		_ = ctl.repo.UpsertSetting("dns_log_level", req.LogLevel)
+	}
+	if req.CacheSize > 0 {
+		_ = ctl.repo.UpsertSetting("dns_cache_size", strconv.Itoa(req.CacheSize))
+	}
+	if req.LazyTTL > 0 {
+		_ = ctl.repo.UpsertSetting("dns_lazy_ttl", strconv.Itoa(req.LazyTTL))
+	}
+
 	if err := applyMosdnsConfig(); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": "Mosdns failed: " + err.Error()})
 		return

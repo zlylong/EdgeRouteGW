@@ -2,12 +2,22 @@ package main
 
 import "fmt"
 
-func renderMosdnsConfig(local, remote string, lazy bool, mode string) string {
+func renderMosdnsConfig(local, remote string, lazy bool, mode string, logLevel string, cacheSize int, lazyTTL int) string {
 	lazyCache := ""
 	lazyExec := ""
 	if lazy {
-		lazyCache = "  - tag: lazy_cache\n    type: cache\n    args: { size: 10240, lazy_cache_ttl: 86400 }\n"
+		if cacheSize <= 0 {
+			cacheSize = 10240
+		}
+		if lazyTTL <= 0 {
+			lazyTTL = 86400
+		}
+		lazyCache = fmt.Sprintf("  - tag: lazy_cache\n    type: cache\n    args: { size: %d, lazy_cache_ttl: %d }\n", cacheSize, lazyTTL)
 		lazyExec = "      - exec: $lazy_cache\n      - matches: [ has_resp ]\n        exec: return\n"
+	}
+
+	if logLevel == "" {
+		logLevel = "info"
 	}
 
 	proxyDomainExec := "exec: $forward_remote"
@@ -18,7 +28,7 @@ func renderMosdnsConfig(local, remote string, lazy bool, mode string) string {
 	}
 
 	configStr := `log:
-  level: info
+  level: %s
   file: %s
 plugins:
   - tag: proxy_domain
@@ -58,6 +68,7 @@ plugins:
 `
 
 	return fmt.Sprintf(configStr,
+		logLevel,
 		getPath("core", "mosdns", "mosdns.log"),
 		getPath("core", "mosdns", "proxy_domains.txt"),
 		getPath("core", "mosdns", "geosite_cn.txt"),

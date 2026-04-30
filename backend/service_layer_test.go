@@ -6,7 +6,7 @@ import (
 )
 
 func TestRenderMosdnsConfigIncludesProxyDomainAndLazyCache(t *testing.T) {
-	cfg := renderMosdnsConfig("223.5.5.5", "8.8.8.8", true, "A")
+	cfg := renderMosdnsConfig("223.5.5.5", "8.8.8.8", true, "A", "info", 10240, 86400)
 	if !strings.Contains(cfg, "proxy_domains.txt") {
 		t.Fatal("expected proxy_domains.txt in config")
 	}
@@ -16,7 +16,7 @@ func TestRenderMosdnsConfigIncludesProxyDomainAndLazyCache(t *testing.T) {
 }
 
 func TestRenderMosdnsConfigNoLazyCacheWhenDisabled(t *testing.T) {
-	cfg := renderMosdnsConfig("223.5.5.5", "8.8.8.8", false, "A")
+	cfg := renderMosdnsConfig("223.5.5.5", "8.8.8.8", false, "A", "info", 10240, 86400)
 	if strings.Contains(cfg, "tag: lazy_cache") {
 		t.Fatal("did not expect lazy_cache block when lazy=false")
 	}
