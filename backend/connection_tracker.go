@@ -442,6 +442,9 @@ func registerConnectionRoutes(r *gin.RouterGroup) {
 		ip := c.Query("ip")
 		allConns := GetRecentConnections()
 		serviceCIDR := serviceNetworkCIDR()
+		if strings.EqualFold(strings.TrimSpace(currentMode()), "A") {
+			serviceCIDR = nil
+		}
 
 		queryIP := strings.ToLower(strings.TrimSpace(ip))
 
