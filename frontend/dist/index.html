@@ -1671,13 +1671,13 @@ window.onerror = function(msg, url, line, col, error) { alert("JS Error: " + msg
                     { id: 'nodes', icon: 'fa-server', label: '节点管理' },
                     { id: 'remote_nodes', icon: 'fa-cloud-arrow-up', label: '节点自动部署' },
                     { id: 'rules', icon: 'fa-route', label: '路由分流规则' },
-                    { id: 'geo_query', icon: 'fa-magnifying-glass-location', label: 'Geo 查询验证' },
                     { id: 'lan_acls', icon: 'fa-laptop-house', label: '设备分流规则', hideModeBC: true },
                     { id: 'protected_ips', icon: 'fa-shield-halved', label: '规则变更保护IP', hideModeBC: true },
                     { id: 'dns', icon: 'fa-globe', label: 'DNS 设置' },
                     { id: 'ospf', icon: 'fa-project-diagram', label: 'OSPF 状态', hideModeA: true },
                     { id: 'configs', icon: 'fa-file-code', label: '配置信息面板' },
                     { id: 'syslogs', icon: 'fa-terminal', label: '核心日志面板' },
+                    { id: 'geo_query', icon: 'fa-magnifying-glass-location', label: 'Geo 查询验证' },
                     { id: 'test_tools', icon: 'fa-vial-circle-check', label: '诊断测试工具' },
                 ];
                 const hiddenInNormalTabs = new Set(['remote_nodes', 'configs', 'syslogs', 'protected_ips', 'connections']);
