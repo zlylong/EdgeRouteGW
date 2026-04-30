@@ -756,3 +756,60 @@ func TestFeatureSuite_NodeImportAcceptsRemoteVLESSShareLink(t *testing.T) {
 		})
 	}
 }
+
+func TestFeatureSuite_RouteReachabilityForRemainingAPIs(t *testing.T) {
+	r := setupFeatureSuiteRouter(t)
+
+	type routeCase struct {
+		name   string
+		method string
+		target string
+		body   string
+	}
+
+	cases := []routeCase{
+		{name: "apply", method: http.MethodPost, target: "/api/apply", body: `{"force":false}`},
+		{name: "config nftables", method: http.MethodGet, target: "/api/config/nftables"},
+		{name: "geo query", method: http.MethodGet, target: "/api/geo/query?q=8.8.8.8"},
+		{name: "lan acl delete", method: http.MethodDelete, target: "/api/lan_acls/1"},
+		{name: "lan acl default policy", method: http.MethodPost, target: "/api/lan_acls/default_policy", body: `{"default_policy":"proxy"}`},
+		{name: "mosdns versions", method: http.MethodGet, target: "/api/mosdns/versions"},
+		{name: "network config", method: http.MethodPost, target: "/api/network_config", body: `{"management_iface":"eth0","service_iface":"eth0"}`},
+		{name: "nodes ping", method: http.MethodPost, target: "/api/nodes/ping"},
+		{name: "ospf reset pending", method: http.MethodPost, target: "/api/ospf/reset_pending"},
+		{name: "protected ips get", method: http.MethodGet, target: "/api/protected_ips"},
+		{name: "protected ips add", method: http.MethodPost, target: "/api/protected_ips", body: `{"value":"8.8.8.8","remark":"test"}`},
+		{name: "protected ips delete", method: http.MethodDelete, target: "/api/protected_ips/1"},
+		{name: "remote node delete", method: http.MethodDelete, target: "/api/remote_nodes/2"},
+		{name: "remote node check", method: http.MethodPost, target: "/api/remote_nodes/2/check"},
+		{name: "remote node regenerate", method: http.MethodPost, target: "/api/remote_nodes/2/regenerate"},
+		{name: "remote node rollback", method: http.MethodPost, target: "/api/remote_nodes/2/rollback", body: `{"history_id":1}`},
+		{name: "remote node batch", method: http.MethodPost, target: "/api/remote_nodes/batch", body: `{"raw":""}`},
+		{name: "rules group delete", method: http.MethodDelete, target: "/api/rules/group/g1"},
+		{name: "rules group rename", method: http.MethodPut, target: "/api/rules/group/g1", body: `{"group_name":"renamed"}`},
+		{name: "update component", method: http.MethodPost, target: "/api/update/xray"},
+		{name: "xray versions", method: http.MethodGet, target: "/api/xray/versions"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var req *http.Request
+			if tc.body != "" {
+				req = authedJSONRequest(tc.method, tc.target, tc.body)
+			} else {
+				req = authedRequest(tc.method, tc.target)
+			}
+			w := httptest.NewRecorder()
+			r.ServeHTTP(w, req)
+			if w.Code == http.StatusMethodNotAllowed || w.Code == http.StatusUnauthorized {
+				t.Fatalf("route should be reachable/authenticated: %s %s got status=%d body=%s", tc.method, tc.target, w.Code, w.Body.String())
+			}
+			if w.Code == http.StatusNotFound {
+				body := strings.ToLower(strings.TrimSpace(w.Body.String()))
+				if body == "" || (!strings.Contains(body, "error") && !strings.Contains(body, "not found")) {
+					t.Fatalf("unexpected 404 (likely router miss): %s %s body=%q", tc.method, tc.target, w.Body.String())
+				}
+			}
+		})
+	}
+}
