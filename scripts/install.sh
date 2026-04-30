@@ -212,7 +212,7 @@ Wants=network-online.target
 Type=simple
 User=root
 WorkingDirectory=/root/proxygw/core/xray
-Environment=XRAY_LOCATION_ASSET=/root/proxygw/core/mosdns
+Environment=XRAY_LOCATION_ASSET=/root/proxygw/core/xray
 ExecStart=/root/proxygw/core/xray/xray run -confdir /root/proxygw/core/xray
 Restart=on-failure
 RestartSec=5

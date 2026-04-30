@@ -30,6 +30,7 @@
 
 ### 🐛 修复 (Fixes)
 - 实时连接追踪接口 `/api/connections` 结果现在强制限定在“服务发布网络（service network）”子网内，避免管理网络或其他网段连接混入追踪视图。
+- 修复 Xray geodata 资产路径配置错误：`XRAY_LOCATION_ASSET` 从 `core/mosdns` 更正为 `core/xray`，避免因误读 Mosdns 精简 geosite/geoip 数据导致规则标签被判定为“不支持”（如 `geosite:category-ads-all`）。
 
 ## [1.6.15] - 2026-04-29
 ### 🚀 稳定版发布 (Stable)
