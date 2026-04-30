@@ -409,10 +409,44 @@ func attachRuleMatchMeta(records []ConnectionRecord) []ConnectionRecord {
 	return records
 }
 
+func serviceNetworkCIDR() *net.IPNet {
+	ensureDefaultNetworkRoleSettings()
+	options := listPrivateIPv4Interfaces()
+	_, serviceIface := loadNetworkRoleSettings()
+	serviceNetwork, ok := findNetworkByIface(options, serviceIface)
+	if !ok {
+		if len(options) == 0 {
+			return nil
+		}
+		serviceNetwork = options[0]
+	}
+	_, cidr, err := net.ParseCIDR(strings.TrimSpace(serviceNetwork.Subnet))
+	if err != nil {
+		return nil
+	}
+	return cidr
+}
+
+func clientIPFromConnClient(client string) net.IP {
+	host := strings.TrimSpace(client)
+	if host == "" {
+		return nil
+	}
+	if strings.Contains(host, ":") {
+		if h, _, err := net.SplitHostPort(host); err == nil {
+			host = strings.Trim(h, "[]")
+		} else if idx := strings.LastIndex(host, ":"); idx > 0 {
+			host = strings.Trim(host[:idx], "[]")
+		}
+	}
+	return net.ParseIP(strings.TrimSpace(host))
+}
+
 func registerConnectionRoutes(r *gin.RouterGroup) {
 	r.GET("/connections", func(c *gin.Context) {
 		ip := c.Query("ip")
 		allConns := GetRecentConnections()
+		serviceCIDR := serviceNetworkCIDR()
 
 		if ip == "" {
 			c.JSON(http.StatusOK, gin.H{
@@ -424,9 +458,16 @@ func registerConnectionRoutes(r *gin.RouterGroup) {
 
 		var filtered []ConnectionRecord
 		for _, conn := range allConns {
-			if strings.Contains(strings.ToLower(conn.Client), strings.ToLower(ip)) {
-				filtered = append(filtered, conn)
+			if !strings.Contains(strings.ToLower(conn.Client), strings.ToLower(ip)) {
+				continue
 			}
+			if serviceCIDR != nil {
+				clientIP := clientIPFromConnClient(conn.Client)
+				if clientIP == nil || !serviceCIDR.Contains(clientIP) {
+					continue
+				}
+			}
+			filtered = append(filtered, conn)
 		}
 		filtered = attachRuleMatchMeta(filtered)
 
