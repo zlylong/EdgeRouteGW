@@ -78,84 +78,13 @@ ProxyGW 设计了三种物理隔离的网络接管模式，以适应不同级别
 **模式限制（当前实现）**：
 - `*.` / `**.` 通配域名规则仅允许在 **Mode A** 添加。
 - Mode B / Mode C 仅允许普通域名（如 `c.com`），因为 OSPF 静态路由无法安全表达 wildcard 语义。
-
-
-## 📈 全面性能测试（2026-04-21）
-
-本轮测试覆盖了 **路由展开性能 + Xray 配置并发生成性能 + 会话并发性能 + 并发安全性**，不再局限于 OSPF 路由下发链路。
-
-```bash
-cd /root/proxygw/backend
-
-# 0) 并发安全检查（Race）
-go test -race ./...
-
-# 1) 全量单测
-go test ./...
-
-# 2) 路由展开链路（geoip / !cn）
-go test -run '^$' -bench 'BenchmarkExtractGeoIPs' -benchmem -count=3
-
-# 3) Xray 配置并发链路 + 会话并发链路
-#    （含 cpu=1/4/8 多核维度）
-go test -run '^$' -bench 'Benchmark(BuildBaseXrayConfig|BuildAndMarshalXrayConfigParallel|ValidateSessionParallel|CreateSessionParallel)' -benchmem -cpu=1,4,8 -count=3
-
-# 4) Profile（热点定位）
-# go test -run '^$' -bench 'BenchmarkExtractGeoIPsExcludeCNPrivate$' -benchmem -count=1 \
-#   -cpuprofile /tmp/proxygw_geoip_cpu.prof -memprofile /tmp/proxygw_geoip_mem.prof
-# go test -run '^$' -bench 'BenchmarkBuildAndMarshalXrayConfigParallel_ModeB$' -benchmem -count=1 \
-#   -cpuprofile /tmp/proxygw_xray_cpu.prof -memprofile /tmp/proxygw_xray_mem.prof
-```
-
-测试环境：`Intel i7-6700T / amd64 / Debian / Go test`
-
-### A) 路由展开性能（cpu=4，count=3）
-
-| Benchmark | 平均耗时 | Min~Max | 平均内存 | 平均分配次数 | 规模 |
-|---|---:|---:|---:|---:|---:|
-| `BenchmarkExtractGeoIPsCN-4` | `234.83 ms/op` | `234.02~236.25 ms` | `102.84 MB/op` | `2,401,760 allocs/op` | - |
-| `BenchmarkExtractGeoIPsExcludeCNPrivate-4` | `261.28 ms/op` | `259.26~262.76 ms` | `144.95 MB/op` | `2,401,779 allocs/op` | - |
-| `BenchmarkExtractGeoIPsExcludeCNPrivate_Count-4` | `266.76 ms/op` | `263.45~271.19 ms` | `144.95 MB/op` | `2,401,781 allocs/op` | `586,504 cidr/op` |
-
-### B) Xray 配置并发性能（cpu=4，count=3）
-
-| Benchmark | 平均耗时 | 平均内存 | 平均分配次数 |
-|---|---:|---:|---:|
-| `BenchmarkBuildBaseXrayConfig_ModeB-4` | `7.04 µs/op` | `9,984 B/op` | `82 allocs/op` |
-| `BenchmarkBuildBaseXrayConfigParallel_ModeB-4` | `4.85 µs/op` | `9,984 B/op` | `82 allocs/op` |
-| `BenchmarkBuildAndMarshalXrayConfigParallel_ModeB-4` | `11.73 µs/op` | `16,281 B/op` | `243 allocs/op` |
-
-并发收益（cpu=4）：
-- `buildBaseXrayConfig(ModeB)` 从串行 `7.04 µs/op` 到并发 `4.85 µs/op`，约 **31.0% 提升**。
-
-### C) 认证会话并发性能（cpu=4，count=3）
-
-| Benchmark | 平均耗时 | 平均内存 | 平均分配次数 |
-|---|---:|---:|---:|
-| `BenchmarkValidateSessionParallel-4` | `374.9 ns/op` | `88 B/op` | `3 allocs/op` |
-| `BenchmarkCreateSessionParallel-4` | `501.6 ns/op` | `122 B/op` | `4 allocs/op` |
-
-### D) 并发安全性
-
-- `go test -race ./...`：**PASS**
-
-### E) Profile 热点结论
-
-- `geoip:!cn` 展开热点：`extractGeoIPsExclude`、`net.IP.String`、`fmt.Sprintf`。
-- Xray 配置并发生成热点：`buildBaseXrayConfig` 与 `encoding/json.Marshal` / `encoding/json.mapEncoder.encode`。
-- 说明当前瓶颈主要在 **对象分配与 JSON 编码**，后续优化方向应聚焦结构化对象复用与编码路径降分配。
+- **保护 IP 列表**: 在 Mode A 模式下，您可以添加“保护 IP”，这些 IP 将绕过 Xray 直接访问，用于防止规则错误导致断网。
 
 ## 📚 文档指南
-- [ROS 新手配置指南](./docs/ROS_SETUP.md) - MikroTik RouterOS OSPF/DNS 等配套设置新手教程
-- [OpenWrt 新手配置指南](./docs/OPENWRT_SETUP.md) - OpenWrt OSPF/DNS/旁路等配套设置新手教程
-- [路由分流规则入门](./docs/ROUTING_RULES_GUIDE.md) - GeoSite/GeoIP 及代理直连工作原理解析
-
-如果您是系统管理员、网络工程师或希望进行二次开发的工程师，请查阅 `docs/` 目录下的深入文档：
-
-- 🛠️ [开发者与架构指南](./docs/DEVELOPER.md) - 深入系统底层架构、源码结构、Fake-IP 零延迟原理与内核级调优。
-- ⚙️ [运维与故障排查](./docs/OPERATIONS.md) - 系统管理员的服务管理、脚本升级、系统卸载与常见故障排除手册。
-- 🔌 [后端 API 接口参考](./docs/API.md) - 面向开发者的 RESTful API 接口说明。
-
+- [主路由配套配置指南 (ROS/OpenWrt)](./docs/NETWORK_SETUP.md) - OSPF/DNS/PBR 设置教程
+- [路由分流规则入门](./docs/ROUTING_RULES_GUIDE.md) - GeoSite/GeoIP 工作原理解析
+- [运维与故障排查](./docs/OPERATIONS.md) - 服务管理、升级与系统卸载
+- [开发者与架构指南](./docs/DEVELOPER.md) - 底层架构、源码结构与 API 参考
 
 ## 🙏 致谢 (Acknowledgments)
 

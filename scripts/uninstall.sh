@@ -6,12 +6,13 @@ set -euo pipefail
 echo "=== ProxyGW Uninstallation ==="
 
 echo "[1/5] Stopping and disabling services..."
-systemctl disable --now proxygw mosdns xray || true
+systemctl disable --now proxygw mosdns xray frr || true
 
 echo "[2/5] Removing Systemd units..."
 rm -f /etc/systemd/system/proxygw.service
 rm -f /etc/systemd/system/mosdns.service
 rm -f /etc/systemd/system/xray.service
+# Note: we don't remove frr.service as it's a system package, just disable it.
 systemctl daemon-reload
 
 echo "[3/5] Removing routing and iptables rules..."
@@ -20,7 +21,7 @@ ip route flush table tproxy 2>/dev/null || true
 sed -i '/100 tproxy/d' /etc/iproute2/rt_tables || true
 nft flush table inet proxygw 2>/dev/null || true
 nft delete table inet proxygw 2>/dev/null || true
-rm -f /etc/nftables.conf
+rm -f /etc/nftables.conf /etc/frr/frr.conf
 
 echo "[4/5] Removing kernel tunings..."
 rm -f /etc/sysctl.d/99-proxygw.conf

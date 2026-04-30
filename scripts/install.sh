@@ -143,8 +143,8 @@ fi
 
 # Ultimate fallback if both git and API fail (GFW block / no IPv4)
 if [ -z "$PROXYGW_LATEST" ]; then
-    echo "Warning: API blocked. Using fallback version v1.6.15..."
-    PROXYGW_LATEST="v1.6.15"
+    echo "Warning: API blocked. Using fallback version v1.7.0..."
+    PROXYGW_LATEST="v1.7.0"
 fi
 if [ "$ARCH" = "x86_64" ]; then
     wget -q -4 -O "$REPO_DIR/backend/proxygw-backend" "https://github.com/zlylong/proxygw/releases/download/${PROXYGW_LATEST}/proxygw-backend-linux-amd64"
@@ -177,7 +177,7 @@ PrivateTmp=yes
 ProtectKernelTunables=yes
 ProtectControlGroups=yes
 RestrictSUIDSGID=yes
-ReadWritePaths=-/root/proxygw -/usr/local/bin -/etc/frr -/etc/nftables.conf -/etc/nftables.conf.proxygw.new -/etc/nftables.conf.proxygw.bak
+ReadWritePaths=-/root/proxygw -/usr/local/bin -/etc/frr -/etc/nftables.conf -/etc/nftables.conf.proxygw.new -/etc/nftables.conf.proxygw.bak -/etc/
 
 [Install]
 WantedBy=multi-user.target

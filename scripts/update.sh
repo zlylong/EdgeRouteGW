@@ -40,8 +40,8 @@ fi
 
 # Ultimate fallback if both API and tags fail
 if [ -z "$PROXYGW_LATEST" ]; then
-    echo "Warning: release tag detect failed. Using fallback version v1.6.15..."
-    PROXYGW_LATEST="v1.6.15"
+    echo "Warning: release tag detect failed. Using fallback version v1.7.0..."
+    PROXYGW_LATEST="v1.7.0"
 fi
 
 echo "Using release tag: $PROXYGW_LATEST"
@@ -78,7 +78,7 @@ PrivateTmp=yes
 ProtectKernelTunables=yes
 ProtectControlGroups=yes
 RestrictSUIDSGID=yes
-ReadWritePaths=-/root/proxygw -/usr/local/bin -/etc/frr -/etc/nftables.conf -/etc/nftables.conf.proxygw.new -/etc/nftables.conf.proxygw.bak
+ReadWritePaths=-/root/proxygw -/usr/local/bin -/etc/frr -/etc/nftables.conf -/etc/nftables.conf.proxygw.new -/etc/nftables.conf.proxygw.bak -/etc/
 
 [Install]
 WantedBy=multi-user.target
