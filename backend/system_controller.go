@@ -77,6 +77,19 @@ func (ctl *SystemController) HandleStatus(c *gin.Context) {
 		xrayVer = parseXrayVersionOutput(string(xrayVersionOut))
 	}
 
+	frrVer := "Unknown"
+	if out, err := sysCmd.output("vtysh", "-v"); err == nil {
+		line := strings.TrimSpace(string(out))
+		if line != "" {
+			frrVer = strings.Split(line, "\n")[0]
+		}
+	}
+
+	osVer := "Unknown"
+	if out, err := sysCmd.output("sh", "-c", "source /etc/os-release 2>/dev/null; echo ${PRETTY_NAME:-Unknown}"); err == nil {
+		osVer = strings.Trim(strings.TrimSpace(string(out)), "\"")
+	}
+
 	geoVer := "Unknown"
 	if data, err := os.ReadFile(getPath("core", "mosdns", "geodata.ver")); err == nil && len(data) > 0 {
 		geoVer = strings.TrimSpace(string(data))
@@ -111,11 +124,12 @@ func (ctl *SystemController) HandleStatus(c *gin.Context) {
 		serviceNetwork = managementNetwork
 	}
 	commit, binaryBuildTime := getBuildInfo()
+	appVersion := getAppVersion()
 
 	c.JSON(http.StatusOK, gin.H{
 		"status": "running", "mode": mode,
 		"xray": xray, "ospf": frr, "mosdns": mosdns,
-		"xrayVersion": xrayVer, "geoVersion": geoVer, "mosdnsVersion": mosdnsVer,
+		"xrayVersion": xrayVer, "frrVersion": frrVer, "osVersion": osVer, "appVersion": appVersion, "geoVersion": geoVer, "mosdnsVersion": mosdnsVer,
 		"cpu": fmt.Sprintf("%.1f", cpu), "ram": fmt.Sprintf("%.1f", ram),
 		"up": upStr, "down": downStr,
 		"interface_options":  interfaceOptions,

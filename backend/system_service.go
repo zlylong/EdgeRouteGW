@@ -294,3 +294,13 @@ func getBuildInfo() (string, string) {
 	}
 	return commit, buildTime
 }
+
+func getAppVersion() string {
+	if out, err := sysCmd.output("git", "-C", getPath(), "describe", "--tags", "--abbrev=0"); err == nil {
+		v := strings.TrimSpace(string(out))
+		if v != "" {
+			return v
+		}
+	}
+	return "unknown"
+}
