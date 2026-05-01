@@ -34,6 +34,21 @@
   - 修复了 Xray 流量统计 API 参数错误（从 `-name` 更正为 `-pattern`），恢复了首页流量统计状态的实时显示。
   - 增强了 E2E 测试脚本的健壮性，自动处理登录与加载遮罩层，提升了 CI/CD 环节的稳定性。
 
+## [1.7.2] - 2026-05-01
+### 🚀 稳定版发布 (Stable)
+- 发布 v1.7.2 Stable，修复 Mode C 下直连 geosite 规则被误发布到 OSPF 的问题，并完善网卡管理与发布链路稳定性。
+
+### 🐛 修复 (Fixes)
+- **Mode C OSPF 发布策略修正**:
+  - geosite 静态路由展开仅处理 `proxy*` / `ha-*` 策略，移除 `direct*`，避免直连规则被误物化为 OSPF 候选路由。
+  - 新增回归测试，确保直连 geosite 不再进入 `routes_table` 的 static 发布集。
+- **网卡管理接口过滤增强**:
+  - `interface_options` 过滤 WireGuard 节点网口（如 `wg0`），避免误选隧道接口作为管理/业务网卡。
+- **Daily Core & Rules Update 工作流修复**:
+  - 修复提交阶段误 `git add` 被 `.gitignore` 屏蔽的 geodata 文件导致失败。
+- **安装/更新链路仓库地址统一**:
+  - README、运维文档及 install/update 脚本统一切换到 `zlylong/EdgeRouteGW`。
+
 ## [1.7.1] - 2026-04-30
 ### 🚀 稳定版发布 (Stable)
 - 发布 v1.7.1 Stable，完成项目品牌统一为 **EdgeRouteGW**，并将开源许可证切换为 **AGPL-3.0**。
