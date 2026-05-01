@@ -60,13 +60,15 @@ jobs:
         run: |
           git config --local user.email "github-actions[bot]@users.noreply.github.com"
           git config --local user.name "github-actions[bot]"
+
+          # Only add tracked/non-ignored artifacts.
+          # GeoData .dat and geodata.ver are intentionally ignored in this repo.
           git add core/xray/xray core/mosdns/mosdns
-          git add core/mosdns/*.dat core/xray/*.dat
-          git add core/mosdns/*.txt core/mosdns/geodata.ver
-          
+          git add core/mosdns/*.txt
+
           if git diff --cached --quiet; then
             echo "No changes to commit."
           else
-            git commit -m "chore: auto-update Xray, Mosdns and GeoData"
+            git commit -m "chore: auto-update Xray, Mosdns and text rules"
             git push
           fi

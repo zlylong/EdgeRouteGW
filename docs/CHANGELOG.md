@@ -14,6 +14,9 @@
 - **DNS 解析稳定性**: 优化了 Mosdns 的默认配置生成逻辑，使其在 A/B/C 三种模式下均能保持解析分流逻辑的一致性。
 
 ### 🐛 修复 (Fixes)
+- **GitHub Actions: Daily Core & Rules Update 提交阶段失败修复**:
+  - 修复 `.github/workflows/update-cores.yml` 在 `Commit and Push Changes` 阶段错误 `git add` 被 `.gitignore` 屏蔽的 GeoData 文件（`/core/**/*.dat`、`core/mosdns/geodata.ver`）导致任务失败的问题。
+  - 调整为仅提交可跟踪产物（`core/xray/xray`、`core/mosdns/mosdns`、`core/mosdns/*.txt`），并同步更新提交信息。
 - **网卡管理过滤 WireGuard 节点网口**:
   - `interface_options` 生成逻辑新增 WireGuard 网口过滤（如 `wg0`），避免节点隧道口出现在“网卡管理/网络角色选择”中。
   - 防止误将节点隧道接口设为管理/业务网卡，降低路由与管理面误配置风险。
