@@ -101,14 +101,18 @@ func startTrafficMonitor() {
 			var totalUp, totalDown int64
 			nodeTotals := map[int]trafficBytes{}
 			for _, s := range stats.Stat {
+				if strings.HasSuffix(s.Name, ">>>uplink") {
+					totalUp += s.Value
+				} else if strings.HasSuffix(s.Name, ">>>downlink") {
+					totalDown += s.Value
+				}
+
 				if nodeID, direction, ok := parseNodeTrafficStat(s.Name); ok {
 					item := nodeTotals[nodeID]
 					if direction == "uplink" {
 						item.up += s.Value
-						totalUp += s.Value
 					} else if direction == "downlink" {
 						item.down += s.Value
-						totalDown += s.Value
 					}
 					nodeTotals[nodeID] = item
 				}
