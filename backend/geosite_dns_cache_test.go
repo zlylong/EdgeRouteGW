@@ -46,6 +46,30 @@ func TestSyncStaticRoutesToOSPF_GeositeUsesDomainResolveCache(t *testing.T) {
 	}
 }
 
+func TestSyncStaticRoutesToOSPF_ModeC_DirectGeositeNotPublished(t *testing.T) {
+	setupFeatureSuiteRouter(t)
+	writeTestGeoData(t)
+
+	if _, err := db.Exec("DELETE FROM rules"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec("DELETE FROM routes_table"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec("INSERT INTO rules(type, value, policy) VALUES ('geosite', 'gfw', 'direct')"); err != nil {
+		t.Fatal(err)
+	}
+
+	syncStaticRoutesToOSPF("C")
+	var cnt int
+	if err := db.QueryRow("SELECT COUNT(*) FROM routes_table WHERE source='static'").Scan(&cnt); err != nil {
+		t.Fatal(err)
+	}
+	if cnt != 0 {
+		t.Fatalf("direct geosite should not publish static OSPF routes, got=%d", cnt)
+	}
+}
+
 func TestGetOrRefreshDomainCache_RefreshAfterExpireAndKeepStaleOnFailure(t *testing.T) {
 	setupFeatureSuiteRouter(t)
 

@@ -20,6 +20,9 @@
 - **网卡管理过滤 WireGuard 节点网口**:
   - `interface_options` 生成逻辑新增 WireGuard 网口过滤（如 `wg0`），避免节点隧道口出现在“网卡管理/网络角色选择”中。
   - 防止误将节点隧道接口设为管理/业务网卡，降低路由与管理面误配置风险。
+- **Mode C OSPF 发布策略修正（直连 geosite/geoip 不发布）**:
+  - 调整 Mode C 的 geosite 路由展开查询范围，仅处理 `proxy*` / `ha-*` 策略，移除 `direct*`。
+  - 确保直连规则不会被错误物化为 OSPF 静态候选路由，避免“直连策略反向劫持”风险。
 - **Web UI 布局与 Tab 逻辑修复**:
   - 修复了 HTML 标签未闭合导致的页面布局重叠/崩溃问题。
   - 重构了前端 Tab 切换的 `v-if / v-else-if` 条件链，确保各功能面板（Connections, Rules, DNS, Tools 等）在单页面应用中的渲染互斥性。

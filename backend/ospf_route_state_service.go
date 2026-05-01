@@ -338,7 +338,7 @@ func collectStaticRoutesForMode(mode string, protected map[string]struct{}) (map
 	}
 
 	if mode == "C" {
-		geositeRows, err := db.Query("SELECT value, policy FROM rules WHERE type='geosite' AND (policy LIKE 'proxy%' OR policy LIKE 'direct%' OR policy LIKE 'ha-%')")
+		geositeRows, err := db.Query("SELECT value, policy FROM rules WHERE type='geosite' AND (policy LIKE 'proxy%' OR policy LIKE 'ha-%')")
 		if err != nil {
 			log.Printf("[OSPF] geosite rule query failed: %v", err)
 		} else {
