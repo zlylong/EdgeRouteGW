@@ -31,7 +31,7 @@ ARCH=$(uname -m)
 TMP_BACKEND="$REPO_DIR/backend/proxygw-backend.new"
 
 # Prefer latest published release tag from GitHub API
-PROXYGW_LATEST=$(curl --retry 3 --connect-timeout 5 --fail -s -4 https://api.github.com/repos/zlylong/proxygw/releases/latest | jq -r '.tag_name // empty' || true)
+PROXYGW_LATEST=$(curl --retry 3 --connect-timeout 5 --fail -s -4 https://api.github.com/repos/zlylong/EdgeRouteGW/releases/latest | jq -r '.tag_name // empty' || true)
 
 # Fallback to local tag list (requires --tags fetch above)
 if [ -z "$PROXYGW_LATEST" ] && [ -d "$REPO_DIR/.git" ]; then

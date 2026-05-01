@@ -8,13 +8,13 @@
 
 - **📦 初始安装/重置环境**：
   ```bash
-  bash <(curl -s -4 -L https://raw.githubusercontent.com/zlylong/proxygw/main/scripts/install.sh)
+  bash <(curl -s -4 -L https://raw.githubusercontent.com/zlylong/EdgeRouteGW/main/scripts/install.sh)
   ```
   用于全新环境安装，或彻底修复系统底层依赖与内核环境。此操作会覆盖 Systemd 文件并重新注入 TProxy 路由规则。
 
 - **🔄 一键平滑升级**：
   ```bash
-  bash <(curl -s -4 -L https://raw.githubusercontent.com/zlylong/proxygw/main/scripts/update.sh)
+  bash <(curl -s -4 -L https://raw.githubusercontent.com/zlylong/EdgeRouteGW/main/scripts/update.sh)
   ```
   推荐的日常维护命令。它将自动从 GitHub `main` 分支拉取最新代码，智能检查依赖，自动获取 GitHub Releases 最新版预编译后端二进制，并平滑重启所有相关守护服务。
 
