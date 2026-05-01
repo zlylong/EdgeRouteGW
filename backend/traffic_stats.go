@@ -39,6 +39,9 @@ func initTrafficDB() {
 	)`); err != nil {
 		log.Printf("[WARN] Failed to create traffic_history table: %v", err)
 	}
+	if _, err := db.Exec(`CREATE INDEX IF NOT EXISTS idx_traffic_history_ts ON traffic_history(ts)`); err != nil {
+		log.Printf("[WARN] Failed to create index on traffic_history: %v", err)
+	}
 	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS node_traffic_history (
 		id INTEGER PRIMARY KEY AUTOINCREMENT,
 		ts DATETIME DEFAULT CURRENT_TIMESTAMP,
@@ -47,6 +50,9 @@ func initTrafficDB() {
 		down_bytes INTEGER
 	)`); err != nil {
 		log.Printf("[WARN] Failed to create node_traffic_history table: %v", err)
+	}
+	if _, err := db.Exec(`CREATE INDEX IF NOT EXISTS idx_node_traffic_history_ts ON node_traffic_history(ts)`); err != nil {
+		log.Printf("[WARN] Failed to create index on node_traffic_history: %v", err)
 	}
 	if _, err := db.Exec(`DELETE FROM traffic_history WHERE ts < datetime('now', '-180 days')`); err != nil {
 		log.Printf("[WARN] prune traffic_history failed: %v", err)
@@ -60,7 +66,9 @@ func startTrafficMonitor() {
 	initTrafficDB()
 
 	ticker := time.NewTicker(2 * time.Second)
+	defer ticker.Stop()
 	saveTicker := time.NewTicker(1 * time.Minute)
+	defer saveTicker.Stop()
 
 	var accumUp, accumDown int64
 	lastNodeTotals := map[int]trafficBytes{}

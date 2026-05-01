@@ -85,7 +85,7 @@ func (r *SystemRepository) GetMonthlyTrafficTotal() (int64, int64, error) {
 	err := db.QueryRow(`
 		SELECT COALESCE(SUM(up_bytes), 0), COALESCE(SUM(down_bytes), 0)
 		FROM traffic_history
-		WHERE datetime(ts, 'localtime') >= datetime('now', 'localtime', 'start of month')
+		WHERE ts >= date('now', 'start of month')
 	`).Scan(&totalMonthUp, &totalMonthDown)
 	return totalMonthUp, totalMonthDown, err
 }
@@ -100,7 +100,7 @@ func (r *SystemRepository) GetMonthlyNodeTrafficRanking(limit int) ([]NodeTraffi
 		FROM nodes n
 		LEFT JOIN node_traffic_history h
 		       ON h.node_id = n.id
-		      AND datetime(h.ts, 'localtime') >= datetime('now', 'localtime', 'start of month')
+		      AND h.ts >= date('now', 'start of month')
 		GROUP BY n.id, n.name
 		HAVING total_bytes > 0
 		ORDER BY total_bytes DESC
