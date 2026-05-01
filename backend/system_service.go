@@ -263,6 +263,9 @@ func listPrivateIPv4Interfaces() []networkInterfaceInfo {
 		if iface.Flags&net.FlagUp == 0 || iface.Flags&net.FlagLoopback != 0 {
 			continue
 		}
+		if shouldSkipInterfaceInManagement(iface.Name) {
+			continue
+		}
 		addrs, err := iface.Addrs()
 		if err != nil {
 			continue
@@ -287,6 +290,19 @@ func listPrivateIPv4Interfaces() []networkInterfaceInfo {
 		}
 	}
 	return out
+}
+
+func shouldSkipInterfaceInManagement(name string) bool {
+	n := strings.ToLower(strings.TrimSpace(name))
+	if n == "" {
+		return true
+	}
+	// Hide WireGuard tunnel interfaces (e.g. wg0) from 网卡管理/网络角色选择，
+	// 避免将节点隧道口误选为管理或业务网卡。
+	if strings.HasPrefix(n, "wg") {
+		return true
+	}
+	return false
 }
 
 func findNetworkByIface(options []networkInterfaceInfo, ifaceName string) (networkInterfaceInfo, bool) {
