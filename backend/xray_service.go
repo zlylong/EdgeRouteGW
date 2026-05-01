@@ -14,7 +14,14 @@ func buildBaseXrayConfig(mode string) map[string]interface{} {
 		"log":    map[string]string{"loglevel": "warning", "access": "/run/proxygw/xray_access.log"},
 		"api":    map[string]interface{}{"services": []string{"StatsService", "RoutingService", "HandlerService"}, "tag": "api"},
 		"stats":  map[string]interface{}{},
-		"policy": map[string]interface{}{"system": map[string]interface{}{"statsInboundDownlink": true, "statsInboundUplink": true}},
+		"policy": map[string]interface{}{
+			"system": map[string]interface{}{
+				"statsInboundDownlink":  true,
+				"statsInboundUplink":    true,
+				"statsOutboundDownlink": true,
+				"statsOutboundUplink":   true,
+			},
+		},
 		"inbounds": []map[string]interface{}{
 			{
 				"port": 12345, "listen": "::", "protocol": "dokodemo-door",

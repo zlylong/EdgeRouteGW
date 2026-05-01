@@ -60,7 +60,7 @@ func startTrafficMonitor() {
 	initTrafficDB()
 
 	ticker := time.NewTicker(2 * time.Second)
-	saveTicker := time.NewTicker(5 * time.Minute)
+	saveTicker := time.NewTicker(1 * time.Minute)
 
 	var accumUp, accumDown int64
 	lastNodeTotals := map[int]trafficBytes{}
@@ -101,18 +101,14 @@ func startTrafficMonitor() {
 			var totalUp, totalDown int64
 			nodeTotals := map[int]trafficBytes{}
 			for _, s := range stats.Stat {
-				if strings.Contains(s.Name, ">>>uplink") && !strings.Contains(s.Name, "api_inbound") {
-					totalUp += s.Value
-				}
-				if strings.Contains(s.Name, ">>>downlink") && !strings.Contains(s.Name, "api_inbound") {
-					totalDown += s.Value
-				}
 				if nodeID, direction, ok := parseNodeTrafficStat(s.Name); ok {
 					item := nodeTotals[nodeID]
 					if direction == "uplink" {
 						item.up += s.Value
+						totalUp += s.Value
 					} else if direction == "downlink" {
 						item.down += s.Value
+						totalDown += s.Value
 					}
 					nodeTotals[nodeID] = item
 				}
