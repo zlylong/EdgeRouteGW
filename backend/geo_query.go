@@ -559,18 +559,16 @@ func queryGeoIPTagsByIP(filename, input string) []string {
 	if len(bucket) > 0 {
 		matchedTags := make(map[string]struct{}, 4)
 		bestMatchedPrefix := -1
-		for _, rule := range bucket {
-			if bestMatchedPrefix >= 0 && int(rule.prefix) > bestMatchedPrefix {
+		for i := len(bucket) - 1; i >= 0; i-- {
+			rule := bucket[i]
+			if bestMatchedPrefix >= 0 && int(rule.prefix) < bestMatchedPrefix {
 				break
 			}
-			if _, done := matchedTags[rule.tag]; done {
-				continue
-			}
 			if (ipValue & rule.mask) == rule.network {
-				matchedTags[rule.tag] = struct{}{}
-				if bestMatchedPrefix < 0 || int(rule.prefix) < bestMatchedPrefix {
+				if bestMatchedPrefix < 0 {
 					bestMatchedPrefix = int(rule.prefix)
 				}
+				matchedTags[rule.tag] = struct{}{}
 			}
 		}
 		if len(matchedTags) > 0 {
@@ -608,8 +606,9 @@ func queryGeoIPBestCIDRsByIP(filename, input string) []string {
 	}
 	bestPrefix := -1
 	cidrSet := make(map[string]struct{}, 4)
-	for _, rule := range bucket {
-		if bestPrefix >= 0 && int(rule.prefix) > bestPrefix {
+	for i := len(bucket) - 1; i >= 0; i-- {
+		rule := bucket[i]
+		if bestPrefix >= 0 && int(rule.prefix) < bestPrefix {
 			break
 		}
 		if (ipValue & rule.mask) != rule.network {
