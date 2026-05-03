@@ -80,12 +80,31 @@ journalctl -u xray -n 100 --no-pager -f
 tar -czvf proxygw_backup_$(date +%F).tar.gz /root/proxygw/config/ /root/proxygw/core/
 ```
 
-**紧急密码重置**：
+### 紧急密码重置
 管理员密码经过 Bcrypt 强哈希加密。如果遗忘且无法登入 UI，请使用 `sqlite3` 直接重置数据库中的条目：
 ```bash
 sqlite3 /root/proxygw/config/proxygw.db "UPDATE users SET password_hash = '' WHERE username = 'admin';"
 ```
 *(注意：请根据实际情况或通过初始化生成脚本恢复访问。)*
+
+## 📦 数据库存储与定期清理规则
+
+EdgeRouteGW 后端自 `v1.7.5+` 起内置了自动化的数据库维护任务（`db_maintenance.go`），每 24 小时执行一次清理。以下是当前执行的数据留存策略：
+
+| 数据类别 | 留存期限 / 清理规则 | 说明 |
+| :--- | :--- | :--- |
+| **API 审计日志** | 7 天 | `module='api'` 的事件，包含频繁的配置下发与心跳。 |
+| **系统事件日志** | 30 天 | 除 API 外的其他模块（OSPF, DNS, Nodes）日志。 |
+| **流量统计历史** | 60 天 | 包含总流量与单节点流量的分时历史数据。 |
+| **远程节点日志** | 30 天 | 远程节点的部署、扩容与状态变更日志。 |
+| **DNS 解析缓存** | 即时清理 | `expire_at < now` 的过期解析条目。 |
+| **其他中间缓存** | 30 天 | 包含 Geosite 展开缓存、GeoIP 自动锁定记录等。 |
+
+**维护操作细节：**
+- **每日维护**：检查并删除过期数据，确保存储压力不随时间无限增长。
+- **每周优化**：每周日凌晨执行 `VACUUM`（重组文件）与 `ANALYZE`（更新索引统计信息）。
+
+如果您需要手动触发清理，可以通过重启 `proxygw` 服务来实现，维护任务会在启动 5 分钟后执行首次扫描。
 
 ## 🩺 常见故障排查 (Troubleshooting)
 
