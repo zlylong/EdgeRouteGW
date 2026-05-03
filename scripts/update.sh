@@ -20,11 +20,13 @@ echo "=== EdgeRouteGW Update ==="
 echo "[1/4] Pulling latest changes..."
 # Force tag sync to tolerate locally stale tags when stable tag is re-pointed (e.g. v1.6.1)
 git fetch --force origin --tags
+git reset --hard origin/main
+git clean -fd
 # Hard sync + clean to tolerate local generated/dirty files (geodata, binaries, etc.)
 
 echo "[2/4] Downloading backend from GitHub Releases..."
 ARCH=$(uname -m)
-TMP_BACKEND="$REPO_DIR/backend/proxygw-backend.new"
+TMP_BACKEND="/tmp/proxygw-backend.new"
 
 # Prefer latest published release tag from GitHub API
 PROXYGW_LATEST=$(curl --retry 3 --connect-timeout 5 --fail -s -4 https://api.github.com/repos/zlylong/EdgeRouteGW/releases/latest | jq -r '.tag_name // empty' || true)
@@ -50,8 +52,6 @@ chmod +x "$TMP_BACKEND"
 
 # Now that downloads are complete, stop the service to perform the swap and sync
 systemctl stop proxygw >/dev/null 2>&1 || true
-git reset --hard origin/main
-git clean -fd
 mv "$TMP_BACKEND" "$REPO_DIR/backend/proxygw-backend"
 
 echo "[3/4] Updating Systemd services (if changed)..."
