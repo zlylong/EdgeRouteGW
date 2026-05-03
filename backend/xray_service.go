@@ -11,7 +11,7 @@ import (
 
 func buildBaseXrayConfig(mode string) map[string]interface{} {
 	config := map[string]interface{}{
-		"log":    map[string]string{"loglevel": "warning", "access": "/run/proxygw/xray_access.log"},
+		"log":    map[string]string{"loglevel": "warning"},
 		"api":    map[string]interface{}{"services": []string{"StatsService", "RoutingService", "HandlerService"}, "tag": "api"},
 		"stats":  map[string]interface{}{},
 		"policy": map[string]interface{}{
@@ -454,5 +454,9 @@ func applyXrayConfigInternal(restart bool) error {
 		return nil
 	}
 	cleanupTransientWireguardInterfaces()
+	if mode == "B" {
+		// Flush Mosdns FakeIP cache by restarting it, ensuring consistency with Xray's new session
+		_ = sysCmd.run("systemctl", "restart", "mosdns")
+	}
 	return sysCmd.run("systemctl", "restart", "xray")
 }

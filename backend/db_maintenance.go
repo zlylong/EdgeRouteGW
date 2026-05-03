@@ -2,6 +2,7 @@ package main
 
 import (
 	"log"
+	"os"
 	"time"
 )
 
@@ -20,8 +21,34 @@ func runDatabaseMaintenance() {
 	}
 }
 
+func rotateLogs() {
+	logPaths := []string{
+		getPath("core", "mosdns", "mosdns.log"),
+		"/run/proxygw/xray_access.log",
+		"/run/proxygw/xray_error.log",
+	}
+
+	const maxLogSize = 50 * 1024 * 1024 // 50MB
+
+	for _, p := range logPaths {
+		fi, err := os.Stat(p)
+		if err != nil {
+			continue
+		}
+		if fi.Size() > maxLogSize {
+			log.Printf("[MAINTENANCE] Truncating large log file: %s (%d bytes)", p, fi.Size())
+			if err := os.Truncate(p, 0); err != nil {
+				log.Printf("[MAINTENANCE] Failed to truncate %s: %v", p, err)
+			}
+		}
+	}
+}
+
 func performDBPruning() {
 	log.Println("[MAINTENANCE] Starting database pruning...")
+
+	// Log Rotation / Truncation
+	rotateLogs()
 
 	queries := []struct {
 		name string

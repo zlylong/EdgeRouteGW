@@ -65,6 +65,11 @@ plugins:
     args:
       entry: main_sequence
       listen: 0.0.0.0:53
+  - tag: tcp_server
+    type: tcp_server
+    args:
+      entry: main_sequence
+      listen: 0.0.0.0:53
 `
 
 	return fmt.Sprintf(configStr,
