@@ -1,5 +1,10 @@
 ## [Unreleased]
 
+## [1.7.9] - 2026-05-03
+### ⚡ 优化 (Optimizations)
+- **更新脚本稳定性提升 (Update Script Connectivity)**: 调整了 `scripts/update.sh` 的执行顺序。现在脚本会优先完成 `git fetch`、GitHub API 请求及二进制文件下载，待所有网络依赖产物准备就绪后，再停止 `proxygw` 服务进行文件替换。这解决了在透明代理环境下，因更新脚本提前停止服务导致下载链路中断（无法使用代理更新）的问题。
+
+
 ## [1.7.8] - 2026-05-03
 ### 🐛 修复 (Fixes)
 - **恢复实时连接追踪 (Real-time Connection Tracking)**:
