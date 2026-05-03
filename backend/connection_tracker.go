@@ -441,10 +441,6 @@ func registerConnectionRoutes(r *gin.RouterGroup) {
 	r.GET("/connections", func(c *gin.Context) {
 		ip := c.Query("ip")
 		allConns := GetRecentConnections()
-		serviceCIDR := serviceNetworkCIDR()
-		if strings.EqualFold(strings.TrimSpace(currentMode()), "A") {
-			serviceCIDR = nil
-		}
 
 		queryIP := strings.ToLower(strings.TrimSpace(ip))
 
@@ -454,12 +450,6 @@ func registerConnectionRoutes(r *gin.RouterGroup) {
 				clientHit := strings.Contains(strings.ToLower(conn.Client), queryIP)
 				targetHit := strings.Contains(strings.ToLower(conn.Target), queryIP)
 				if !clientHit && !targetHit {
-					continue
-				}
-			}
-			if serviceCIDR != nil {
-				clientIP := clientIPFromConnClient(conn.Client)
-				if clientIP == nil || !serviceCIDR.Contains(clientIP) {
 					continue
 				}
 			}
