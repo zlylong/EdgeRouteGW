@@ -1,5 +1,10 @@
 ## [Unreleased]
 
+## [1.7.11] - 2026-05-03
+### ⚡ 优化 (Optimizations)
+- **更新脚本依赖补全 (Update Script Dependencies)**: 在 `scripts/update.sh` 中显式增加了 `sqlite3` 与 `wget` 作为前置安装依赖。这解决了在某些精简版 Linux 环境下，因缺失 `sqlite3` 二进制文件导致数据库索引优化脚本 (`db_optimize.sh`) 执行失败的问题。
+
+
 ## [1.7.10] - 2026-05-03
 ### 🐛 修复 (Fixes)
 - **更新脚本路径冲突修复 (Update Script Path Conflict)**: 修复了 v1.7.9 引入的一个路径冲突问题。之前脚本将新二进制下载到项目目录内，导致随后的 `git clean -fd` 操作将其作为未跟踪文件错误删除。现在下载路径已改为系统的 `/tmp` 目录，确保文件替换过程稳健。

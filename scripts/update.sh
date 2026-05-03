@@ -14,7 +14,7 @@ REPO_DIR="/root/proxygw"
 cd "$REPO_DIR"
 
 apt-get update >/dev/null 2>&1 || true
-apt-get install -y jq >/dev/null 2>&1 || true
+apt-get install -y jq sqlite3 wget >/dev/null 2>&1 || true
 
 echo "=== EdgeRouteGW Update ==="
 echo "[1/4] Pulling latest changes..."
