@@ -35,6 +35,14 @@ func buildBaseXrayConfig(mode string) map[string]interface{} {
 				"settings": map[string]interface{}{"address": "127.0.0.1"},
 				"tag":      "api_inbound",
 			},
+			{
+				"listen":   "127.0.0.1",
+				"port":     10808,
+				"protocol": "socks",
+				"settings": map[string]interface{}{"udp": true, "auth": "noauth"},
+				"sniffing": map[string]interface{}{"enabled": true, "destOverride": []string{"http", "tls", "quic"}, "routeOnly": true},
+				"tag":      "socks_in",
+			},
 		},
 		"outbounds": []map[string]interface{}{
 			{"protocol": "freedom", "tag": "direct", "streamSettings": map[string]interface{}{"sockopt": map[string]interface{}{"mark": 2}}},

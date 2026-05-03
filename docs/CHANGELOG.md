@@ -1,5 +1,11 @@
 ## [Unreleased]
 
+## [1.7.7] - 2026-05-03
+### ⚡ Mode A 稳定性专项加固 (Mode A Stability Hardening)
+- **修复 DNS 解析链路中断**: 为 Xray 补齐了 `10808` 端口的 SOCKS5 入站，确保 Mosdns 的远程解析请求（通过 SOCKS5）能被正确处理。此前由于缺少此入站，代理域名的 DNS 解析在缓存过期后会彻底失效，导致“无法转发”的现象。
+- **完善 IPv6 自愈能力**: 扩展了策略路由巡检协程（Reconcile Loop），新增对 IPv6 `ip rule` 和 `ip route` 的定时检测与恢复，确保在启用 IPv6 的 LAN 环境下转发策略始终一致。
+- **强化 TProxy 嗅探策略**: 在 Mode A 下为 SOCKS5 入站开启嗅探与 `routeOnly` 模式，确保即使是经由 Mosdns 发起的远程查询也能正确命中路由分流规则。
+
 ## [1.7.6] - 2026-05-03
 ### ⚡ 稳定性加固 (Stability Hardening)
 - **日志轮转与自动清理**: `db_maintenance.go` 新增日志自动轮转逻辑，定期检查并截断过大的日志文件（Mosdns/Xray），防止 `/run` 或系统磁盘空间耗尽导致服务崩溃。

@@ -92,5 +92,37 @@ func (s *AppService) reconcileTPROXYRulesLoop() {
 				log.Printf("[INFO] reconciled missing tproxy route table entry")
 			}
 		}
+		// Also reconcile IPv6
+		if !hasTPROXYRuleV6() {
+			if err := sysCmd.run("ip", "-6", "rule", "add", "fwmark", "1", "lookup", "tproxy"); err != nil {
+				log.Printf("[WARN] reconcile ip rule v6 failed: %v", err)
+			} else {
+				log.Printf("[INFO] reconciled missing ip6 rule: fwmark 1 lookup tproxy")
+			}
+		}
+		if !hasTPROXYRouteV6() {
+			if err := sysCmd.run("ip", "-6", "route", "add", "local", "default", "dev", "lo", "table", "tproxy"); err != nil {
+				log.Printf("[WARN] reconcile ip route v6 failed: %v", err)
+			} else {
+				log.Printf("[INFO] reconciled missing tproxy6 route table entry")
+			}
+		}
 	}
 }
+
+func hasTPROXYRuleV6() bool {
+	out, err := sysCmd.output("ip", "-6", "rule", "show")
+	if err != nil {
+		return false
+	}
+	return strings.Contains(string(out), "fwmark 0x1 lookup tproxy") || strings.Contains(string(out), "fwmark 0x1 lookup 100")
+}
+
+func hasTPROXYRouteV6() bool {
+	out, err := sysCmd.output("ip", "-6", "route", "show", "table", "tproxy")
+	if err != nil {
+		return false
+	}
+	return strings.Contains(string(out), "local default dev lo")
+}
+
