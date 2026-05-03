@@ -1,5 +1,13 @@
 ## [Unreleased]
 
+## [1.7.12] - 2026-05-03
+### ✨ 新特性 (Features)
+- **本地 HTTP 代理服务**: 在 Xray 中新增监听于 `127.0.0.1:10809` 的 HTTP 代理入站。这主要用于解决网关主机自身（不走 TProxy 的流量）在更新或下载资源时的网络阻断问题。
+
+### ⚡ 优化 (Optimizations)
+- **更新脚本自动代理感知**: 修改 `scripts/update.sh`，在启动时自动检测 `10809` (HTTP) 或 `10808` (SOCKS5) 本地端口。如果检测到代理服务已就绪，脚本将自动配置 `http_proxy` 环境变量，确保即使在严苛的网络环境下也能顺利完成 `git` 拉取与 GitHub Release 资源下载。
+
+
 ## [1.7.11] - 2026-05-03
 ### ⚡ 优化 (Optimizations)
 - **更新脚本依赖补全 (Update Script Dependencies)**: 在 `scripts/update.sh` 中显式增加了 `sqlite3` 与 `wget` 作为前置安装依赖。这解决了在某些精简版 Linux 环境下，因缺失 `sqlite3` 二进制文件导致数据库索引优化脚本 (`db_optimize.sh`) 执行失败的问题。

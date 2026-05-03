@@ -17,6 +17,18 @@ apt-get update >/dev/null 2>&1 || true
 apt-get install -y jq sqlite3 wget >/dev/null 2>&1 || true
 
 echo "=== EdgeRouteGW Update ==="
+
+# Auto-detect and use local proxy if available to avoid GnuTLS recv errors on restricted networks
+if ss -tulpn | grep -q ':10809 '; then
+    echo "[INFO] Local HTTP proxy detected at 10809, enabling for update session..."
+    export http_proxy=http://127.0.0.1:10809
+    export https_proxy=http://127.0.0.1:10809
+elif ss -tulpn | grep -q ':10808 '; then
+    echo "[INFO] Local SOCKS5 proxy detected at 10808, enabling for update session..."
+    export http_proxy=socks5h://127.0.0.1:10808
+    export https_proxy=socks5h://127.0.0.1:10808
+fi
+
 echo "[1/4] Pulling latest changes..."
 # Force tag sync to tolerate locally stale tags when stable tag is re-pointed (e.g. v1.6.1)
 git fetch --force origin --tags
