@@ -25,6 +25,7 @@ func (s *AppService) Bootstrap() {
 	go ospfController()
 	go cronUpdater()
 	go domainIPUpdater()
+	go runDatabaseMaintenance()
 	applyMosdnsConfig()
 	applyXrayConfig()
 	if err := applyNftablesConfig(); err != nil {
