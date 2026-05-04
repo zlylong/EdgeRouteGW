@@ -15,8 +15,6 @@ import (
 	"strings"
 	"sync"
 	"time"
-
-	"golang.org/x/net/proxy"
 )
 
 const (
@@ -210,15 +208,6 @@ func lookupIPv4WithDNSServer(domain string, server string) ([]string, error) {
 		PreferGo: true,
 		Dial: func(ctx context.Context, network, _ string) (net.Conn, error) {
 			d := net.Dialer{Timeout: domainResolveTimeout}
-			// If it's a public DNS server and not on LAN, use SOCKS5 proxy
-			if isPublicDNSServer(serverAddr) {
-				dialer, err := proxy.SOCKS5("tcp", "127.0.0.1:10808", nil, &d)
-				if err == nil {
-					// Force TCP for SOCKS5 DNS queries as many SOCKS5 dialers in Go lack UDP support
-					return dialer.Dial("tcp", net.JoinHostPort(serverAddr, "53"))
-				}
-				log.Printf("[WARN] SOCKS5 dialer failed for %s, falling back to direct: %v", serverAddr, err)
-			}
 			return d.DialContext(ctx, "udp", net.JoinHostPort(serverAddr, "53"))
 		},
 	}
@@ -240,17 +229,6 @@ func lookupIPv4WithDNSServer(domain string, server string) ([]string, error) {
 		return nil, fmt.Errorf("no A records")
 	}
 	return ips, nil
-}
-
-func isPublicDNSServer(addr string) bool {
-	ip := net.ParseIP(addr)
-	if ip == nil {
-		return false
-	}
-	if ip.IsLoopback() || ip.IsPrivate() || ip.IsUnspecified() || ip.IsLinkLocalUnicast() {
-		return false
-	}
-	return true
 }
 
 var resolveDomainIPv4WithTTLViaServers = func(domain string, dnsServers []string) ([]string, int, error) {

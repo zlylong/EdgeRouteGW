@@ -20,16 +20,14 @@ func formatUpstreams(addrs string, useSocks bool) string {
 		if useSocks {
 			items = append(items, fmt.Sprintf(`{ addr: "%s", socks5: "127.0.0.1:10808" }`, clean))
 		} else {
-			// Always force SOCKS5 for remote DNS upstreams in all modes to bypass pollution
-			items = append(items, fmt.Sprintf(`{ addr: "%s", socks5: "127.0.0.1:10808" }`, clean))
+			items = append(items, fmt.Sprintf(`{ addr: "%s" }`, clean))
 		}
 	}
 	if len(items) == 0 {
 		if useSocks {
 			return `[{ addr: "1.1.1.1", socks5: "127.0.0.1:10808" }, { addr: "8.8.8.8", socks5: "127.0.0.1:10808" }]`
 		}
-		// Always force SOCKS5 for remote DNS upstreams even if empty
-		return `[{ addr: "1.1.1.1", socks5: "127.0.0.1:10808" }, { addr: "8.8.8.8", socks5: "127.0.0.1:10808" }]`
+		return `[{ addr: "119.29.29.29" }, { addr: "223.5.5.5" }]`
 	}
 	return "[" + strings.Join(items, ", ") + "]"
 }
