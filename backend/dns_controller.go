@@ -100,11 +100,6 @@ func (ctl *DNSController) SetDNS(c *gin.Context) {
 	// Clear domain resolve cache to ensure new DNS settings take effect for OSPF
 	_, _ = db.Exec("DELETE FROM domain_resolve_cache")
 	log.Println("[INFO] Cleared domain_resolve_cache due to DNS settings update")
-	var systemMode string
-	_ = db.QueryRow("SELECT value FROM settings WHERE key='mode'").Scan(&systemMode)
-	if systemMode == "B" || systemMode == "C" {
-		go scheduleStaticRouteSync(systemMode)
-	}
 
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
@@ -118,12 +113,7 @@ func (ctl *DNSController) FlushDNSCache(c *gin.Context) {
 		return
 	}
 	log.Println("[INFO] Manual triggered domain_resolve_cache flush from UI")
-	var mode string
-	_ = db.QueryRow("SELECT value FROM settings WHERE key='mode'").Scan(&mode)
-	if mode == "B" || mode == "C" {
-		go scheduleStaticRouteSync(mode)
-	}
-	c.JSON(http.StatusOK, gin.H{"success": true, "message": "代理域名解析缓存已清空，系统已在后台触发重新解析"})
+	c.JSON(http.StatusOK, gin.H{"success": true, "message": "代理域名解析缓存已清空，系统将在后台自动重新解析"})
 }
 
 func boolToString(v bool) string {
