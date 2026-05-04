@@ -138,7 +138,12 @@ SYS_EOF
 
 systemctl daemon-reload
 
-echo "[4/4] Restarting services..."
+echo "[4/5] Automatically flushing old DNS and OSPF caches..."
+if [ -f "$REPO_DIR/config/proxygw.db" ]; then
+    sqlite3 "$REPO_DIR/config/proxygw.db" "DELETE FROM domain_resolve_cache; DELETE FROM routes_table; DELETE FROM geosite_expand_cache;" 2>/dev/null || true
+fi
+
+echo "[5/5] Restarting services..."
 systemctl restart proxygw
 
 # Run low-risk DB index optimization (idempotent, online-safe)
