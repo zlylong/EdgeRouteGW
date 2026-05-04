@@ -1,6 +1,8 @@
 package main
 
 import (
+	"golang.org/x/net/proxy"
+
 	"context"
 	"database/sql"
 	"encoding/json"
@@ -179,20 +181,48 @@ func buildDomainCacheKey(resolverGroup string, domain string) string {
 }
 
 func getResolverDNSServers(resolverGroup string) []string {
-	// CRITICAL FIX: To prevent DNS leaks and GFW poisoning (e.g. 119.29.x.x), 
-	// backend OSPF resolution MUST ALWAYS use the local Mosdns instance (127.0.0.1).
-	// Mosdns handles the SOCKS5 proxying to the actual dns_remote.
-	return []string{"127.0.0.1"}
+	resolverGroup = normalizeResolverGroup(resolverGroup)
+	settingKey := "dns_remote"
+	defaultRaw := "1.1.1.1,8.8.8.8"
+	if resolverGroup == resolverGroupLocal {
+		settingKey = "dns_local"
+		defaultRaw = "119.29.29.29,223.5.5.5"
+	}
+	value := ""
+	if db != nil {
+		if err := db.QueryRow("SELECT value FROM settings WHERE key=?", settingKey).Scan(&value); err != nil {
+			value = ""
+		}
+	}
+	servers := parseDNSServerList(value)
+	if len(servers) == 0 {
+		servers = parseDNSServerList(defaultRaw)
+	}
+	return servers
 }
 
-func lookupIPv4WithDNSServer(domain string, server string) ([]string, error) {
+func lookupIPv4WithDNSServer(domain string, server string, useProxy bool) ([]string, error) {
 	serverAddr, ok := normalizeDNSServerAddr(server)
 	if !ok {
 		return nil, fmt.Errorf("invalid dns server %q", server)
 	}
+	
 	resolver := &net.Resolver{
 		PreferGo: true,
 		Dial: func(ctx context.Context, network, _ string) (net.Conn, error) {
+			if useProxy {
+				// Dial TCP via Xray SOCKS5 to prevent GFW poisoning and UDP bypass
+				dialer, err := proxy.SOCKS5("tcp", "127.0.0.1:10808", nil, proxy.Direct)
+				if err != nil {
+					return nil, err
+				}
+				// Use type assertion to support Context
+				if contextDialer, ok := dialer.(proxy.ContextDialer); ok {
+					return contextDialer.DialContext(ctx, "tcp", net.JoinHostPort(serverAddr, "53"))
+				}
+				return dialer.Dial("tcp", net.JoinHostPort(serverAddr, "53"))
+			}
+			// Direct UDP for local
 			d := net.Dialer{Timeout: domainResolveTimeout}
 			return d.DialContext(ctx, "udp", net.JoinHostPort(serverAddr, "53"))
 		},
@@ -217,30 +247,34 @@ func lookupIPv4WithDNSServer(domain string, server string) ([]string, error) {
 	return ips, nil
 }
 
-var resolveDomainIPv4WithTTLViaServers = func(domain string, dnsServers []string) ([]string, int, error) {
+var resolveDomainIPv4WithTTLViaServers = func(domain string, dnsServers []string, isRemote bool) ([]string, int, error) {
 	if len(dnsServers) == 0 {
 		return resolveDomainIPv4WithTTL(domain)
 	}
 	var firstErr error
 	for _, server := range dnsServers {
-		output, err := hostLookupCommandAtServer(domain, server)
-		if err == nil {
-			ips, ttl, parseErr := parseHostLookupOutput(output)
-			if parseErr == nil {
-				return ips, clampDomainCacheTTL(ttl), nil
-			}
-			log.Printf("[WARN] host output parse failed for %q via %s: %v", domain, server, parseErr)
-			if firstErr == nil {
-				firstErr = parseErr
-			}
-		} else {
-			log.Printf("[WARN] host lookup failed for %q via %s: %v", domain, server, err)
-			if firstErr == nil {
-				firstErr = err
+		// Only use OS 'host' command for local/direct lookups, because it leaks UDP.
+		// For remote lookups, skip OS 'host' command entirely to avoid GFW poisoning.
+		if !isRemote {
+			output, err := hostLookupCommandAtServer(domain, server)
+			if err == nil {
+				ips, ttl, parseErr := parseHostLookupOutput(output)
+				if parseErr == nil {
+					return ips, clampDomainCacheTTL(ttl), nil
+				}
+				log.Printf("[WARN] host output parse failed for %q via %s: %v", domain, server, parseErr)
+				if firstErr == nil {
+					firstErr = parseErr
+				}
+			} else {
+				log.Printf("[WARN] host lookup failed for %q via %s: %v", domain, server, err)
+				if firstErr == nil {
+					firstErr = err
+				}
 			}
 		}
 
-		ips, lookupErr := lookupIPv4WithDNSServer(domain, server)
+		ips, lookupErr := lookupIPv4WithDNSServer(domain, server, isRemote)
 		if lookupErr == nil {
 			return ips, minDomainCacheTTLSeconds, nil
 		}
@@ -564,7 +598,8 @@ func getOrRefreshDomainCacheWithResolver(domain string, resolverGroup string) ([
 		}
 	}
 
-	ips, ttl, err := resolveDomainIPv4WithTTLViaServers(domain, getResolverDNSServers(resolverGroup))
+	isRemote := (resolverGroup == resolverGroupRemote)
+	ips, ttl, err := resolveDomainIPv4WithTTLViaServers(domain, getResolverDNSServers(resolverGroup), isRemote)
 	if err == nil {
 		ips = normalizeIPList(ips)
 		ttl = clampDomainCacheTTL(ttl)
