@@ -179,24 +179,10 @@ func buildDomainCacheKey(resolverGroup string, domain string) string {
 }
 
 func getResolverDNSServers(resolverGroup string) []string {
-	resolverGroup = normalizeResolverGroup(resolverGroup)
-	settingKey := "dns_remote"
-	defaultRaw := "1.1.1.1,8.8.8.8"
-	if resolverGroup == resolverGroupLocal {
-		settingKey = "dns_local"
-		defaultRaw = "119.29.29.29,223.5.5.5"
-	}
-	value := ""
-	if db != nil {
-		if err := db.QueryRow("SELECT value FROM settings WHERE key=?", settingKey).Scan(&value); err != nil {
-			value = ""
-		}
-	}
-	servers := parseDNSServerList(value)
-	if len(servers) == 0 {
-		servers = parseDNSServerList(defaultRaw)
-	}
-	return servers
+	// CRITICAL FIX: To prevent DNS leaks and GFW poisoning (e.g. 119.29.x.x), 
+	// backend OSPF resolution MUST ALWAYS use the local Mosdns instance (127.0.0.1).
+	// Mosdns handles the SOCKS5 proxying to the actual dns_remote.
+	return []string{"127.0.0.1"}
 }
 
 func lookupIPv4WithDNSServer(domain string, server string) ([]string, error) {
