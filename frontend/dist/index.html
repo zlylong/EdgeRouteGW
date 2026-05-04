@@ -1031,9 +1031,14 @@ PersistentKeepalive = 25
                                             <option value="error">Error (仅错误)</option>
                                         </select>
                                     </div>
-                                    <button @click="saveDns" class="mt-6 bg-blue-600 text-white px-4 py-2 rounded shadow hover:bg-blue-700 w-full font-bold">
-                                        <i class="fa-solid fa-save mr-2"></i>保存并应用 Mosdns 配置
-                                    </button>
+                                    <div class="flex space-x-4 mt-6">
+                                        <button @click="saveDns" class="bg-blue-600 text-white px-4 py-2 rounded shadow hover:bg-blue-700 w-full font-bold">
+                                            <i class="fa-solid fa-save mr-2"></i>保存并应用配置
+                                        </button>
+                                        <button @click="flushDnsCache" class="bg-amber-500 text-white px-4 py-2 rounded shadow hover:bg-amber-600 font-bold whitespace-nowrap">
+                                            <i class="fa-solid fa-broom mr-2"></i>重新解析代理域名
+                                        </button>
+                                    </div>
                                 </div>
                             </div>
                         </div>
@@ -2528,7 +2533,11 @@ Mode C: 纯OSPF (恢复真实IP宣告)`)) {
                 const deleteRuleGroup = (groupId) => { customConfirm(`删除分组 ${shortRuleGroup(groupId)} 下全部规则？`, async () => { const res = await apiFetch(`/api/rules/group/${groupId}`, {method: 'DELETE'}); if(!res.ok) { const data = await res.json().catch(() => ({})); showToast(data.error || '删组失败', 'error'); return; } showToast('分组规则已删除'); if (selectedRuleGroup.value === groupId) selectedRuleGroup.value = ''; loadRules(); }); };
                 const saveRuleGroupName = async () => { if (!selectedRuleGroup.value) return; const res = await apiFetch(`/api/rules/group/${selectedRuleGroup.value}`, { method: 'PUT', body: JSON.stringify({ group_name: editingRuleGroup.value || '' }) }); if(!res.ok) { const data = await res.json().catch(() => ({})); return showToast(data.error || '保存组备注失败', 'error'); } showToast('组备注已保存'); loadRules(); };
 
-                const saveDns = async () => { await apiFetch('/api/dns', { method: 'POST', body: JSON.stringify({ Local: dns.value.local, Remote: dns.value.remote, Lazy: dns.value.lazy, Mode: dns.value.mode, log_level: dns.value.log_level, cache_size: parseInt(dns.value.cache_size, 10), lazy_ttl: parseInt(dns.value.lazy_ttl, 10) }) }); showToast("DNS 配置已保存！"); loadData(); }
+                const saveDns = async () => { await apiFetch('/api/dns', { method: 'POST', body: JSON.stringify({ Local: dns.value.local, Remote: dns.value.remote, Lazy: dns.value.lazy, Mode: dns.value.mode, log_level: dns.value.log_level, cache_size: parseInt(dns.value.cache_size, 10), lazy_ttl: parseInt(dns.value.lazy_ttl, 10) }) }); showToast("DNS 配置已保存！系统将在后台重新解析关联域名。"); loadData(); }
+                const flushDnsCache = async () => {
+                    await apiFetch('/api/dns/flush', { method: 'POST' });
+                    showToast("代理域名解析缓存已清空，系统将在后台自动重新解析！");
+                }
                 const resetDns = () => {
                     dns.value = {
                         local: '119.29.29.29,223.5.5.5',
@@ -2597,7 +2606,7 @@ Mode C: 纯OSPF (恢复真实IP宣告)`)) {
                     connections, connSearch, filteredConnections, lanAcls, defaultLanPolicy, protectedIps, protectedIpForm, goToRule,
                     showAclModal, aclForm, openAddAcl, saveAcl, deleteAcl, updateLanDefault, addProtectedIp, deleteProtectedIp,
                     currentConfigTab,
-                    loadData,
+                    loadData, flushDnsCache,
                     isSubmitting, isLoading, vlessParams, cron, saveCron, networkConfigForm, networkConfigSelecting, saveNetworkConfig, showPwdModal, pwdForm, logout, changePwd, toastMsg, toastType, confirmData, doConfirm, isUpdating, token, password, login, categories, geoQuery, showGeoSuggestions, geoSuggestionIndex, filteredGeoSuggestions, handleGeoInput, handleGeoInputBlur, moveGeoSuggestion, confirmGeoSuggestionOrQuery, applyGeoSuggestion, runGeoQuery, xrayConfigStr, mosdnsConfigStr, nftablesConfigStr, frrConfigStr, loadConfigs, newRule, ruleGroups, selectedRuleGroup, ruleSearchId, filteredRules, editingRuleGroup, shortRuleGroup, describeRulePattern, ruleValuePlaceholder, ruleValidationError, handleRuleValueFocus, handleRuleValueBlur, addRule, loadRules, saveRuleGroupName, moveRule, activeTab, tabs, visibleTabs, uiMode, toggleUiMode, currentTabLabel, nodes, rules, dns, dnsLogs, ospf, ospfController, ospfControllerDirty, saveOspfController, resetOspfPending, sysStatus, applyConfig, toggleMode, changeMode, importNodeUrl, pingNodes, openAddNode, editNode, saveNode, showNodeModal, editingNode, deleteNode, toggleNode, deleteRule, deleteRuleGroup, saveDns, updateComp, showMosdnsRollbackModal, mosdnsVersions, selectedMosdnsRollbackVersion, openMosdnsRollbackModal, confirmMosdnsRollback, showRollbackModal, xrayVersions, selectedRollbackVersion, openRollbackModal, confirmRollback, remoteNodes, showRemoteNodeModal, showRemoteDetailsModal, selectedRemoteNode, remoteNodeForm, loadRemoteNodes, openAddRemoteNode, submitRemoteNode, viewRemoteNode, checkRemoteNode, confirmDeleteRemoteNode, copyText, importToLocal, isDeploying, showBatchModal, batchText, submitBatchNodes, showHistoryModal, nodeHistory,                    setDefaultNode, nodeFailoverMode, saveNodeFailoverMode, regenerateNode, loadNodeHistory, rollbackNode,
                     traceInput, traceResult, isTracing, runTrace, healthResults, isCheckingHealth, runHealthCheck, healthMode }
             }
