@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	
 
 	"context"
@@ -190,29 +191,29 @@ func lookupIPv4WithDNSServer(domain string, server string, _ bool) ([]string, er
 	if !ok {
 		return nil, fmt.Errorf("invalid dns server %q", server)
 	}
-	resolver := &net.Resolver{
-		PreferGo: true,
-		Dial: func(ctx context.Context, network, _ string) (net.Conn, error) {
-			d := net.Dialer{Timeout: domainResolveTimeout}
-			return d.DialContext(ctx, "udp", net.JoinHostPort(serverAddr, "53"))
-		},
-	}
+
 	ctx, cancel := context.WithTimeout(context.Background(), domainResolveTimeout)
 	defer cancel()
-	addrs, err := resolver.LookupIPAddr(ctx, domain)
-	if err != nil {
-		return nil, err
+
+	cmd := exec.CommandContext(ctx, "dig", "+short", "+timeout=2", "+tries=1", "@"+serverAddr, domain)
+	var out bytes.Buffer
+	cmd.Stdout = &out
+	if err := cmd.Run(); err != nil {
+		return nil, fmt.Errorf("dig execution failed: %w", err)
 	}
-	ips := make([]string, 0, len(addrs))
-	for _, addr := range addrs {
-		if addr.IP == nil || addr.IP.To4() == nil {
-			continue
+
+		lines := strings.Split(strings.TrimSpace(out.String()), "\n")
+	var ips []string
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if net.ParseIP(line) != nil && strings.Contains(line, ".") {
+			ips = append(ips, line)
 		}
-		ips = append(ips, addr.IP.String())
 	}
+
 	ips = normalizeIPList(ips)
 	if len(ips) == 0 {
-		return nil, fmt.Errorf("no A records")
+		return nil, fmt.Errorf("no A records found via dig")
 	}
 	return ips, nil
 }
@@ -240,22 +241,11 @@ var resolveDomainIPv4WithTTLViaServers = func(domain string, dnsServers []string
 }
 
 var resolveDomainIPv4WithTTL = func(domain string) ([]string, int, error) {
-	output, err := hostLookupCommand(domain)
-	if err == nil {
-		ips, ttl, parseErr := parseHostLookupOutput(output)
-		if parseErr == nil {
-			return ips, clampDomainCacheTTL(ttl), nil
-		}
-		log.Printf("[WARN] host output parse failed for %q: %v", domain, parseErr)
-	} else {
-		log.Printf("[WARN] host lookup failed for %q: %v", domain, err)
-	}
-	ips, lookupErr := geoQueryLookupIP(domain)
-	if lookupErr != nil {
-		if err != nil {
-			return nil, 0, fmt.Errorf("host lookup failed: %w; fallback lookup failed: %v", err, lookupErr)
-		}
-		return nil, 0, lookupErr
+	// 100% force use local Mosdns via dig. No more OS 'host' command or direct DNS.
+	// This ensures we always get clean results from our proxied Mosdns.
+	ips, err := lookupIPv4WithDNSServer(domain, "127.0.0.1", false)
+	if err != nil {
+		return nil, 0, err
 	}
 	return ips, minDomainCacheTTLSeconds, nil
 }
