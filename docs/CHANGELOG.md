@@ -1,5 +1,9 @@
 ## [Unreleased]
 
+## [1.7.16] - 2026-05-04
+### ✨ 核心重构 (Core Refactoring)
+- **彻底抛弃底层 UDP 裸解析**: 后端 OSPF 解析引擎直接集成 SOCKS5 DNS-over-TCP 客户端拨号逻辑。现在对 `geosite/domain` 的展开解析，将强制使用您面板上设置的 `dns_remote`，并将其自动包裹进 TCP 流经由本地 10808 端口（Xray）加密送出，彻底绕过 Mosdns 的 fallback 分流误判，达到 100% 免疫 GFW 投毒。
+
 ## [1.7.15] - 2026-05-04
 ### 🐛 修复 (Bug Fixes)
 - **防止 GFW DNS 投毒**: 将后端 OSPF 展开引擎的所有 geosite/domain DNS 解析请求统一路由至本地 Mosdns 实例 (127.0.0.1:53)，利用其内置的 SOCKS5 代理安全解析海外被墙域名，彻底斩断 OSPF 规则被投毒导致本地出现如 119.29.x.x 脏路由的问题。
