@@ -33,6 +33,7 @@ func (ctl *DNSController) GetDNS(c *gin.Context) {
 		"log_level":  logLevel,
 		"cache_size": cacheSize,
 		"lazy_ttl":   lazyTTL,
+		"hint":       "请务必将内网设备的 DNS 设置指向本代理网关 IP，以确保分流规则生效。",
 	})
 }
 
@@ -100,7 +101,10 @@ func (ctl *DNSController) SetDNS(c *gin.Context) {
 	_, _ = db.Exec("DELETE FROM domain_resolve_cache")
 	log.Println("[INFO] Cleared domain_resolve_cache due to DNS settings update")
 
-	c.JSON(http.StatusOK, gin.H{"success": true})
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"message": "DNS设置已更新。请确保内网设备的DNS服务器指向本网关地址以实现最佳分流效果。",
+	})
 }
 
 func boolToString(v bool) string {
