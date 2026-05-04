@@ -1,7 +1,7 @@
 package main
 
 import (
-	"golang.org/x/net/proxy"
+	
 
 	"context"
 	"database/sql"
@@ -181,48 +181,18 @@ func buildDomainCacheKey(resolverGroup string, domain string) string {
 }
 
 func getResolverDNSServers(resolverGroup string) []string {
-	resolverGroup = normalizeResolverGroup(resolverGroup)
-	settingKey := "dns_remote"
-	defaultRaw := "1.1.1.1,8.8.8.8"
-	if resolverGroup == resolverGroupLocal {
-		settingKey = "dns_local"
-		defaultRaw = "119.29.29.29,223.5.5.5"
-	}
-	value := ""
-	if db != nil {
-		if err := db.QueryRow("SELECT value FROM settings WHERE key=?", settingKey).Scan(&value); err != nil {
-			value = ""
-		}
-	}
-	servers := parseDNSServerList(value)
-	if len(servers) == 0 {
-		servers = parseDNSServerList(defaultRaw)
-	}
-	return servers
+	// 100% delegate to local Mosdns. No more direct external queries from OSPF engine.
+	return []string{"127.0.0.1"}
 }
 
-func lookupIPv4WithDNSServer(domain string, server string, useProxy bool) ([]string, error) {
+func lookupIPv4WithDNSServer(domain string, server string, _ bool) ([]string, error) {
 	serverAddr, ok := normalizeDNSServerAddr(server)
 	if !ok {
 		return nil, fmt.Errorf("invalid dns server %q", server)
 	}
-	
 	resolver := &net.Resolver{
 		PreferGo: true,
 		Dial: func(ctx context.Context, network, _ string) (net.Conn, error) {
-			if useProxy {
-				// Dial TCP via Xray SOCKS5 to prevent GFW poisoning and UDP bypass
-				dialer, err := proxy.SOCKS5("tcp", "127.0.0.1:10808", nil, proxy.Direct)
-				if err != nil {
-					return nil, err
-				}
-				// Use type assertion to support Context
-				if contextDialer, ok := dialer.(proxy.ContextDialer); ok {
-					return contextDialer.DialContext(ctx, "tcp", net.JoinHostPort(serverAddr, "53"))
-				}
-				return dialer.Dial("tcp", net.JoinHostPort(serverAddr, "53"))
-			}
-			// Direct UDP for local
 			d := net.Dialer{Timeout: domainResolveTimeout}
 			return d.DialContext(ctx, "udp", net.JoinHostPort(serverAddr, "53"))
 		},
@@ -253,27 +223,8 @@ var resolveDomainIPv4WithTTLViaServers = func(domain string, dnsServers []string
 	}
 	var firstErr error
 	for _, server := range dnsServers {
-		// Only use OS 'host' command for local/direct lookups, because it leaks UDP.
-		// For remote lookups, skip OS 'host' command entirely to avoid GFW poisoning.
-		if !isRemote {
-			output, err := hostLookupCommandAtServer(domain, server)
-			if err == nil {
-				ips, ttl, parseErr := parseHostLookupOutput(output)
-				if parseErr == nil {
-					return ips, clampDomainCacheTTL(ttl), nil
-				}
-				log.Printf("[WARN] host output parse failed for %q via %s: %v", domain, server, parseErr)
-				if firstErr == nil {
-					firstErr = parseErr
-				}
-			} else {
-				log.Printf("[WARN] host lookup failed for %q via %s: %v", domain, server, err)
-				if firstErr == nil {
-					firstErr = err
-				}
-			}
-		}
-
+		// No more OS 'host' command for OSPF expansion. 
+		// We trust our resolver to query 127.0.0.1 (Mosdns).
 		ips, lookupErr := lookupIPv4WithDNSServer(domain, server, isRemote)
 		if lookupErr == nil {
 			return ips, minDomainCacheTTLSeconds, nil

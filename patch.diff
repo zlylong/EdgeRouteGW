@@ -1,0 +1,16 @@
+--- /root/proxygw/scripts/update.sh
++++ /root/proxygw/scripts/update.sh
+@@ -139,6 +139,12 @@
+ RestartSec=5
+ SYS_EOF
+ 
++echo "[4/5] Automatically flushing old DNS/OSPF caches to prevent dirty data inheritance..."
++DB_PATH="$REPO_DIR/config/proxygw.db"
++if [ -f "$DB_PATH" ]; then
++    sqlite3 "$DB_PATH" "DELETE FROM domain_resolve_cache; DELETE FROM routes_table; DELETE FROM geosite_expand_cache;" 2>/dev/null || true
++fi
++
+-echo "[4/4] Restarting services..."
++echo "[5/5] Restarting services..."
+ systemctl daemon-reload
+ systemctl restart proxygw
