@@ -1,6 +1,7 @@
 package main
 
 import (
+	"log"
 	"net/http"
 	"strconv"
 	"strings"
@@ -95,6 +96,10 @@ func (ctl *DNSController) SetDNS(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": "Mosdns failed: " + err.Error()})
 		return
 	}
+	// Clear domain resolve cache to ensure new DNS settings take effect for OSPF
+	_, _ = db.Exec("DELETE FROM domain_resolve_cache")
+	log.Println("[INFO] Cleared domain_resolve_cache due to DNS settings update")
+
 	c.JSON(http.StatusOK, gin.H{"success": true})
 }
 
