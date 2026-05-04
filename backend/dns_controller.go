@@ -107,15 +107,6 @@ func (ctl *DNSController) SetDNS(c *gin.Context) {
 	})
 }
 
-func (ctl *DNSController) FlushDNSCache(c *gin.Context) {
-	if _, err := db.Exec("DELETE FROM domain_resolve_cache"); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
-		return
-	}
-	log.Println("[INFO] Manual triggered domain_resolve_cache flush from UI")
-	c.JSON(http.StatusOK, gin.H{"success": true, "message": "代理域名解析缓存已清空，系统将在后台自动重新解析"})
-}
-
 func boolToString(v bool) string {
 	if v {
 		return "true"
