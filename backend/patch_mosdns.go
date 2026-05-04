@@ -11,6 +11,9 @@ func isPublicDNSTarget(addr string) bool {
 		parts := strings.SplitN(addr, "://", 2)
 		host = parts[1]
 	}
+	if idx := strings.Index(host, "/"); idx != -1 {
+		host = host[:idx]
+	}
 	if h, _, err := net.SplitHostPort(host); err == nil {
 		host = h
 	}
