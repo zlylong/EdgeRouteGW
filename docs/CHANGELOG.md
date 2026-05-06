@@ -1,5 +1,8 @@
 ## [Unreleased]
-- **Mode B/C FRR 自愈修复**: 当 `/etc/frr/frr.conf` 已经是最新但 `frr.service` 因重启/更新处于 disabled 或 inactive 时，后端现在会自动 enable/start FRR，避免 `vtysh: failed to connect to any daemons` 导致规则只停留在 candidate、无法通过 OSPF 下发。
+
+## [1.7.22] - 2026-05-06
+### 🐛 Mode B/C OSPF 发布修复
+- **FRR 服务自愈**: 当 `/etc/frr/frr.conf` 已经是最新但 `frr.service` 因重启/更新处于 disabled 或 inactive 时，后端现在会自动 enable/start FRR，避免 `vtysh: failed to connect to any daemons` 导致规则只停留在 candidate、无法通过 OSPF 下发。
 - **测试桩同步**: 修正 OSPF DNS 缓存相关测试桩签名，匹配当前解析函数的 remote/local 参数。
 
 ## [1.7.21] - 2026-05-05
