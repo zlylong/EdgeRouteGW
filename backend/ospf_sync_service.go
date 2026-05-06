@@ -50,13 +50,25 @@ route-map OSPF-EXPORT permit 10
 	b, _ := os.ReadFile("/etc/frr/frr.conf")
 	content_frr := string(b)
 
-	if newContent != content_frr {
+	configChanged := newContent != content_frr
+	if configChanged {
 		log.Printf("[OSPF] Auto-updating FRR config: mode=%s, router-id=%s, network=%s", mode, ip, subnet)
 		os.WriteFile(getPath("core", "frr", "frr.conf"), []byte(newContent), 0644)
 		os.WriteFile("/etc/frr/frr.conf", []byte(newContent), 0644)
-		sysCmd.run("sed", "-i", "s/ospfd=no/ospfd=yes/", "/etc/frr/daemons")
+	}
+
+	// Mode B/C depend on FRR at runtime.  A reboot or package update can leave
+	// frr.service disabled/stopped while /etc/frr/frr.conf is already current;
+	// in that case the old code skipped the restart path and OSPF publishing kept
+	// failing with "vtysh: failed to connect to any daemons".
+	sysCmd.run("sed", "-i", "s/ospfd=no/ospfd=yes/", "/etc/frr/daemons")
+	_ = sysCmd.run("systemctl", "enable", "frr")
+	if configChanged {
 		sysCmd.run("systemctl", "restart", "frr")
 		db.Exec("UPDATE routes_table SET status='candidate' WHERE status='published'")
+	} else if sysCmd.run("systemctl", "is-active", "--quiet", "frr") != nil {
+		log.Printf("[OSPF] FRR config unchanged but service inactive; starting frr for mode=%s", mode)
+		sysCmd.run("systemctl", "start", "frr")
 	}
 }
 

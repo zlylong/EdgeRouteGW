@@ -31,6 +31,7 @@ var modeSwitchSetServices = func(mode string) error {
 		return nil
 	}
 
+	_ = sysCmd.run("systemctl", "enable", "frr")
 	if err := sysCmd.run("systemctl", "is-active", "--quiet", "frr"); err != nil {
 		if err := sysCmd.run("systemctl", "start", "frr"); err != nil {
 			return err

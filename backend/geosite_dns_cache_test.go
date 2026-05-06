@@ -25,7 +25,7 @@ func TestSyncStaticRoutesToOSPF_GeositeUsesDomainResolveCache(t *testing.T) {
 
 	calls := map[string]int{}
 	oldResolve := resolveDomainIPv4WithTTLViaServers
-	resolveDomainIPv4WithTTLViaServers = func(domain string, dnsServers []string) ([]string, int, error) {
+	resolveDomainIPv4WithTTLViaServers = func(domain string, dnsServers []string, isRemote bool) ([]string, int, error) {
 		calls[domain]++
 		switch domain {
 		case "google.com":
@@ -80,7 +80,7 @@ func TestGetOrRefreshDomainCache_RefreshAfterExpireAndKeepStaleOnFailure(t *test
 
 	calls := 0
 	oldResolve := resolveDomainIPv4WithTTLViaServers
-	resolveDomainIPv4WithTTLViaServers = func(domain string, dnsServers []string) ([]string, int, error) {
+	resolveDomainIPv4WithTTLViaServers = func(domain string, dnsServers []string, isRemote bool) ([]string, int, error) {
 		calls++
 		switch calls {
 		case 1:
@@ -133,7 +133,7 @@ func TestGetOrRefreshDomainCacheWithResolver_SelectsDNSGroup(t *testing.T) {
 	defer func() { resolveDomainIPv4WithTTLViaServers = oldResolve }()
 
 	captured := make([][]string, 0, 2)
-	resolveDomainIPv4WithTTLViaServers = func(domain string, dnsServers []string) ([]string, int, error) {
+	resolveDomainIPv4WithTTLViaServers = func(domain string, dnsServers []string, isRemote bool) ([]string, int, error) {
 		copied := append([]string(nil), dnsServers...)
 		captured = append(captured, copied)
 		return []string{"1.1.1.1"}, 300, nil
@@ -172,7 +172,7 @@ func TestGetOrRefreshDomainCacheWithResolver_MigratesLegacyRemoteCacheKey(t *tes
 	}
 
 	oldResolve := resolveDomainIPv4WithTTLViaServers
-	resolveDomainIPv4WithTTLViaServers = func(domain string, dnsServers []string) ([]string, int, error) {
+	resolveDomainIPv4WithTTLViaServers = func(domain string, dnsServers []string, isRemote bool) ([]string, int, error) {
 		t.Fatalf("resolver should not be called when legacy cache is migrated")
 		return nil, 0, nil
 	}

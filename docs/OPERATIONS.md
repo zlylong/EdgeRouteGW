@@ -122,7 +122,9 @@ EdgeRouteGW 后端自 `v1.7.5+` 起内置了自动化的数据库维护任务（
 - **典型错误**：如果看到 IP 集合相关的 Error，请检查你是否不小心放入了二进制格式的 `geoip.dat` 文件。Mosdns v5+ 必须使用纯文本的 CIDR 格式。
 
 ### 3. OSPF 路由不生效 / 无法无感接管 (Mode B / Mode C)
-- **检查邻居状态**：执行 `vtysh` 进入路由器交互模式，输入 `show ip ospf neighbor`。
+- **检查 FRR 进程**：先执行 `systemctl is-active frr`。若后端日志反复出现 `vtysh ... failed to connect to any daemons`，说明规则已生成但 FRR 未运行，路由不会真正发布到主路由。
+- **检查发布状态**：执行 `sqlite3 config/proxygw.db "select source,status,count(*) from routes_table group by source,status;"`，若大量规则停在 `candidate`，继续查看 `journalctl -u proxygw -n 200 --no-pager` 中的 FRR/vtysh 错误。
+- **检查邻居状态**：执行 `vtysh` 进入路由器交互模式，输入 `show ip ospf neighbor`，应看到上游路由器处于 `Full/DR` 或 `Full/Backup`。
 - **诊断要素**：确保主路由（如 MikroTik ROS / OpenWrt）已将此代理服务器的 IP 网段加入相同的 OSPF Area 并且 Interface Network Type 匹配（通常应设为 Broadcast）。
 - **防环路漏配 (Mode C)**：如果在 Mode C 发现代理通缩、网速极慢或完全断网，请检查主路由上是否正确配置了源地址绕过（PBR 策略路由）以防止 OSPF 环路。
 

@@ -70,7 +70,7 @@ func TestSyncStaticRoutesToOSPF_DedupSameIPCanonicalForm(t *testing.T) {
 	}
 
 	oldResolve := resolveDomainIPv4WithTTLViaServers
-	resolveDomainIPv4WithTTLViaServers = func(domain string, dnsServers []string) ([]string, int, error) {
+	resolveDomainIPv4WithTTLViaServers = func(domain string, dnsServers []string, isRemote bool) ([]string, int, error) {
 		if domain == "google.com" {
 			return []string{"8.8.8.8/32", "8.8.8.8"}, 300, nil
 		}
@@ -112,7 +112,7 @@ func TestSyncStaticRoutesToOSPF_ExcludesProtectedNodeEndpoints(t *testing.T) {
 	}
 
 	oldResolve := resolveDomainIPv4WithTTLViaServers
-	resolveDomainIPv4WithTTLViaServers = func(domain string, dnsServers []string) ([]string, int, error) {
+	resolveDomainIPv4WithTTLViaServers = func(domain string, dnsServers []string, isRemote bool) ([]string, int, error) {
 		if domain == "example.com" {
 			return []string{"2.2.2.2", "8.8.8.8"}, 300, nil // 2.2.2.2 is seeded active node endpoint
 		}

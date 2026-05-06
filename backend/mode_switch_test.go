@@ -290,7 +290,7 @@ func TestModeSwitchPreflightBlocksProtectedEndpointConflicts(t *testing.T) {
 
 	oldResolve := resolveDomainIPv4WithTTLViaServers
 	defer func() { resolveDomainIPv4WithTTLViaServers = oldResolve }()
-	resolveDomainIPv4WithTTLViaServers = func(domain string, dnsServers []string) ([]string, int, error) {
+	resolveDomainIPv4WithTTLViaServers = func(domain string, dnsServers []string, isRemote bool) ([]string, int, error) {
 		if domain == "example.com" {
 			return []string{"2.2.2.2"}, 300, nil // seeded active node endpoint
 		}
