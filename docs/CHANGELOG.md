@@ -1,4 +1,5 @@
 ## [Unreleased]
+- **更新脚本 Git 直连修复**: `scripts/update.sh` 现在仅对 GitHub API/Release 资产下载使用本地 10809/10808 代理，`git fetch/reset` 阶段强制清空代理环境，避免 Debian Git/GnuTLS 经本地 HTTP 入站时出现 `TLS connection was non-properly terminated`。
 
 ## [1.7.22] - 2026-05-06
 ### 🐛 Mode B/C OSPF 发布修复

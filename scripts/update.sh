@@ -18,21 +18,32 @@ apt-get install -y jq sqlite3 wget >/dev/null 2>&1 || true
 
 echo "=== EdgeRouteGW Update ==="
 
-# Auto-detect and use local proxy if available to avoid GnuTLS recv errors on restricted networks
+# Auto-detect a local proxy for GitHub API / release asset downloads only.
+# Do NOT export it globally before git fetch: Debian Git is linked against GnuTLS,
+# and Git-over-HTTPS through the local Xray HTTP inbound can fail with:
+#   GnuTLS, handshake failed: The TLS connection was non-properly terminated.
+UPDATE_HTTP_PROXY=""
+UPDATE_HTTPS_PROXY=""
 if ss -tulpn | grep -q ':10809 '; then
-    echo "[INFO] Local HTTP proxy detected at 10809, enabling for update session..."
-    export http_proxy=http://127.0.0.1:10809
-    export https_proxy=http://127.0.0.1:10809
+    echo "[INFO] Local HTTP proxy detected at 10809, enabling for release downloads only..."
+    UPDATE_HTTP_PROXY=http://127.0.0.1:10809
+    UPDATE_HTTPS_PROXY=http://127.0.0.1:10809
 elif ss -tulpn | grep -q ':10808 '; then
-    echo "[INFO] Local SOCKS5 proxy detected at 10808, enabling for update session..."
-    export http_proxy=socks5h://127.0.0.1:10808
-    export https_proxy=socks5h://127.0.0.1:10808
+    echo "[INFO] Local SOCKS5 proxy detected at 10808, enabling for release downloads only..."
+    UPDATE_HTTP_PROXY=socks5h://127.0.0.1:10808
+    UPDATE_HTTPS_PROXY=socks5h://127.0.0.1:10808
 fi
 
+# Prevent proxy loop when scripts call local components or database tools.
+export NO_PROXY=127.0.0.1,localhost
+export no_proxy=127.0.0.1,localhost
+
 echo "[1/4] Pulling latest changes..."
+# Keep git transport direct/SSH and isolated from local HTTP/SOCKS proxy variables.
+# This avoids GnuTLS handshake failures when the update script runs on the proxy gateway itself.
 # Force tag sync to tolerate locally stale tags when stable tag is re-pointed (e.g. v1.6.1)
-git fetch --force origin --tags
-git reset --hard origin/main
+env -u http_proxy -u https_proxy -u HTTP_PROXY -u HTTPS_PROXY git fetch --force origin --tags
+env -u http_proxy -u https_proxy -u HTTP_PROXY -u HTTPS_PROXY git reset --hard origin/main
 git clean -fd
 # Hard sync + clean to tolerate local generated/dirty files (geodata, binaries, etc.)
 
@@ -41,7 +52,7 @@ ARCH=$(uname -m)
 TMP_BACKEND="/tmp/proxygw-backend.new"
 
 # Prefer latest published release tag from GitHub API
-PROXYGW_LATEST=$(curl --retry 3 --connect-timeout 5 --fail -s -4 https://api.github.com/repos/zlylong/EdgeRouteGW/releases/latest | jq -r '.tag_name // empty' || true)
+PROXYGW_LATEST=$(http_proxy="$UPDATE_HTTP_PROXY" https_proxy="$UPDATE_HTTPS_PROXY" curl --retry 3 --connect-timeout 5 --fail -s -4 https://api.github.com/repos/zlylong/EdgeRouteGW/releases/latest | jq -r '.tag_name // empty' || true)
 
 # Fallback to local tag list (requires --tags fetch above)
 if [ -z "$PROXYGW_LATEST" ] && [ -d "$REPO_DIR/.git" ]; then
@@ -56,9 +67,9 @@ fi
 
 echo "Using release tag: $PROXYGW_LATEST"
 if [ "$ARCH" = "x86_64" ]; then
-    wget -q -4 -O "$TMP_BACKEND" "https://github.com/zlylong/EdgeRouteGW/releases/download/${PROXYGW_LATEST}/proxygw-backend-linux-amd64"
+    http_proxy="$UPDATE_HTTP_PROXY" https_proxy="$UPDATE_HTTPS_PROXY" wget -q -4 -O "$TMP_BACKEND" "https://github.com/zlylong/EdgeRouteGW/releases/download/${PROXYGW_LATEST}/proxygw-backend-linux-amd64"
 elif [ "$ARCH" = "aarch64" ]; then
-    wget -q -4 -O "$TMP_BACKEND" "https://github.com/zlylong/EdgeRouteGW/releases/download/${PROXYGW_LATEST}/proxygw-backend-linux-arm64"
+    http_proxy="$UPDATE_HTTP_PROXY" https_proxy="$UPDATE_HTTPS_PROXY" wget -q -4 -O "$TMP_BACKEND" "https://github.com/zlylong/EdgeRouteGW/releases/download/${PROXYGW_LATEST}/proxygw-backend-linux-arm64"
 fi
 chmod +x "$TMP_BACKEND"
 
