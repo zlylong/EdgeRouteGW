@@ -18,14 +18,14 @@ func formatUpstreams(addrs string, useSocks bool) string {
 			continue
 		}
 		if useSocks && isPublicDNSTarget(clean) {
-			items = append(items, fmt.Sprintf(`{ addr: "%s", socks5: "127.0.0.1:10808" }`, clean))
+			items = append(items, fmt.Sprintf(`{ addr: "%s", socks5: "127.0.0.1:10808" }`, forceMosdnsTCPAddr(clean)))
 		} else {
 			items = append(items, fmt.Sprintf(`{ addr: "%s" }`, clean))
 		}
 	}
 	if len(items) == 0 {
 		if useSocks {
-			return `[{ addr: "1.1.1.1", socks5: "127.0.0.1:10808" }, { addr: "8.8.8.8", socks5: "127.0.0.1:10808" }]`
+			return `[{ addr: "tcp://1.1.1.1", socks5: "127.0.0.1:10808" }, { addr: "tcp://8.8.8.8", socks5: "127.0.0.1:10808" }]`
 		}
 		return `[{ addr: "119.29.29.29" }, { addr: "223.5.5.5" }]`
 	}

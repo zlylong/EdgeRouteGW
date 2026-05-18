@@ -27,3 +27,10 @@ func isPublicDNSTarget(addr string) bool {
 	}
 	return true
 }
+
+func forceMosdnsTCPAddr(addr string) string {
+	if strings.Contains(addr, "://") {
+		return addr
+	}
+	return "tcp://" + addr
+}

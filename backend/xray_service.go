@@ -11,9 +11,9 @@ import (
 
 func buildBaseXrayConfig(mode string) map[string]interface{} {
 	config := map[string]interface{}{
-		"log":    map[string]string{"loglevel": "warning", "access": "/run/proxygw/xray_access.log"},
-		"api":    map[string]interface{}{"services": []string{"StatsService", "RoutingService", "HandlerService"}, "tag": "api"},
-		"stats":  map[string]interface{}{},
+		"log":   map[string]string{"loglevel": "warning", "access": "/run/proxygw/xray_access.log"},
+		"api":   map[string]interface{}{"services": []string{"StatsService", "RoutingService", "HandlerService"}, "tag": "api"},
+		"stats": map[string]interface{}{},
 		"policy": map[string]interface{}{
 			"system": map[string]interface{}{
 				"statsInboundDownlink":  true,
@@ -51,7 +51,6 @@ func buildBaseXrayConfig(mode string) map[string]interface{} {
 				"sniffing": map[string]interface{}{"enabled": true, "destOverride": []string{"http", "tls", "quic"}, "routeOnly": true},
 				"tag":      "http_in",
 			},
-
 		},
 		"outbounds": []map[string]interface{}{
 			{"protocol": "freedom", "tag": "direct", "streamSettings": map[string]interface{}{"sockopt": map[string]interface{}{"mark": 2}}},
@@ -309,9 +308,6 @@ func applyXrayConfigInternal(restart bool) error {
 			// Skip invalid rules without domain/ip to prevent Xray crash
 			continue
 		}
-	}
-	if err := rRows.Err(); err != nil {
-		log.Printf("[WARN] rRows err: %v", err)
 	}
 	if err := rRows.Err(); err != nil {
 		log.Printf("[WARN] rRows err: %v", err)

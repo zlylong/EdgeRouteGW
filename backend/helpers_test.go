@@ -19,7 +19,7 @@ func TestFormatUpstreamsLocalSingle(t *testing.T) {
 
 func TestFormatUpstreamsRemoteWithSocks(t *testing.T) {
 	got := formatUpstreams("1.1.1.1,8.8.8.8", true)
-	want := `[{ addr: "1.1.1.1", socks5: "127.0.0.1:10808" }, { addr: "8.8.8.8", socks5: "127.0.0.1:10808" }]`
+	want := `[{ addr: "tcp://1.1.1.1", socks5: "127.0.0.1:10808" }, { addr: "tcp://8.8.8.8", socks5: "127.0.0.1:10808" }]`
 	if got != want {
 		t.Fatalf("want %s, got %s", want, got)
 	}
@@ -43,7 +43,7 @@ func TestFormatUpstreamsFallbackLocal(t *testing.T) {
 
 func TestFormatUpstreamsFallbackRemote(t *testing.T) {
 	got := formatUpstreams("", true)
-	want := `[{ addr: "1.1.1.1", socks5: "127.0.0.1:10808" }, { addr: "8.8.8.8", socks5: "127.0.0.1:10808" }]`
+	want := `[{ addr: "tcp://1.1.1.1", socks5: "127.0.0.1:10808" }, { addr: "tcp://8.8.8.8", socks5: "127.0.0.1:10808" }]`
 	if got != want {
 		t.Fatalf("want %s, got %s", want, got)
 	}

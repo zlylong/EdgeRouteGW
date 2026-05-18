@@ -57,6 +57,10 @@ func (s *AppService) initTPROXYRules() {
 			}
 		}
 	}
+	if isIPv6Disabled() {
+		log.Printf("[INFO] skip IPv6 TPROXY init: IPv6 is disabled on this host")
+		return
+	}
 	if !hasTPROXYRuleV6() {
 		if err := sysCmd.run("ip", "-6", "rule", "add", "fwmark", "1", "lookup", "tproxy"); err != nil {
 			log.Printf("[WARN] init ip rule v6 failed, retrying after del: %v", err)
@@ -112,6 +116,9 @@ func (s *AppService) reconcileTPROXYRulesLoop() {
 				log.Printf("[INFO] reconciled missing tproxy route table entry")
 			}
 		}
+		if isIPv6Disabled() {
+			continue
+		}
 		// Also reconcile IPv6
 		if !hasTPROXYRuleV6() {
 			if err := sysCmd.run("ip", "-6", "rule", "add", "fwmark", "1", "lookup", "tproxy"); err != nil {
@@ -130,6 +137,20 @@ func (s *AppService) reconcileTPROXYRulesLoop() {
 	}
 }
 
+func isIPv6Disabled() bool {
+	paths := []string{
+		"/proc/sys/net/ipv6/conf/all/disable_ipv6",
+		"/proc/sys/net/ipv6/conf/default/disable_ipv6",
+	}
+	for _, path := range paths {
+		data, err := os.ReadFile(path)
+		if err == nil && strings.TrimSpace(string(data)) == "1" {
+			return true
+		}
+	}
+	return false
+}
+
 func hasTPROXYRuleV6() bool {
 	out, err := sysCmd.output("ip", "-6", "rule", "show")
 	if err != nil {
@@ -145,4 +166,3 @@ func hasTPROXYRouteV6() bool {
 	}
 	return strings.Contains(string(out), "local default dev lo")
 }
-
