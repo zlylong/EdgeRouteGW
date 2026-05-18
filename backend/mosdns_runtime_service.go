@@ -18,7 +18,7 @@ func formatUpstreams(addrs string, useSocks bool) string {
 			continue
 		}
 		if useSocks && isPublicDNSTarget(clean) {
-			items = append(items, fmt.Sprintf(`{ addr: "%s", socks5: "127.0.0.1:10808", tcp: true }`, clean))
+			items = append(items, fmt.Sprintf(`{ addr: "%s", socks5: "127.0.0.1:10808" }`, clean))
 		} else {
 			items = append(items, fmt.Sprintf(`{ addr: "%s" }`, clean))
 		}
