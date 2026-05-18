@@ -115,14 +115,14 @@ func (s *AppService) reconcileTPROXYRulesLoop() {
 		// Also reconcile IPv6
 		if !hasTPROXYRuleV6() {
 			if err := sysCmd.run("ip", "-6", "rule", "add", "fwmark", "1", "lookup", "tproxy"); err != nil {
-				log.Printf("[WARN] reconcile ip rule v6 failed: %v", err)
+				log.Printf("[DEBUG] reconcile ip rule v6 failed: %v", err)
 			} else {
 				log.Printf("[INFO] reconciled missing ip6 rule: fwmark 1 lookup tproxy")
 			}
 		}
 		if !hasTPROXYRouteV6() {
 			if err := sysCmd.run("ip", "-6", "route", "add", "local", "default", "dev", "lo", "table", "tproxy"); err != nil {
-				log.Printf("[WARN] reconcile ip route v6 failed: %v", err)
+				log.Printf("[DEBUG] reconcile ip route v6 failed: %v", err)
 			} else {
 				log.Printf("[INFO] reconciled missing tproxy6 route table entry")
 			}
