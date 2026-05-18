@@ -42,7 +42,7 @@ func setupFeatureSuiteRouter(t *testing.T) *gin.Engine {
 	cachedGeoip = nil
 	ospfLogs = nil
 	clearSyncMap(&sessions)
-	clearSyncMap(&loginAttempts)
+	clearLoginAttempts()
 
 	root := t.TempDir()
 	t.Setenv("PROXYGW_HOME", root)
@@ -74,7 +74,7 @@ func setupFeatureSuiteRouter(t *testing.T) *gin.Engine {
 		applyTimer = oldApplyTimer
 		applyMutex.Unlock()
 		clearSyncMap(&sessions)
-		clearSyncMap(&loginAttempts)
+		clearLoginAttempts()
 		_ = tdb.Close()
 		featureSuiteMu.Unlock()
 	})
@@ -149,6 +149,12 @@ func clearSyncMap(m *sync.Map) {
 		m.Delete(key)
 		return true
 	})
+}
+
+func clearLoginAttempts() {
+	loginAttemptsMu.Lock()
+	clear(loginAttempts)
+	loginAttemptsMu.Unlock()
 }
 
 func mustMkdirAll(t *testing.T, path string) {
