@@ -174,6 +174,7 @@ func (ctl *RulesController) RegisterRoutes(api *gin.RouterGroup) {
 		groupFilter := strings.TrimSpace(c.Query("group_id"))
 		rules, err := ctl.repo.ListRules(groupFilter)
 		if err != nil {
+			log.Printf("[ERR] ListRules: %v", err)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "db query error"})
 			return
 		}
@@ -279,6 +280,7 @@ func (ctl *RulesController) RegisterRoutes(api *gin.RouterGroup) {
 			groupName = r.GroupName
 		}
 		if err := ctl.repo.InsertRulesBatch(r.Type, values, r.Policy, groupID, groupName); err != nil {
+			log.Printf("[ERR] InsertRulesBatch: %v", err)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "db error"})
 			return
 		}
@@ -306,6 +308,7 @@ func (ctl *RulesController) RegisterRoutes(api *gin.RouterGroup) {
 		payload.GroupName = strings.TrimSpace(payload.GroupName)
 		affected, err := ctl.repo.UpdateRuleGroupName(groupID, payload.GroupName)
 		if err != nil {
+			log.Printf("[ERR] UpdateRuleGroupName: %v", err)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "db error"})
 			return
 		}
@@ -324,11 +327,13 @@ func (ctl *RulesController) RegisterRoutes(api *gin.RouterGroup) {
 		}
 		domainCount, err := ctl.repo.CountDomainRulesInGroup(groupID)
 		if err != nil {
+			log.Printf("[ERR] CountDomainRulesInGroup: %v", err)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "db error"})
 			return
 		}
 		affected, err := ctl.repo.DeleteRulesByGroupID(groupID)
 		if err != nil {
+			log.Printf("[ERR] DeleteRulesByGroupID: %v", err)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "db error"})
 			return
 		}
@@ -365,6 +370,7 @@ func (ctl *RulesController) RegisterRoutes(api *gin.RouterGroup) {
 			seen[id] = struct{}{}
 		}
 		if err := ctl.repo.ReorderRules(payload.IDs); err != nil {
+			log.Printf("[ERR] ReorderRules: %v", err)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "db error"})
 			return
 		}
@@ -382,6 +388,7 @@ func (ctl *RulesController) RegisterRoutes(api *gin.RouterGroup) {
 			ruleType = ""
 		}
 		if err := ctl.repo.DeleteRuleByID(ruleID); err != nil {
+			log.Printf("[ERR] DeleteRuleByID: %v", err)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "db error"})
 			return
 		}

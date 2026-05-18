@@ -45,6 +45,7 @@ func (ctl *NodesController) RegisterRoutes(api *gin.RouterGroup) {
 			return
 		}
 		if err := ctl.repo.SetNodeFailoverMode(req.Mode); err != nil {
+			log.Printf("[ERR] SetNodeFailoverMode: %v", err)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "db error"})
 			return
 		}
@@ -114,6 +115,7 @@ func (ctl *NodesController) RegisterRoutes(api *gin.RouterGroup) {
 
 	api.PUT("/nodes/:id/default", func(c *gin.Context) {
 		if err := ctl.repo.SetDefaultNodeID(c.Param("id")); err != nil {
+			log.Printf("[ERR] SetDefaultNodeID: %v", err)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "db error"})
 			return
 		}
@@ -137,6 +139,7 @@ func (ctl *NodesController) RegisterRoutes(api *gin.RouterGroup) {
 			n.Params = "{}"
 		}
 		if err := ctl.repo.InsertNode(n.Name, n.Group, n.Type, n.Address, n.Port, n.UUID, n.Params); err != nil {
+			log.Printf("[ERR] InsertNode: %v", err)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "db error"})
 			return
 		}

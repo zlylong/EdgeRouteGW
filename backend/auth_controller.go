@@ -16,23 +16,30 @@ func NewAuthController() *AuthController { return &AuthController{} }
 func (ctl *AuthController) Login(c *gin.Context) {
 	ip := c.ClientIP()
 	now := time.Now()
-	val, _ := loginAttempts.LoadOrStore(ip, LoginAttempt{Count: 0, LastSeen: now})
-	attemptData := val.(LoginAttempt)
+
+	loginAttemptsMu.Lock()
+	attemptData, ok := loginAttempts[ip]
+	if !ok {
+		attemptData = &LoginAttempt{Count: 0, LastSeen: now}
+		loginAttempts[ip] = attemptData
+	}
 	if now.Sub(attemptData.LastSeen) > 30*time.Minute {
 		attemptData.Count = 0
 	}
 
-	attempts := attemptData.Count
-	if attempts > 10 {
+	if attemptData.Count > 10 {
+		loginAttemptsMu.Unlock()
 		c.AbortWithStatusJSON(http.StatusTooManyRequests, gin.H{"error": "too many attempts"})
 		return
 	}
-	if attempts > 5 {
+	if attemptData.Count > 5 {
+		loginAttemptsMu.Unlock()
 		time.Sleep(2 * time.Second)
+		loginAttemptsMu.Lock()
 	}
-	attemptData.Count = attempts + 1
+	attemptData.Count++
 	attemptData.LastSeen = now
-	loginAttempts.Store(ip, attemptData)
+	loginAttemptsMu.Unlock()
 
 	var req struct{ Password string }
 	if c.BindJSON(&req) != nil {
@@ -46,6 +53,7 @@ func (ctl *AuthController) Login(c *gin.Context) {
 
 	ok, err := verifyAndMaybeMigratePassword(req.Password)
 	if err != nil {
+		log.Printf("[WARN] verifyAndMaybeMigratePassword error: %v", err)
 		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "db error"})
 		return
 	}
@@ -54,9 +62,12 @@ func (ctl *AuthController) Login(c *gin.Context) {
 		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "incorrect password"})
 		return
 	}
-	loginAttempts.Delete(ip)
+	loginAttemptsMu.Lock()
+	delete(loginAttempts, ip)
+	loginAttemptsMu.Unlock()
 	token, err := createSession()
 	if err != nil {
+		log.Printf("[WARN] createSession error: %v", err)
 		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "failed to generate session token"})
 		return
 	}

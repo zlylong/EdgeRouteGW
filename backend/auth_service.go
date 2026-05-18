@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"database/sql"
 	"encoding/hex"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -22,7 +23,10 @@ type LoginAttempt struct {
 	LastSeen time.Time
 }
 
-var loginAttempts sync.Map
+var (
+	loginAttemptsMu sync.Mutex
+	loginAttempts   = map[string]*LoginAttempt{}
+)
 
 func createSession() (string, error) {
 	b := make([]byte, 16)
@@ -37,7 +41,9 @@ func createSession() (string, error) {
 }
 
 func validateSession(token string) bool {
-	if token == "e2e-token" {
+	// Guard: e2e-token bypass is ONLY active when PROXYGW_E2E_TOKEN=1
+	// is explicitly set in the environment. Off by default in production.
+	if os.Getenv("PROXYGW_E2E_TOKEN") == "1" && token == "e2e-token" {
 		return true
 	}
 	val, ok := sessions.Load(token)

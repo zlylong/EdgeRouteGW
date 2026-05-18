@@ -39,21 +39,41 @@ func (s *AppService) Bootstrap() {
 }
 
 func (s *AppService) initTPROXYRules() {
-	_ = sysCmd.run("ip", "rule", "del", "fwmark", "1", "lookup", "tproxy")
-	if err := sysCmd.run("ip", "rule", "add", "fwmark", "1", "lookup", "tproxy"); err != nil {
-		log.Printf("[WARN] init ip rule v4 failed: %v", err)
+	if !hasTPROXYRuleV4() {
+		if err := sysCmd.run("ip", "rule", "add", "fwmark", "1", "lookup", "tproxy"); err != nil {
+			log.Printf("[WARN] init ip rule v4 failed, retrying after del: %v", err)
+			_ = sysCmd.run("ip", "rule", "del", "fwmark", "1", "lookup", "tproxy")
+			if err := sysCmd.run("ip", "rule", "add", "fwmark", "1", "lookup", "tproxy"); err != nil {
+				log.Printf("[WARN] init ip rule v4 retry failed: %v", err)
+			}
+		}
 	}
-	_ = sysCmd.run("ip", "route", "del", "local", "default", "dev", "lo", "table", "tproxy")
-	if err := sysCmd.run("ip", "route", "add", "local", "default", "dev", "lo", "table", "tproxy"); err != nil {
-		log.Printf("[WARN] init ip route v4 failed: %v", err)
+	if !hasTPROXYRouteV4() {
+		if err := sysCmd.run("ip", "route", "add", "local", "default", "dev", "lo", "table", "tproxy"); err != nil {
+			log.Printf("[WARN] init ip route v4 failed: %v", err)
+			_ = sysCmd.run("ip", "route", "del", "local", "default", "dev", "lo", "table", "tproxy")
+			if err := sysCmd.run("ip", "route", "add", "local", "default", "dev", "lo", "table", "tproxy"); err != nil {
+				log.Printf("[WARN] init ip route v4 retry failed: %v", err)
+			}
+		}
 	}
-	_ = sysCmd.run("ip", "-6", "rule", "del", "fwmark", "1", "lookup", "tproxy")
-	if err := sysCmd.run("ip", "-6", "rule", "add", "fwmark", "1", "lookup", "tproxy"); err != nil {
-		log.Printf("[WARN] init ip rule v6 failed: %v", err)
+	if !hasTPROXYRuleV6() {
+		if err := sysCmd.run("ip", "-6", "rule", "add", "fwmark", "1", "lookup", "tproxy"); err != nil {
+			log.Printf("[WARN] init ip rule v6 failed, retrying after del: %v", err)
+			_ = sysCmd.run("ip", "-6", "rule", "del", "fwmark", "1", "lookup", "tproxy")
+			if err := sysCmd.run("ip", "-6", "rule", "add", "fwmark", "1", "lookup", "tproxy"); err != nil {
+				log.Printf("[WARN] init ip rule v6 retry failed: %v", err)
+			}
+		}
 	}
-	_ = sysCmd.run("ip", "-6", "route", "del", "local", "default", "dev", "lo", "table", "tproxy")
-	if err := sysCmd.run("ip", "-6", "route", "add", "local", "default", "dev", "lo", "table", "tproxy"); err != nil {
-		log.Printf("[WARN] init ip route v6 failed: %v", err)
+	if !hasTPROXYRouteV6() {
+		if err := sysCmd.run("ip", "-6", "route", "add", "local", "default", "dev", "lo", "table", "tproxy"); err != nil {
+			log.Printf("[WARN] init ip route v6 failed, retrying after del: %v", err)
+			_ = sysCmd.run("ip", "-6", "route", "del", "local", "default", "dev", "lo", "table", "tproxy")
+			if err := sysCmd.run("ip", "-6", "route", "add", "local", "default", "dev", "lo", "table", "tproxy"); err != nil {
+				log.Printf("[WARN] init ip route v6 retry failed: %v", err)
+			}
+		}
 	}
 }
 

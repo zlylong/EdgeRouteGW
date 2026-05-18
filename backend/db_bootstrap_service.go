@@ -98,6 +98,18 @@ func initDB() {
 	if _, err := db.Exec("CREATE INDEX IF NOT EXISTS idx_rules_priority_id ON rules(priority ASC, id ASC)"); err != nil {
 		log.Printf("[WARN] create rules priority index failed: %v", err)
 	}
+	if _, err := db.Exec("CREATE INDEX IF NOT EXISTS idx_routes_status_firstseen ON routes_table(status, first_seen)"); err != nil {
+		log.Printf("[WARN] create routes status+first_seen index failed: %v", err)
+	}
+	if _, err := db.Exec("CREATE INDEX IF NOT EXISTS idx_routes_status_misscount ON routes_table(status, miss_count)"); err != nil {
+		log.Printf("[WARN] create routes status+miss_count index failed: %v", err)
+	}
+	if _, err := db.Exec("CREATE INDEX IF NOT EXISTS idx_gateway_events_ts ON gateway_events(ts)"); err != nil {
+		log.Printf("[WARN] create gateway_events ts index failed: %v", err)
+	}
+	if _, err := db.Exec("CREATE INDEX IF NOT EXISTS idx_node_traffic_history_ts_node ON node_traffic_history(ts, node_id)"); err != nil {
+		log.Printf("[WARN] create node_traffic_history ts+node_id index failed: %v", err)
+	}
 	if _, err := db.Exec("ALTER TABLE rules ADD COLUMN group_id TEXT NOT NULL DEFAULT ''"); err != nil && !strings.Contains(err.Error(), "duplicate column name") {
 		log.Printf("[WARN] ALTER TABLE failed: %v", err)
 	}
