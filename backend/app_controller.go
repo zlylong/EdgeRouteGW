@@ -36,6 +36,7 @@ func (c *AppController) BuildRouter() *gin.Engine {
 		}
 		c.Next()
 	})
+	r.StaticFile("/favicon.ico", getPath("frontend", "dist", "favicon.ico"))
 	r.Static("/ui", getPath("frontend", "dist"))
 	r.GET("/", func(c *gin.Context) { c.Redirect(http.StatusFound, "/ui/") })
 	return r
