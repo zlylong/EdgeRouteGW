@@ -4,10 +4,12 @@ import (
 	"bufio"
 	"container/ring"
 	"fmt"
+	"log"
 	"net"
 	"net/http"
 	"os"
 	"regexp"
+	"runtime/debug"
 	"strings"
 	"sync"
 	"time"
@@ -75,6 +77,11 @@ func StartConnectionTracker() {
 	logPath := "/run/proxygw/xray_access.log"
 
 	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				log.Printf("[PANIC] StartConnectionTracker: %v\n%s", r, debug.Stack())
+			}
+		}()
 		var file *os.File
 		var err error
 		var reader *bufio.Reader
@@ -154,6 +161,11 @@ func StartConnectionTracker() {
 	}()
 
 	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				log.Printf("[PANIC] StartConnectionTracker cleanup: %v\n%s", r, debug.Stack())
+			}
+		}()
 		for {
 			time.Sleep(5 * time.Minute)
 			stat, err := os.Stat(logPath)

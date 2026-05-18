@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"log"
 	"os"
+	"runtime/debug"
 	"strconv"
 	"strings"
 	"sync"
@@ -15,6 +16,20 @@ var (
 	cachedGeoip   []string
 	cacheMutex    sync.Mutex
 )
+
+// goSafe runs fn in a goroutine with panic recovery, logging the stack trace.
+// Use this instead of bare "go fn()" for all background goroutines.
+func goSafe(fn func()) {
+	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				log.Printf("[PANIC] goroutine recovered: %v\n%s", r, debug.Stack())
+			}
+		}()
+		fn()
+	}()
+}
+
 var ospfLogs []string
 var ospfLogsMu sync.RWMutex
 var syncStaticRoutesToOSPFFunc = syncStaticRoutesToOSPF

@@ -345,7 +345,7 @@ func deleteRemoteNode(c *gin.Context) {
 
 	req, err := fetchNodeReq(id)
 	if err == nil {
-		go func(req RemoteNodeReq) {
+		goSafe(func() {
 			client, err := remoteConnect(req.SSHHost, req.SSHPort, req.SSHUser, req.SSHAuthType, req.SSHCredential, req.SSHHostKey)
 			if err == nil {
 				defer client.Close()
@@ -355,7 +355,7 @@ func deleteRemoteNode(c *gin.Context) {
 					runRemoteCommand(client, req, "systemctl stop xray; systemctl disable xray; rm -f /etc/systemd/system/xray.service; rm -rf /usr/local/etc/xray; rm -f /usr/local/bin/xray")
 				}
 			}
-		}(req)
+		})
 	}
 
 	err = NewRemoteNodesRepository().DeleteRemoteNodeCascade(id)

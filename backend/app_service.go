@@ -19,13 +19,13 @@ func NewAppService(repo *AppRepository) *AppService {
 func (s *AppService) Bootstrap() {
 	s.repo.InitDB()
 	ensureGeodataHealthy()
-	go startTrafficMonitor()
-	go startNftablesMonitor()
+	goSafe(startTrafficMonitor)
+	goSafe(startNftablesMonitor)
 	syncFRRConfig()
-	go ospfController()
-	go cronUpdater()
-	go domainIPUpdater()
-	go runDatabaseMaintenance()
+	goSafe(ospfController)
+	goSafe(cronUpdater)
+	goSafe(domainIPUpdater)
+	goSafe(runDatabaseMaintenance)
 	applyMosdnsConfig()
 	applyXrayConfig()
 	if err := applyNftablesConfig(); err != nil {
@@ -35,7 +35,7 @@ func (s *AppService) Bootstrap() {
 	os.MkdirAll("/run/proxygw", 0755)
 	StartConnectionTracker()
 	s.initTPROXYRules()
-	go s.reconcileTPROXYRulesLoop()
+	goSafe(s.reconcileTPROXYRulesLoop)
 }
 
 func (s *AppService) initTPROXYRules() {
