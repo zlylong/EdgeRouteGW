@@ -1,3 +1,4 @@
+Warning: Identity file .ssh/id_ed25519 not accessible: No such file or directory.
 # 开发者与架构指南
 
 本文档面向对 EdgeRouteGW 进行二次开发、或希望深入了解其底层网络机制的资深开发者与网络工程师。
@@ -173,3 +174,69 @@ go test -run '^$' -bench 'BenchmarkExtractGeoIPs' -benchmem -count=3
 结论：
 - `!cn`（排除 `cn` 与 `private`）在当前实现下可稳定展开为约 **58.6 万** 条 CIDR，用于 B/C 模式静态路由同步。
 - 相较 `geoip:cn`，反向展开额外开销约 `+20ms/op` 与 `+42MB/op`，属于预期（返回集更大）。
+
+## 🧪 测试体系
+
+EdgeRouteGW 提供了完整的多层级自动化测试体系，所有测试脚本位于 `scripts/` 目录。
+
+### 测试脚本概览
+
+| 脚本 | 用途 |
+|---|---|
+| `test_all.sh` | **主编排器** — 按顺序执行所有 6 个阶段（后端 → 竞态检测 → 覆盖率 → 前端 E2E → 构建 → Git 状态） |
+| `test_backend.sh` | 后端 Go 测试运行器（支持 `--race`、`--verbose`、`--short` 参数） |
+| `test_coverage.sh` | 后端覆盖率报告生成器（输出文本摘要 + HTML 可视化报告到 `coverage/`） |
+| `test_benchmark.sh` | 基准测试运行器（支持 `--bench=Pattern` 筛选，`--count=N` 重复） |
+| `test_frontend.sh` | 前端 Playwright E2E 按钮测试 |
+| `pre-commit.sh` | Git pre-commit hook，提交前自动编译检查 + 短测试 |
+
+### 快速入门
+
+```bash
+# 在项目根目录运行全部测试
+./scripts/test_all.sh
+
+# 仅运行后端测试
+./scripts/test_backend.sh
+
+# 运行后端测试 + 竞态检测
+./scripts/test_backend.sh --race
+
+# 运行基准测试
+./scripts/test_benchmark.sh --bench=GeoQuery
+./scripts/test_benchmark.sh --bench=. --count=3
+
+# 生成覆盖率报告
+./scripts/test_coverage.sh
+# 浏览器打开 coverage/coverage.html 查看可视化结果
+```
+
+### 后端测试统计（当前）
+
+- **测试总数**: 115+ 个功能测试，覆盖 API/OSPF/Rules/DNS 等模块
+- **基准测试**: 10 个基准测试（GeoQuery、System 等）
+- **代码覆盖率**: ~56.4%（backend subsystem）
+- **竞态检测**: 全部通过（`go test -race`）
+- **测试套件**: `setupFeatureSuiteRouter` HTTP 集成测试（含 SQLite 内存数据库与种子数据）
+
+### 安装 pre-commit hook
+
+pre-commit hook 已作为 Git 钩子安装。如需手动安装：
+
+```bash
+cp scripts/pre-commit.sh .git/hooks/pre-commit
+chmod +x .git/hooks/pre-commit
+```
+
+hook 会在每次 `git commit` 前自动执行后端编译验证 + affected package 短测试。如需绕过：
+
+```bash
+git commit --no-verify
+```
+
+### 测试约定
+
+1. **函数变量 mock 模式**: 对于外部系统调用（DNS 解析、SSH 执行等），后端使用函数变量模式（`var resolveDomainIPv4WithTTL = func(...)`）以便在测试中进行 mock。所有 mock 完成后需在 `defer` 中恢复。
+2. **`setupFeatureSuiteRouter`**: 集成测试使用此函数创建带 SQLite 内存数据库 + seed 数据的 Gin 路由。每个测试独立运行，互不干扰。
+3. **临时目录隔离**: 每个测试通过 `t.TempDir()` 获得独立工作目录，避免文件系统冲突。
+4. **benchmark 格式**: 基准测试使用 `go test -bench` 标准格式，输出直接对接 `benchstat` 进行回归分析。

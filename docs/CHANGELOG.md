@@ -1,4 +1,5 @@
 ## [Unreleased]
+- **测试体系**: 修复 2 个因 DNS 重构（硬编码 127.0.0.1）导致的后端测试失败，新增 5 个测试脚本（`test_backend.sh`, `test_coverage.sh`, `test_benchmark.sh`, `test_frontend.sh`, `pre-commit.sh`），重写 `test_all.sh` 为主编排器（6 阶段），添加 Git pre-commit hook。
 - **更新脚本 Git 直连修复**: `scripts/update.sh` 现在仅对 GitHub API/Release 资产下载使用本地 10809/10808 代理，`git fetch/reset` 阶段强制清空代理环境，避免 Debian Git/GnuTLS 经本地 HTTP 入站时出现 `TLS connection was non-properly terminated`。
 
 ## [1.7.22] - 2026-05-06

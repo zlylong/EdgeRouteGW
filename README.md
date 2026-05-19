@@ -42,16 +42,16 @@ cat /root/proxygw/config/bootstrap_password.txt
 EdgeRouteGW 设计了三种物理隔离的网络接管模式，以适应不同级别的家庭/办公网络拓扑。
 
 ### 🟢 Mode A: 全局网关劫持 (推荐新手使用)
-在这个模式下，EdgeRouteGW 作为局域网的“旁路由”存在，强行接管所有设备的流量。
+在这个模式下，EdgeRouteGW 作为局域网的"旁路由"存在，强行接管所有设备的流量。
 **适用场景**：主路由是普通的家用路由器（如小米、TP-Link、华硕等），无需任何高级网络知识。
 
 **举例使用方式：**
 1. **全屋接管**：登录您家里的主路由器后台，找到 **DHCP 服务器设置**。将 **默认网关 (Default Gateway)** 和 **DNS 服务器** 修改为 EdgeRouteGW 服务器的局域网 IP 地址（例如 `192.168.1.100`）。保存并重启路由器。此时，连上 WiFi 的所有设备都会自动翻墙。
-2. **单设备独享（按需科学）**：如果您不想影响家人，只想让自己的手机或电脑走代理。只需在手机/电脑的 WiFi 设置中，将 IP 获取方式从“自动(DHCP)”改为“手动/静态”，然后把 **网关** 和 **DNS** 填成 EdgeRouteGW 的 IP 即可。
+2. **单设备独享（按需科学）**：如果您不想影响家人，只想让自己的手机或电脑走代理。只需在手机/电脑的 WiFi 设置中，将 IP 获取方式从"自动(DHCP)"改为"手动/静态"，然后把 **网关** 和 **DNS** 填成 EdgeRouteGW 的 IP 即可。
 
 ### 🔵 Mode B: 混合 Fake-IP 模式 (零延迟 / 免防环路配置)
 这是极其纯粹且强大的性能模式。对于域名流量，Mosdns 会开启 Fake-IP，OSPF 向主路由宣告虚拟的 IP 池 (`198.18.0.0/16`)。而对于具体的 IP 规则（如自定义的特定 IP 段），系统也会将其通过 OSPF 下发。兼顾了 Fake-IP 的无污染与特定 IP 拦截的需求。
-**适用场景**：主路由是 ROS / OpenWrt 等支持 OSPF 的路由器。推荐不想折腾“防环路”的高级玩家。
+**适用场景**：主路由是 ROS / OpenWrt 等支持 OSPF 的路由器。推荐不想折腾"防环路"的高级玩家。
 
 **举例使用方式：**
 1. 您的手机、电视和电脑的网关依然指向主路由器。**⚠ 但 DHCP 下发的 DNS 服务器，必须指向 EdgeRouteGW 的 IP 地址**。
@@ -78,13 +78,48 @@ EdgeRouteGW 设计了三种物理隔离的网络接管模式，以适应不同�
 **模式限制（当前实现）**：
 - `*.` / `**.` 通配域名规则仅允许在 **Mode A** 添加。
 - Mode B / Mode C 仅允许普通域名（如 `c.com`），因为 OSPF 静态路由无法安全表达 wildcard 语义。
-- **保护 IP 列表**: 在 Mode A 模式下，您可以添加“保护 IP”，这些 IP 将绕过 Xray 直接访问，用于防止规则错误导致断网。
+- **保护 IP 列表**: 在 Mode A 模式下，您可以添加"保护 IP"，这些 IP 将绕过 Xray 直接访问，用于防止规则错误导致断网。
 
 ## 📚 文档指南
 - [主路由配套配置指南 (ROS/OpenWrt)](./docs/NETWORK_SETUP.md) - OSPF/DNS/PBR 设置教程
 - [路由分流规则入门](./docs/ROUTING_RULES_GUIDE.md) - GeoSite/GeoIP 工作原理解析
 - [运维与故障排查](./docs/OPERATIONS.md) - 服务管理、升级与系统卸载
 - [开发者与架构指南](./docs/DEVELOPER.md) - 底层架构、源码结构与 API 参考
+- [API 接口文档](./docs/API.md) - RESTful API 文档
+
+## 🧪 测试指南
+
+EdgeRouteGW 提供了完整的多层级测试脚本体系，所有测试脚本位于 `scripts/` 目录：
+
+| 脚本 | 用途 |
+|---|---|
+| `test_all.sh` | **主编排器** — 按顺序执行所有 6 个阶段（后端 → 竞态检测 → 覆盖率 → 前端 E2E → 构建 → Git 状态） |
+| `test_backend.sh` | 后端 Go 测试运行器（支持 `--race`、`--verbose`、`--short` 等参数） |
+| `test_coverage.sh` | 后端覆盖率报告生成器（输出文本摘要 + HTML 可视化报告到 `coverage/`） |
+| `test_benchmark.sh` | 基准测试运行器（支持 `--bench=Pattern` 筛选，`--count=N` 重复） |
+| `test_frontend.sh` | 前端 Playwright E2E 按钮测试 |
+
+```bash
+# 运行全部测试
+./scripts/test_all.sh
+
+# 仅运行后端测试（含竞态检测）
+./scripts/test_backend.sh --race
+
+# 运行基准测试
+./scripts/test_benchmark.sh --bench=GeoQuery
+
+# 生成覆盖率报告
+./scripts/test_coverage.sh
+```
+
+### 预提交检查
+
+项目已安装 Git pre-commit hook，在每次 `git commit` 前自动执行：
+1. 后端代码编译检查
+2. affected package 的 `-short` 模式测试
+
+如需绕过，使用 `git commit --no-verify`。
 
 ## 🙏 致谢 (Acknowledgments)
 
