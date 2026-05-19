@@ -1,29 +1,91 @@
 #!/usr/bin/env bash
+# test_all.sh — Master test orchestrator for ProxyGW
+# Runs all test suites: backend unit/integration, race detection, coverage, frontend e2e
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+cd "$ROOT_DIR"
 
-printf '\n[1/3] Backend unit/integration tests...\n'
-(
-  cd "$ROOT_DIR/backend"
-  go test ./...
-)
+# Color output helpers
+green() { printf '\033[32m%s\033[0m\n' "$1"; }
+red() { printf '\033[31m%s\033[0m\n' "$1"; }
+header() { printf '\n\033[1;36m━━━ %s ━━━\033[0m\n' "$1"; }
+FAIL=0
 
-printf '\n[2/3] Backend coverage snapshot...\n'
-(
-  cd "$ROOT_DIR/backend"
-  go test -coverprofile=coverage.out ./... >/tmp/proxygw_go_test_cover.log
-  go tool cover -func=coverage.out | tail -n 1
-)
+# ──────────────────────────────────────────────
+# [1/6] Backend unit + integration tests
+# ──────────────────────────────────────────────
+header "Backend Unit/Integration Tests"
+if "$ROOT_DIR/scripts/test_backend.sh"; then
+  green "✓ Backend tests passed"
+else
+  red "✗ Backend tests FAILED"
+  FAIL=1
+fi
 
-printf '\n[3/3] Frontend button E2E tests...\n'
-(
-  cd "$ROOT_DIR/e2e"
-  if [[ ! -d node_modules ]]; then
-    npm ci --no-fund --no-audit
-  fi
-  npx playwright install --with-deps chromium
-  npm run test:buttons
-)
+# ──────────────────────────────────────────────
+# [2/6] Backend race detection tests
+# ──────────────────────────────────────────────
+header "Backend Race Detection Tests"
+if "$ROOT_DIR/scripts/test_backend.sh" --race; then
+  green "✓ Race detection passed"
+else
+  red "✗ Race detection FAILED"
+  FAIL=1
+fi
 
-printf '\nAll tests completed.\n'
+# ──────────────────────────────────────────────
+# [3/6] Backend coverage snapshot
+# ──────────────────────────────────────────────
+header "Backend Coverage Snapshot"
+if "$ROOT_DIR/scripts/test_coverage.sh"; then
+  green "✓ Coverage report generated"
+else
+  red "✗ Coverage FAILED"
+  FAIL=1
+fi
+
+# ──────────────────────────────────────────────
+# [4/6] Frontend button E2E tests
+# ──────────────────────────────────────────────
+header "Frontend Button E2E Tests"
+if "$ROOT_DIR/scripts/test_frontend.sh"; then
+  green "✓ Frontend E2E tests passed"
+else
+  red "✗ Frontend E2E tests FAILED"
+  FAIL=1
+fi
+
+# ──────────────────────────────────────────────
+# [5/6] Build verification
+# ──────────────────────────────────────────────
+header "Build Verification"
+if go build -o /dev/null ./backend/... 2>/dev/null; then
+  green "✓ Backend builds successfully"
+else
+  red "✗ Build FAILED"
+  FAIL=1
+fi
+
+# ──────────────────────────────────────────────
+# [6/6] Git state check
+# ──────────────────────────────────────────────
+header "Git State Check"
+if [[ -z "$(git status --porcelain)" ]]; then
+  green "✓ Working tree clean"
+else
+  git status --short
+fi
+
+# ── Summary ──
+printf '\n'
+if [[ $FAIL -eq 0 ]]; then
+  green '═══════════════════════════════════════'
+  green '  ✨ All tests passed successfully!'
+  green '═══════════════════════════════════════'
+else
+  red '═══════════════════════════════════════'
+  red '  ❌ Some tests FAILED (see above)'
+  red '═══════════════════════════════════════'
+fi
+exit $FAIL

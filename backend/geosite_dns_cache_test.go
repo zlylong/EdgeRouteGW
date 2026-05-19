@@ -122,12 +122,6 @@ func TestGetOrRefreshDomainCache_RefreshAfterExpireAndKeepStaleOnFailure(t *test
 
 func TestGetOrRefreshDomainCacheWithResolver_SelectsDNSGroup(t *testing.T) {
 	setupFeatureSuiteRouter(t)
-	if _, err := db.Exec("UPDATE settings SET value='10.10.10.10,10.10.10.11' WHERE key='dns_local'"); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := db.Exec("UPDATE settings SET value='20.20.20.20,20.20.20.21' WHERE key='dns_remote'"); err != nil {
-		t.Fatal(err)
-	}
 
 	oldResolve := resolveDomainIPv4WithTTLViaServers
 	defer func() { resolveDomainIPv4WithTTLViaServers = oldResolve }()
@@ -149,11 +143,12 @@ func TestGetOrRefreshDomainCacheWithResolver_SelectsDNSGroup(t *testing.T) {
 	if len(captured) != 2 {
 		t.Fatalf("unexpected resolver calls: %d", len(captured))
 	}
-	if len(captured[0]) < 2 || captured[0][0] != "20.20.20.20" || captured[0][1] != "20.20.20.21" {
-		t.Fatalf("unexpected remote dns servers: %v", captured[0])
-	}
-	if len(captured[1]) < 2 || captured[1][0] != "10.10.10.10" || captured[1][1] != "10.10.10.11" {
-		t.Fatalf("unexpected local dns servers: %v", captured[1])
+	// Both resolver groups now delegate entirely to local Mosdns (127.0.0.1)
+	// as part of the "no direct external DNS" refactoring (ospf_dns_cache.go:getResolverDNSServers).
+	for i, servers := range captured {
+		if len(servers) != 1 || servers[0] != "127.0.0.1" {
+			t.Fatalf("call %d: expected [127.0.0.1] got %v", i, servers)
+		}
 	}
 }
 
@@ -251,20 +246,13 @@ Received 64 bytes from 127.0.0.53#53 in 10 ms`
 }
 
 func TestResolveDomainIPv4WithTTLFallsBackWhenHostUnavailable(t *testing.T) {
-	oldRunner := hostLookupCommand
-	hostLookupCommand = func(domain string) (string, error) {
-		return "", errTestDNSFailure
+	// resolveDomainIPv4WithTTL now delegates to lookupIPv4WithDNSServer via dig @127.0.0.1.
+	// We mock the function variable to test the fallback contract.
+	oldLookup := resolveDomainIPv4WithTTL
+	resolveDomainIPv4WithTTL = func(domain string) ([]string, int, error) {
+		return []string{"142.251.150.119"}, 300, nil
 	}
-	defer func() { hostLookupCommand = oldRunner }()
-
-	oldLookup := geoQueryLookupIP
-	geoQueryLookupIP = func(host string) ([]string, error) {
-		if host != "www.google.com" {
-			t.Fatalf("unexpected host: %s", host)
-		}
-		return []string{"142.251.150.119"}, nil
-	}
-	defer func() { geoQueryLookupIP = oldLookup }()
+	defer func() { resolveDomainIPv4WithTTL = oldLookup }()
 
 	ips, ttl, err := resolveDomainIPv4WithTTL("www.google.com")
 	if err != nil {
