@@ -197,7 +197,7 @@ func TestDoDeployRoutine_LogsRemoteStdoutAndStderrOnFailure(t *testing.T) {
 	}
 }
 
-func TestDoDeployRoutine_AutoUpdatesFingerprintAndRetries(t *testing.T) {
+func TestDoDeployRoutine_RefusesToAutoTrustRotatedFingerprint(t *testing.T) {
 	setupFeatureSuiteRouter(t)
 
 	oldConnect := remoteConnect
@@ -207,18 +207,10 @@ func TestDoDeployRoutine_AutoUpdatesFingerprintAndRetries(t *testing.T) {
 	calls := 0
 	remoteConnect = func(host string, port int, user string, authType string, credential string, expectedHostKey string) (remoteSSHClient, error) {
 		calls++
-		if calls == 1 {
-			if expectedHostKey != "SHA256:old" {
-				t.Fatalf("first connect expected old key, got %s", expectedHostKey)
-			}
-			return nil, fmt.Errorf("failed to dial: ssh: handshake failed: Strict Host Key checking failed. The server's fingerprint is %s. Please update", newFP)
+		if expectedHostKey != "SHA256:test" {
+			t.Fatalf("expected pinned key, got %s", expectedHostKey)
 		}
-		if expectedHostKey != newFP {
-			t.Fatalf("second connect expected new key, got %s", expectedHostKey)
-		}
-		return &fakeSSHClient{run: func(cmd string) (string, string, error) {
-			return "", "", nil
-		}}, nil
+		return nil, fmt.Errorf("failed to dial: ssh: handshake failed: Strict Host Key checking failed. The server's fingerprint is %s. Please update", newFP)
 	}
 
 	req := RemoteNodeReq{
@@ -227,7 +219,7 @@ func TestDoDeployRoutine_AutoUpdatesFingerprintAndRetries(t *testing.T) {
 		SSHHost:       "192.168.20.152",
 		SSHPort:       22,
 		SSHUser:       "root",
-		SSHHostKey:    "SHA256:old",
+		SSHHostKey:    "SHA256:test",
 		SSHAuthType:   "password",
 		SSHCredential: "secret123",
 		Region:        "lab",
@@ -236,27 +228,27 @@ func TestDoDeployRoutine_AutoUpdatesFingerprintAndRetries(t *testing.T) {
 
 	doDeployRoutine(2, req, true, nil)
 
-	if calls != 2 {
-		t.Fatalf("expected 2 connect attempts, got %d", calls)
+	if calls != 1 {
+		t.Fatalf("expected a single connect attempt (no auto-trust retry), got %d", calls)
 	}
 
 	var status, hostKey string
 	if err := db.QueryRow("SELECT status, ssh_host_key FROM remote_nodes WHERE id = 2").Scan(&status, &hostKey); err != nil {
 		t.Fatal(err)
 	}
-	if status != "Online" {
-		t.Fatalf("want status Online got %s", status)
+	if status != "Failed" {
+		t.Fatalf("want status Failed got %s", status)
 	}
-	if hostKey != newFP {
-		t.Fatalf("want updated hostkey %s got %s", newFP, hostKey)
+	if hostKey != "SHA256:test" {
+		t.Fatalf("stored host key must not be silently rotated, got %s", hostKey)
 	}
 
-	var hasAutoUpdateLog int
-	if err := db.QueryRow("SELECT COUNT(*) FROM remote_node_logs WHERE node_id=2 AND log_text LIKE '%Auto-updated SSH host fingerprint%'").Scan(&hasAutoUpdateLog); err != nil {
+	var refusalLog int
+	if err := db.QueryRow("SELECT COUNT(*) FROM remote_node_logs WHERE node_id=2 AND log_text LIKE '%refusing to auto-trust rotated SSH host key%'").Scan(&refusalLog); err != nil {
 		t.Fatal(err)
 	}
-	if hasAutoUpdateLog == 0 {
-		t.Fatal("expected auto-update fingerprint log entry")
+	if refusalLog == 0 {
+		t.Fatal("expected refusal log entry")
 	}
 }
 
