@@ -267,3 +267,79 @@ func TestWrapRemoteCommandWithSudo_RootNoWrap(t *testing.T) {
 		t.Fatalf("expected raw command, got: %s", got)
 	}
 }
+
+func TestPinInitialHostKeyIsConditional(t *testing.T) {
+	setupFeatureSuiteRouter(t)
+	repo := NewRemoteNodesRepository()
+
+	// Node 2 is seeded with a pinned key; the conditional pin must not overwrite it.
+	pinned, err := repo.PinInitialHostKey(2, "SHA256:SHOULD-NOT-APPLY")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if pinned {
+		t.Fatal("pin must be rejected when a key is already pinned")
+	}
+	var k string
+	if err := db.QueryRow("SELECT ssh_host_key FROM remote_nodes WHERE id=2").Scan(&k); err != nil {
+		t.Fatal(err)
+	}
+	if k != "SHA256:test" {
+		t.Fatalf("stored key was overwritten: %s", k)
+	}
+
+	// Clear the key; the conditional pin should now succeed and store the value.
+	if _, err := db.Exec("UPDATE remote_nodes SET ssh_host_key='' WHERE id=2"); err != nil {
+		t.Fatal(err)
+	}
+	pinned, err = repo.PinInitialHostKey(2, "SHA256:newfp")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !pinned {
+		t.Fatal("pin should succeed when no key is pinned")
+	}
+	if err := db.QueryRow("SELECT ssh_host_key FROM remote_nodes WHERE id=2").Scan(&k); err != nil {
+		t.Fatal(err)
+	}
+	if k != "SHA256:newfp" {
+		t.Fatalf("pin not stored, got %s", k)
+	}
+}
+
+func postJSON(target, body string) *http.Request {
+	req := httptest.NewRequest(http.MethodPost, target, strings.NewReader(body))
+	req.Header.Set("Authorization", "Bearer test-token")
+	req.Header.Set("Content-Type", "application/json")
+	return req
+}
+
+func TestUpdateRemoteNodeHostKeyEndpoint(t *testing.T) {
+	r := setupFeatureSuiteRouter(t)
+	validFP := "SHA256:ADjw2yeU9EmUjcrBrwreHH7cJLe3lNRiPHFhTu3PPio"
+
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, postJSON("/api/remote_nodes/2/hostkey", `{"ssh_host_key":"garbage"}`))
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("invalid fingerprint: want 400 got %d body=%s", w.Code, w.Body.String())
+	}
+
+	w = httptest.NewRecorder()
+	r.ServeHTTP(w, postJSON("/api/remote_nodes/2/hostkey", `{"ssh_host_key":"`+validFP+`"}`))
+	if w.Code != http.StatusOK {
+		t.Fatalf("valid update: want 200 got %d body=%s", w.Code, w.Body.String())
+	}
+	var k string
+	if err := db.QueryRow("SELECT ssh_host_key FROM remote_nodes WHERE id=2").Scan(&k); err != nil {
+		t.Fatal(err)
+	}
+	if k != validFP {
+		t.Fatalf("host key not updated, got %s", k)
+	}
+
+	w = httptest.NewRecorder()
+	r.ServeHTTP(w, postJSON("/api/remote_nodes/999/hostkey", `{"ssh_host_key":"`+validFP+`"}`))
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("missing node: want 404 got %d", w.Code)
+	}
+}

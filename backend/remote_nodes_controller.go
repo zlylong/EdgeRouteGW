@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/gin-gonic/gin"
+	"log"
 	"net/http"
 	"net/url"
 	"proxygw/remote_deploy"
@@ -80,6 +81,7 @@ func (ctl *RemoteNodesController) RegisterRoutes(authed *gin.RouterGroup) {
 	authed.POST("/remote_nodes", createAndDeployRemoteNode)
 	authed.DELETE("/remote_nodes/:id", deleteRemoteNode)
 	authed.POST("/remote_nodes/:id/check", checkRemoteNode)
+	authed.POST("/remote_nodes/:id/hostkey", updateRemoteNodeHostKey)
 
 	// Advanced Features
 	authed.POST("/remote_nodes/batch", batchDeployRemoteNodes)
@@ -152,6 +154,43 @@ func logAction(nodeId int64, action, status, logText string) {
 
 var hostKeyFingerprintRe = regexp.MustCompile(`SHA256:[A-Za-z0-9+/=_-]+`)
 
+// sshHostKeyFingerprintRe validates an explicit, user-supplied SSH host key
+// fingerprint (as logged by ssh / ssh-keygen, e.g. "SHA256:abc...xyz=").
+var sshHostKeyFingerprintRe = regexp.MustCompile(`^SHA256:[A-Za-z0-9+/=_-]{43,44}$`)
+
+func isValidSSHHostKeyFingerprint(s string) bool {
+	return sshHostKeyFingerprintRe.MatchString(strings.TrimSpace(s))
+}
+
+// updateRemoteNodeHostKey provides an explicit, user-confirmed recovery path
+// for a legitimately rotated host key: instead of silently auto-trusting, the
+// operator verifies the new fingerprint out-of-band and submits it here.
+func updateRemoteNodeHostKey(c *gin.Context) {
+	id := c.Param("id")
+	var req struct {
+		SSHHostKey string `json:"ssh_host_key"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "bad request"})
+		return
+	}
+	fp := strings.TrimSpace(req.SSHHostKey)
+	if !isValidSSHHostKeyFingerprint(fp) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid SSH host key fingerprint (expected SHA256:<base64>)"})
+		return
+	}
+	if _, err := NewRemoteNodesRepository().FetchNodeReq(id); err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Node not found"})
+		return
+	}
+	if err := NewRemoteNodesRepository().SetRemoteNodeHostKey(id, fp); err != nil {
+		log.Printf("[ERR] SetRemoteNodeHostKey: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to update host key"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "ssh_host_key": fp})
+}
+
 func extractFingerprintFromSSHError(err error) string {
 	if err == nil {
 		return ""
@@ -180,8 +219,16 @@ func connectWithAutoHostKey(id int64, req *RemoteNodeReq) (remoteSSHClient, erro
 		return nil, fmt.Errorf("refusing to auto-trust rotated SSH host key for node %d (stored %s, presented %s): update the pinned host key explicitly to proceed", id, req.SSHHostKey, fp)
 	}
 
-	if uerr := NewRemoteNodesRepository().UpdateRemoteNodeHostKey(id, fp); uerr != nil {
+	// The first routine to reach this point with an empty stored key pins the
+	// fingerprint. The update is conditional on the row still having an empty
+	// key so a concurrent deploy cannot overwrite an already-pinned key with a
+	// different fingerprint (which would reintroduce silent rotation).
+	pinned, uerr := NewRemoteNodesRepository().PinInitialHostKey(id, fp)
+	if uerr != nil {
 		return nil, fmt.Errorf("%v; auto-update host key failed: %v", err, uerr)
+	}
+	if !pinned {
+		return nil, fmt.Errorf("host key for node %d was pinned concurrently by another operation (stored key changed while deploying); refusing to overwrite, retry the deployment", id)
 	}
 	logAction(id, "deploy", "running", fmt.Sprintf("Pinned initial SSH host fingerprint to %s and retrying deployment", fp))
 	req.SSHHostKey = fp
