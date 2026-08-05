@@ -199,11 +199,19 @@ func setDomainGeoIPMatchCache(key string, tags []string) {
 }
 
 var runVtyshConfigBatch = func(config string) (string, error) {
-	tmpFile := "/tmp/proxygw_vtysh_batch.conf"
-	if err := os.WriteFile(tmpFile, []byte(config), 0600); err != nil {
+	f, err := os.CreateTemp("", "proxygw_vtysh_batch-*.conf")
+	if err != nil {
 		return "", err
 	}
+	tmpFile := f.Name()
 	defer os.Remove(tmpFile)
+	if _, err := f.WriteString(config); err != nil {
+		f.Close()
+		return "", err
+	}
+	if err := f.Close(); err != nil {
+		return "", err
+	}
 	res := sysCmd.runCombinedOutput("vtysh", "-f", tmpFile)
 	return string(res.Output), res.Err
 }

@@ -163,6 +163,7 @@ func initDB() {
 	purgeDirtyRoutesTable()
 	db.Exec("UPDATE routes_table SET status='candidate' WHERE status='published'")
 
+	migrateLegacyCredentialsIfNeeded()
 	ensurePasswordInitialized()
 }
 
