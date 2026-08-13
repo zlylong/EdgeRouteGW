@@ -197,7 +197,7 @@ func TestDoDeployRoutine_LogsRemoteStdoutAndStderrOnFailure(t *testing.T) {
 	}
 }
 
-func TestDoDeployRoutine_AutoUpdatesFingerprintAndRetries(t *testing.T) {
+func TestDoDeployRoutine_RefusesToAutoTrustRotatedFingerprint(t *testing.T) {
 	setupFeatureSuiteRouter(t)
 
 	oldConnect := remoteConnect
@@ -207,18 +207,10 @@ func TestDoDeployRoutine_AutoUpdatesFingerprintAndRetries(t *testing.T) {
 	calls := 0
 	remoteConnect = func(host string, port int, user string, authType string, credential string, expectedHostKey string) (remoteSSHClient, error) {
 		calls++
-		if calls == 1 {
-			if expectedHostKey != "SHA256:old" {
-				t.Fatalf("first connect expected old key, got %s", expectedHostKey)
-			}
-			return nil, fmt.Errorf("failed to dial: ssh: handshake failed: Strict Host Key checking failed. The server's fingerprint is %s. Please update", newFP)
+		if expectedHostKey != "SHA256:test" {
+			t.Fatalf("expected pinned key, got %s", expectedHostKey)
 		}
-		if expectedHostKey != newFP {
-			t.Fatalf("second connect expected new key, got %s", expectedHostKey)
-		}
-		return &fakeSSHClient{run: func(cmd string) (string, string, error) {
-			return "", "", nil
-		}}, nil
+		return nil, fmt.Errorf("failed to dial: ssh: handshake failed: Strict Host Key checking failed. The server's fingerprint is %s. Please update", newFP)
 	}
 
 	req := RemoteNodeReq{
@@ -227,7 +219,7 @@ func TestDoDeployRoutine_AutoUpdatesFingerprintAndRetries(t *testing.T) {
 		SSHHost:       "192.168.20.152",
 		SSHPort:       22,
 		SSHUser:       "root",
-		SSHHostKey:    "SHA256:old",
+		SSHHostKey:    "SHA256:test",
 		SSHAuthType:   "password",
 		SSHCredential: "secret123",
 		Region:        "lab",
@@ -236,27 +228,27 @@ func TestDoDeployRoutine_AutoUpdatesFingerprintAndRetries(t *testing.T) {
 
 	doDeployRoutine(2, req, true, nil)
 
-	if calls != 2 {
-		t.Fatalf("expected 2 connect attempts, got %d", calls)
+	if calls != 1 {
+		t.Fatalf("expected a single connect attempt (no auto-trust retry), got %d", calls)
 	}
 
 	var status, hostKey string
 	if err := db.QueryRow("SELECT status, ssh_host_key FROM remote_nodes WHERE id = 2").Scan(&status, &hostKey); err != nil {
 		t.Fatal(err)
 	}
-	if status != "Online" {
-		t.Fatalf("want status Online got %s", status)
+	if status != "Failed" {
+		t.Fatalf("want status Failed got %s", status)
 	}
-	if hostKey != newFP {
-		t.Fatalf("want updated hostkey %s got %s", newFP, hostKey)
+	if hostKey != "SHA256:test" {
+		t.Fatalf("stored host key must not be silently rotated, got %s", hostKey)
 	}
 
-	var hasAutoUpdateLog int
-	if err := db.QueryRow("SELECT COUNT(*) FROM remote_node_logs WHERE node_id=2 AND log_text LIKE '%Auto-updated SSH host fingerprint%'").Scan(&hasAutoUpdateLog); err != nil {
+	var refusalLog int
+	if err := db.QueryRow("SELECT COUNT(*) FROM remote_node_logs WHERE node_id=2 AND log_text LIKE '%refusing to auto-trust rotated SSH host key%'").Scan(&refusalLog); err != nil {
 		t.Fatal(err)
 	}
-	if hasAutoUpdateLog == 0 {
-		t.Fatal("expected auto-update fingerprint log entry")
+	if refusalLog == 0 {
+		t.Fatal("expected refusal log entry")
 	}
 }
 
@@ -273,5 +265,81 @@ func TestWrapRemoteCommandWithSudo_RootNoWrap(t *testing.T) {
 	got := wrapRemoteCommandWithSudo(req, "systemctl is-active xray", false)
 	if got != "systemctl is-active xray" {
 		t.Fatalf("expected raw command, got: %s", got)
+	}
+}
+
+func TestPinInitialHostKeyIsConditional(t *testing.T) {
+	setupFeatureSuiteRouter(t)
+	repo := NewRemoteNodesRepository()
+
+	// Node 2 is seeded with a pinned key; the conditional pin must not overwrite it.
+	pinned, err := repo.PinInitialHostKey(2, "SHA256:SHOULD-NOT-APPLY")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if pinned {
+		t.Fatal("pin must be rejected when a key is already pinned")
+	}
+	var k string
+	if err := db.QueryRow("SELECT ssh_host_key FROM remote_nodes WHERE id=2").Scan(&k); err != nil {
+		t.Fatal(err)
+	}
+	if k != "SHA256:test" {
+		t.Fatalf("stored key was overwritten: %s", k)
+	}
+
+	// Clear the key; the conditional pin should now succeed and store the value.
+	if _, err := db.Exec("UPDATE remote_nodes SET ssh_host_key='' WHERE id=2"); err != nil {
+		t.Fatal(err)
+	}
+	pinned, err = repo.PinInitialHostKey(2, "SHA256:newfp")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !pinned {
+		t.Fatal("pin should succeed when no key is pinned")
+	}
+	if err := db.QueryRow("SELECT ssh_host_key FROM remote_nodes WHERE id=2").Scan(&k); err != nil {
+		t.Fatal(err)
+	}
+	if k != "SHA256:newfp" {
+		t.Fatalf("pin not stored, got %s", k)
+	}
+}
+
+func postJSON(target, body string) *http.Request {
+	req := httptest.NewRequest(http.MethodPost, target, strings.NewReader(body))
+	req.Header.Set("Authorization", "Bearer test-token")
+	req.Header.Set("Content-Type", "application/json")
+	return req
+}
+
+func TestUpdateRemoteNodeHostKeyEndpoint(t *testing.T) {
+	r := setupFeatureSuiteRouter(t)
+	validFP := "SHA256:ADjw2yeU9EmUjcrBrwreHH7cJLe3lNRiPHFhTu3PPio"
+
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, postJSON("/api/remote_nodes/2/hostkey", `{"ssh_host_key":"garbage"}`))
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("invalid fingerprint: want 400 got %d body=%s", w.Code, w.Body.String())
+	}
+
+	w = httptest.NewRecorder()
+	r.ServeHTTP(w, postJSON("/api/remote_nodes/2/hostkey", `{"ssh_host_key":"`+validFP+`"}`))
+	if w.Code != http.StatusOK {
+		t.Fatalf("valid update: want 200 got %d body=%s", w.Code, w.Body.String())
+	}
+	var k string
+	if err := db.QueryRow("SELECT ssh_host_key FROM remote_nodes WHERE id=2").Scan(&k); err != nil {
+		t.Fatal(err)
+	}
+	if k != validFP {
+		t.Fatalf("host key not updated, got %s", k)
+	}
+
+	w = httptest.NewRecorder()
+	r.ServeHTTP(w, postJSON("/api/remote_nodes/999/hostkey", `{"ssh_host_key":"`+validFP+`"}`))
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("missing node: want 404 got %d", w.Code)
 	}
 }

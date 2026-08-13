@@ -114,6 +114,26 @@ func (r *RemoteNodesRepository) UpdateRemoteNodeHostKey(id int64, hostKey string
 	return err
 }
 
+// PinInitialHostKey stores hostKey only if the node does not yet have a pinned
+// host key, and reports whether it pinned it. This makes the trust-on-first-use
+// pin race-safe: among concurrent deploys only the first one wins.
+func (r *RemoteNodesRepository) PinInitialHostKey(id int64, hostKey string) (bool, error) {
+	res, err := r.db.Exec("UPDATE remote_nodes SET ssh_host_key = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND (ssh_host_key IS NULL OR ssh_host_key = '')", hostKey, id)
+	if err != nil {
+		return false, err
+	}
+	n, err := res.RowsAffected()
+	return n > 0, err
+}
+
+// SetRemoteNodeHostKey is an explicit, user-confirmed update of a verified host
+// key (recovery path for legitimate rotations); unlike PinInitialHostKey it is
+// unconditional.
+func (r *RemoteNodesRepository) SetRemoteNodeHostKey(id, hostKey string) error {
+	_, err := r.db.Exec("UPDATE remote_nodes SET ssh_host_key = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?", hostKey, id)
+	return err
+}
+
 func (r *RemoteNodesRepository) GetRemoteNodeCheckInfo(id string) (RemoteNodeCheckInfo, error) {
 	var info RemoteNodeCheckInfo
 	err := r.db.QueryRow("SELECT ssh_host, ssh_port, ssh_user, ssh_auth_type, ssh_credential, ssh_host_key, type FROM remote_nodes WHERE id = ?", id).

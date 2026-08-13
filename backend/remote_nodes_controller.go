@@ -4,10 +4,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/gin-gonic/gin"
+	"log"
 	"net/http"
 	"net/url"
 	"proxygw/remote_deploy"
 	"regexp"
+	"runtime/debug"
 	"strings"
 )
 
@@ -79,6 +81,7 @@ func (ctl *RemoteNodesController) RegisterRoutes(authed *gin.RouterGroup) {
 	authed.POST("/remote_nodes", createAndDeployRemoteNode)
 	authed.DELETE("/remote_nodes/:id", deleteRemoteNode)
 	authed.POST("/remote_nodes/:id/check", checkRemoteNode)
+	authed.POST("/remote_nodes/:id/hostkey", updateRemoteNodeHostKey)
 
 	// Advanced Features
 	authed.POST("/remote_nodes/batch", batchDeployRemoteNodes)
@@ -128,8 +131,15 @@ func getRemoteNodeDetails(c *gin.Context) {
 	} else if basic.Type == "vless" {
 		v, err := repo.GetRemoteNodeVLESSParams(id)
 		if err == nil {
+			// The provisioning share link intentionally embeds the VLESS UUID (and
+			// the WireGuard client private key in the WG branch above) so the link can
+			// be imported directly into a client device. Because the secret is
+			// deliberately carried by the share link, do not also return a standalone
+			// secret field that merely mimics redaction while the value is already
+			// present in the link. Only the exportable share link and public metadata
+			// are surfaced, consistent with the WireGuard branch.
 			node["vless"] = map[string]interface{}{
-				"uuid": "***REDACTED***", "reality_pub": v.RealityPub, "short_id": v.ShortID,
+				"reality_pub": v.RealityPub, "short_id": v.ShortID,
 				"server_name": v.ServerName, "dest": v.Dest, "port": v.Port, "share_link": v.ShareLink,
 			}
 		}
@@ -143,6 +153,43 @@ func logAction(nodeId int64, action, status, logText string) {
 }
 
 var hostKeyFingerprintRe = regexp.MustCompile(`SHA256:[A-Za-z0-9+/=_-]+`)
+
+// sshHostKeyFingerprintRe validates an explicit, user-supplied SSH host key
+// fingerprint (as logged by ssh / ssh-keygen, e.g. "SHA256:abc...xyz=").
+var sshHostKeyFingerprintRe = regexp.MustCompile(`^SHA256:[A-Za-z0-9+/=_-]{43,44}$`)
+
+func isValidSSHHostKeyFingerprint(s string) bool {
+	return sshHostKeyFingerprintRe.MatchString(strings.TrimSpace(s))
+}
+
+// updateRemoteNodeHostKey provides an explicit, user-confirmed recovery path
+// for a legitimately rotated host key: instead of silently auto-trusting, the
+// operator verifies the new fingerprint out-of-band and submits it here.
+func updateRemoteNodeHostKey(c *gin.Context) {
+	id := c.Param("id")
+	var req struct {
+		SSHHostKey string `json:"ssh_host_key"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "bad request"})
+		return
+	}
+	fp := strings.TrimSpace(req.SSHHostKey)
+	if !isValidSSHHostKeyFingerprint(fp) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid SSH host key fingerprint (expected SHA256:<base64>)"})
+		return
+	}
+	if _, err := NewRemoteNodesRepository().FetchNodeReq(id); err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Node not found"})
+		return
+	}
+	if err := NewRemoteNodesRepository().SetRemoteNodeHostKey(id, fp); err != nil {
+		log.Printf("[ERR] SetRemoteNodeHostKey: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to update host key"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "ssh_host_key": fp})
+}
 
 func extractFingerprintFromSSHError(err error) string {
 	if err == nil {
@@ -162,10 +209,28 @@ func connectWithAutoHostKey(id int64, req *RemoteNodeReq) (remoteSSHClient, erro
 		return nil, err
 	}
 
-	if uerr := NewRemoteNodesRepository().UpdateRemoteNodeHostKey(id, fp); uerr != nil {
+	// Trust-on-first-use (TOFU) is only acceptable while provisioning a node that
+	// has no pinned host key yet. If a host key is already stored and the server
+	// now presents a different one, silently trusting it would let a MITM
+	// substitute its own key and have it accepted. Treat a rotation of an
+	// already-pinned key as a hard failure and require an explicit update
+	// (e.g. re-create the node) instead of auto-trusting.
+	if strings.TrimSpace(req.SSHHostKey) != "" {
+		return nil, fmt.Errorf("refusing to auto-trust rotated SSH host key for node %d (stored %s, presented %s): update the pinned host key explicitly to proceed", id, req.SSHHostKey, fp)
+	}
+
+	// The first routine to reach this point with an empty stored key pins the
+	// fingerprint. The update is conditional on the row still having an empty
+	// key so a concurrent deploy cannot overwrite an already-pinned key with a
+	// different fingerprint (which would reintroduce silent rotation).
+	pinned, uerr := NewRemoteNodesRepository().PinInitialHostKey(id, fp)
+	if uerr != nil {
 		return nil, fmt.Errorf("%v; auto-update host key failed: %v", err, uerr)
 	}
-	logAction(id, "deploy", "running", fmt.Sprintf("Auto-updated SSH host fingerprint to %s and retrying deployment", fp))
+	if !pinned {
+		return nil, fmt.Errorf("host key for node %d was pinned concurrently by another operation (stored key changed while deploying); refusing to overwrite, retry the deployment", id)
+	}
+	logAction(id, "deploy", "running", fmt.Sprintf("Pinned initial SSH host fingerprint to %s and retrying deployment", fp))
 	req.SSHHostKey = fp
 
 	sshClient, err = remoteConnect(req.SSHHost, req.SSHPort, req.SSHUser, req.SSHAuthType, req.SSHCredential, req.SSHHostKey)
@@ -180,6 +245,14 @@ var deploySemaphore = make(chan struct{}, 3)
 func doDeployRoutineWrapper(id int64, req RemoteNodeReq, isUpdate bool, params map[string]interface{}) {
 	deploySemaphore <- struct{}{}
 	defer func() { <-deploySemaphore }()
+	defer func() {
+		// A panic inside a background deploy must not take down the whole gateway
+		// backend; mark the node failed and surface the stack for diagnosis.
+		if r := recover(); r != nil {
+			NewRemoteNodesRepository().SetRemoteNodeStatus(id, "Failed")
+			logAction(id, "deploy", "failed", fmt.Sprintf("deployment panicked: %v\n%s", r, debug.Stack()))
+		}
+	}()
 	doDeployRoutine(id, req, isUpdate, params)
 }
 
