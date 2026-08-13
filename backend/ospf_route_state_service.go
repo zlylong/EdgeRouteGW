@@ -638,7 +638,7 @@ func detectModeSwitchProtectedConflicts(mode string) []string {
 		}
 	}
 
-	rows, err := db.Query("SELECT ip FROM routes_table WHERE status IN ('candidate','published') AND source='static'")
+	rows, err := getDB().Query("SELECT ip FROM routes_table WHERE status IN ('candidate','published') AND source='static'")
 	if err == nil {
 		defer rows.Close()
 		for rows.Next() {
@@ -649,7 +649,7 @@ func detectModeSwitchProtectedConflicts(mode string) []string {
 		}
 	}
 
-	staticRows, err := db.Query("SELECT value FROM rules WHERE type='ip' AND (policy LIKE 'proxy%' OR policy LIKE 'ha-%')")
+	staticRows, err := getDB().Query("SELECT value FROM rules WHERE type='ip' AND (policy LIKE 'proxy%' OR policy LIKE 'ha-%')")
 	if err == nil {
 		defer staticRows.Close()
 		for staticRows.Next() {
@@ -661,7 +661,7 @@ func detectModeSwitchProtectedConflicts(mode string) []string {
 	}
 
 	geoipPath := getPath("core", "mosdns", "geoip.dat")
-	geoipRows, err := db.Query("SELECT value FROM rules WHERE type='geoip' AND (policy LIKE 'proxy%' OR policy LIKE 'ha-%')")
+	geoipRows, err := getDB().Query("SELECT value FROM rules WHERE type='geoip' AND (policy LIKE 'proxy%' OR policy LIKE 'ha-%')")
 	if err == nil {
 		defer geoipRows.Close()
 		for geoipRows.Next() {
@@ -682,7 +682,7 @@ func detectModeSwitchProtectedConflicts(mode string) []string {
 		}
 	}
 
-	domainRows, err := db.Query("SELECT value, policy FROM rules WHERE type='domain' AND (policy LIKE 'proxy%' OR policy LIKE 'direct%' OR policy LIKE 'ha-%')")
+	domainRows, err := getDB().Query("SELECT value, policy FROM rules WHERE type='domain' AND (policy LIKE 'proxy%' OR policy LIKE 'direct%' OR policy LIKE 'ha-%')")
 	if err == nil {
 		defer domainRows.Close()
 		for domainRows.Next() {

@@ -93,7 +93,7 @@ func performDBPruning() {
 	}
 
 	for _, q := range queries {
-		res, err := db.Exec(q.sql)
+		res, err := getDB().Exec(q.sql)
 		if err != nil {
 			log.Printf("[MAINTENANCE] Failed to prune %s: %v", q.name, err)
 			continue
@@ -107,10 +107,10 @@ func performDBPruning() {
 	// Optimize the database occasionally
 	if time.Now().Weekday() == time.Sunday {
 		log.Println("[MAINTENANCE] Performing weekly database optimization (VACUUM/ANALYZE)...")
-		if _, err := db.Exec("VACUUM"); err != nil {
+		if _, err := getDB().Exec("VACUUM"); err != nil {
 			log.Printf("[MAINTENANCE] VACUUM failed: %v", err)
 		}
-		if _, err := db.Exec("ANALYZE"); err != nil {
+		if _, err := getDB().Exec("ANALYZE"); err != nil {
 			log.Printf("[MAINTENANCE] ANALYZE failed: %v", err)
 		}
 	}

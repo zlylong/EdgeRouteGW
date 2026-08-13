@@ -8,7 +8,7 @@ import (
 
 func loadOspfPublishAllowlist() []*net.IPNet {
 	var raw string
-	if err := db.QueryRow("SELECT value FROM settings WHERE key='ospf_publish_allowlist'").Scan(&raw); err != nil {
+	if err := getDB().QueryRow("SELECT value FROM settings WHERE key='ospf_publish_allowlist'").Scan(&raw); err != nil {
 		return nil
 	}
 	raw = strings.TrimSpace(raw)

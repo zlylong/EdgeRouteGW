@@ -16,12 +16,12 @@ func ospfController() {
 		settings := getOspfControllerSettings()
 		coolingTime := time.Duration(settings.PushIntervalSeconds) * time.Second
 		var mode string
-		if err := db.QueryRow("SELECT value FROM settings WHERE key='mode'").Scan(&mode); err != nil && err != sql.ErrNoRows {
+		if err := getDB().QueryRow("SELECT value FROM settings WHERE key='mode'").Scan(&mode); err != nil && err != sql.ErrNoRows {
 			log.Printf("[WARN] SELECT value FROM settings WHERE key='mode' err: %v", err)
 		}
 		if mode != "C" && mode != "B" {
 			if !modeDemotedForNonBC {
-				if _, err := db.Exec("UPDATE routes_table SET status='candidate' WHERE status='published'"); err != nil {
+				if _, err := getDB().Exec("UPDATE routes_table SET status='candidate' WHERE status='published'"); err != nil {
 					log.Printf("[WARN] demote published routes to candidate failed: %v", err)
 				}
 				modeDemotedForNonBC = true
@@ -39,10 +39,10 @@ func ospfController() {
 		}
 		updated := false
 
-		db.Exec("UPDATE routes_table SET miss_count = miss_count + 1 WHERE status='published' AND datetime(last_seen, '+' || ttl || ' seconds') < datetime('now')")
+		getDB().Exec("UPDATE routes_table SET miss_count = miss_count + 1 WHERE status='published' AND datetime(last_seen, '+' || ttl || ' seconds') < datetime('now')")
 
 		var toDel []string
-		rowsDel, err := db.Query("SELECT ip FROM routes_table WHERE status='published' AND miss_count >= 3 LIMIT ?", settings.PushBatchLimit)
+		rowsDel, err := getDB().Query("SELECT ip FROM routes_table WHERE status='published' AND miss_count >= 3 LIMIT ?", settings.PushBatchLimit)
 		if err == nil {
 			for rowsDel.Next() {
 				var ip string
@@ -64,7 +64,7 @@ func ospfController() {
 		}
 
 		var toAdd []string
-		rowsAdd, err := db.Query("SELECT ip FROM routes_table WHERE status='candidate' AND first_seen <= datetime('now', '-60 seconds') LIMIT ?", settings.PushBatchLimit)
+		rowsAdd, err := getDB().Query("SELECT ip FROM routes_table WHERE status='candidate' AND first_seen <= datetime('now', '-60 seconds') LIMIT ?", settings.PushBatchLimit)
 		if err == nil {
 			for rowsAdd.Next() {
 				var ip string

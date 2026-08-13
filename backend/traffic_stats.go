@@ -31,7 +31,7 @@ var (
 )
 
 func initTrafficDB() {
-	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS traffic_history (
+	if _, err := getDB().Exec(`CREATE TABLE IF NOT EXISTS traffic_history (
 		id INTEGER PRIMARY KEY AUTOINCREMENT,
 		ts DATETIME DEFAULT CURRENT_TIMESTAMP,
 		up_bytes INTEGER,
@@ -39,10 +39,10 @@ func initTrafficDB() {
 	)`); err != nil {
 		log.Printf("[WARN] Failed to create traffic_history table: %v", err)
 	}
-	if _, err := db.Exec(`CREATE INDEX IF NOT EXISTS idx_traffic_history_ts ON traffic_history(ts)`); err != nil {
+	if _, err := getDB().Exec(`CREATE INDEX IF NOT EXISTS idx_traffic_history_ts ON traffic_history(ts)`); err != nil {
 		log.Printf("[WARN] Failed to create index on traffic_history: %v", err)
 	}
-	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS node_traffic_history (
+	if _, err := getDB().Exec(`CREATE TABLE IF NOT EXISTS node_traffic_history (
 		id INTEGER PRIMARY KEY AUTOINCREMENT,
 		ts DATETIME DEFAULT CURRENT_TIMESTAMP,
 		node_id INTEGER NOT NULL,
@@ -51,13 +51,13 @@ func initTrafficDB() {
 	)`); err != nil {
 		log.Printf("[WARN] Failed to create node_traffic_history table: %v", err)
 	}
-	if _, err := db.Exec(`CREATE INDEX IF NOT EXISTS idx_node_traffic_history_ts ON node_traffic_history(ts)`); err != nil {
+	if _, err := getDB().Exec(`CREATE INDEX IF NOT EXISTS idx_node_traffic_history_ts ON node_traffic_history(ts)`); err != nil {
 		log.Printf("[WARN] Failed to create index on node_traffic_history: %v", err)
 	}
-	if _, err := db.Exec(`DELETE FROM traffic_history WHERE ts < datetime('now', '-180 days')`); err != nil {
+	if _, err := getDB().Exec(`DELETE FROM traffic_history WHERE ts < datetime('now', '-180 days')`); err != nil {
 		log.Printf("[WARN] prune traffic_history failed: %v", err)
 	}
-	if _, err := db.Exec(`DELETE FROM node_traffic_history WHERE ts < datetime('now', '-180 days')`); err != nil {
+	if _, err := getDB().Exec(`DELETE FROM node_traffic_history WHERE ts < datetime('now', '-180 days')`); err != nil {
 		log.Printf("[WARN] prune node_traffic_history failed: %v", err)
 	}
 }
@@ -171,7 +171,7 @@ func startTrafficMonitor() {
 			trafficMutex.Unlock()
 
 			if saveUp > 0 || saveDown > 0 {
-				if _, err := db.Exec(`INSERT INTO traffic_history (up_bytes, down_bytes) VALUES (?, ?)`, saveUp, saveDown); err != nil {
+				if _, err := getDB().Exec(`INSERT INTO traffic_history (up_bytes, down_bytes) VALUES (?, ?)`, saveUp, saveDown); err != nil {
 					log.Printf("[WARN] insert traffic_history failed: %v", err)
 				}
 			}
@@ -179,14 +179,14 @@ func startTrafficMonitor() {
 				if stat.up <= 0 && stat.down <= 0 {
 					continue
 				}
-				if _, err := db.Exec(`INSERT INTO node_traffic_history (node_id, up_bytes, down_bytes) VALUES (?, ?, ?)`, nodeID, stat.up, stat.down); err != nil {
+				if _, err := getDB().Exec(`INSERT INTO node_traffic_history (node_id, up_bytes, down_bytes) VALUES (?, ?, ?)`, nodeID, stat.up, stat.down); err != nil {
 					log.Printf("[WARN] insert node_traffic_history failed node=%d err=%v", nodeID, err)
 				}
 			}
-			if _, err := db.Exec(`DELETE FROM traffic_history WHERE ts < datetime('now', '-180 days')`); err != nil {
+			if _, err := getDB().Exec(`DELETE FROM traffic_history WHERE ts < datetime('now', '-180 days')`); err != nil {
 				log.Printf("[WARN] prune traffic_history failed: %v", err)
 			}
-			if _, err := db.Exec(`DELETE FROM node_traffic_history WHERE ts < datetime('now', '-180 days')`); err != nil {
+			if _, err := getDB().Exec(`DELETE FROM node_traffic_history WHERE ts < datetime('now', '-180 days')`); err != nil {
 				log.Printf("[WARN] prune node_traffic_history failed: %v", err)
 			}
 		}

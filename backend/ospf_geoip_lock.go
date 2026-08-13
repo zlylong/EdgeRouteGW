@@ -6,10 +6,10 @@ import (
 )
 
 func ensureDomainGeoIPLockTable() {
-	if db == nil {
+	if getDB() == nil {
 		return
 	}
-	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS domain_geoip_lock (
+	if _, err := getDB().Exec(`CREATE TABLE IF NOT EXISTS domain_geoip_lock (
 		domain TEXT NOT NULL,
 		resolver_group TEXT NOT NULL,
 		geoip_tag TEXT NOT NULL,
@@ -29,7 +29,7 @@ func loadDomainGeoIPLockedTags(domain, resolverGroup, geodataVer string) []strin
 	if domain == "" || geodataVer == "" {
 		return nil
 	}
-	rows, err := db.Query("SELECT geoip_tag FROM domain_geoip_lock WHERE domain=? AND resolver_group=? AND geodata_ver=?", domain, resolverGroup, geodataVer)
+	rows, err := getDB().Query("SELECT geoip_tag FROM domain_geoip_lock WHERE domain=? AND resolver_group=? AND geodata_ver=?", domain, resolverGroup, geodataVer)
 	if err != nil {
 		return nil
 	}
@@ -53,7 +53,7 @@ func loadDomainGeoIPLockedTags(domain, resolverGroup, geodataVer string) []strin
 		set[routeKey] = struct{}{}
 	}
 	for _, bad := range invalid {
-		_, _ = db.Exec("DELETE FROM domain_geoip_lock WHERE domain=? AND resolver_group=? AND geodata_ver=? AND geoip_tag=?", domain, resolverGroup, geodataVer, bad)
+		_, _ = getDB().Exec("DELETE FROM domain_geoip_lock WHERE domain=? AND resolver_group=? AND geodata_ver=? AND geoip_tag=?", domain, resolverGroup, geodataVer, bad)
 	}
 	if len(set) == 0 {
 		return nil
@@ -93,7 +93,7 @@ func saveDomainGeoIPLockTags(domain, resolverGroup, geodataVer string, tags []st
 		normalized = append(normalized, routeKey)
 	}
 
-	tx, err := db.Begin()
+	tx, err := getDB().Begin()
 	if err != nil {
 		return
 	}

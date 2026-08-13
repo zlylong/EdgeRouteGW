@@ -14,14 +14,14 @@ func reconcilePublishedRoutesWithFRR() {
 		log.Printf("[WARN] OSPF reconcile skip: %v", err)
 		return
 	}
-	rows, err := db.Query("SELECT ip, status FROM routes_table WHERE source='static'")
+	rows, err := getDB().Query("SELECT ip, status FROM routes_table WHERE source='static'")
 	if err != nil {
 		log.Printf("[WARN] OSPF reconcile query failed: %v", err)
 		return
 	}
 	defer rows.Close()
 
-	tx, err := db.Begin()
+	tx, err := getDB().Begin()
 	if err != nil {
 		log.Printf("[WARN] OSPF reconcile begin failed: %v", err)
 		return
@@ -69,7 +69,7 @@ func reconcilePublishedRoutesWithFRR() {
 	}
 
 	var mode string
-	if err := db.QueryRow("SELECT value FROM settings WHERE key='mode'").Scan(&mode); err != nil || strings.TrimSpace(mode) == "" {
+	if err := getDB().QueryRow("SELECT value FROM settings WHERE key='mode'").Scan(&mode); err != nil || strings.TrimSpace(mode) == "" {
 		mode = "A"
 	}
 	mode = strings.TrimSpace(mode)

@@ -49,7 +49,7 @@ type RemoteNodesRepository struct {
 }
 
 func NewRemoteNodesRepository() *RemoteNodesRepository {
-	return &RemoteNodesRepository{db: db}
+	return &RemoteNodesRepository{db: getDB()}
 }
 
 func (r *RemoteNodesRepository) ListRemoteNodes() ([]map[string]interface{}, error) {

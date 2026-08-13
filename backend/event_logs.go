@@ -38,7 +38,7 @@ var (
 )
 
 func ensureGatewayEventTable() {
-	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS gateway_events (
+	if _, err := getDB().Exec(`CREATE TABLE IF NOT EXISTS gateway_events (
 		id INTEGER PRIMARY KEY AUTOINCREMENT,
 		ts DATETIME DEFAULT CURRENT_TIMESTAMP,
 		level TEXT NOT NULL,
@@ -56,13 +56,13 @@ func ensureGatewayEventTable() {
 		log.Printf("[WARN] create gateway_events failed: %v", err)
 		return
 	}
-	if _, err := db.Exec(`DELETE FROM gateway_events WHERE ts < datetime('now', '-30 days')`); err != nil {
+	if _, err := getDB().Exec(`DELETE FROM gateway_events WHERE ts < datetime('now', '-30 days')`); err != nil {
 		log.Printf("[WARN] prune gateway_events failed: %v", err)
 	}
 }
 
 func logGatewayEvent(level, module, eventType, message string, fields map[string]interface{}) {
-	if db == nil {
+	if getDB() == nil {
 		return
 	}
 	traceID := ""
@@ -121,7 +121,7 @@ func logGatewayEvent(level, module, eventType, message string, fields map[string
 		}
 	}
 
-	if _, err := db.Exec(`INSERT INTO gateway_events (level, module, event_type, message, trace_id, source_ip, method, path, status, duration_ms, details_json)
+	if _, err := getDB().Exec(`INSERT INTO gateway_events (level, module, event_type, message, trace_id, source_ip, method, path, status, duration_ms, details_json)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		strings.ToLower(strings.TrimSpace(level)),
 		strings.TrimSpace(module),
@@ -233,7 +233,7 @@ func registerEventRoutes(r *gin.RouterGroup) {
 		baseSQL += " ORDER BY id DESC LIMIT ?"
 		args = append(args, limit)
 
-		rows, err := db.Query(baseSQL, args...)
+		rows, err := getDB().Query(baseSQL, args...)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "query gateway_events failed"})
 			return

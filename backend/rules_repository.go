@@ -10,7 +10,7 @@ type RulesRepository struct {
 }
 
 func NewRulesRepository() *RulesRepository {
-	return &RulesRepository{db: db}
+	return &RulesRepository{db: getDB()}
 }
 
 func (r *RulesRepository) CollectRuleGroups() []map[string]interface{} {

@@ -28,7 +28,7 @@ func applyRuleChangeDynamically(needMosdns bool) error {
 
 func getActiveNodeContext() (map[int]struct{}, int) {
 	active := map[int]struct{}{}
-	rows, err := db.Query("SELECT id FROM nodes WHERE active=1")
+	rows, err := getDB().Query("SELECT id FROM nodes WHERE active=1")
 	if err == nil {
 		defer rows.Close()
 		for rows.Next() {
@@ -40,7 +40,7 @@ func getActiveNodeContext() (map[int]struct{}, int) {
 	}
 
 	var defNodeStr string
-	_ = db.QueryRow("SELECT value FROM settings WHERE key='default_node_id'").Scan(&defNodeStr)
+	_ = getDB().QueryRow("SELECT value FROM settings WHERE key='default_node_id'").Scan(&defNodeStr)
 	defaultID, _ := strconv.Atoi(strings.TrimSpace(defNodeStr))
 	if _, ok := active[defaultID]; !ok {
 		defaultID = 0
@@ -90,12 +90,12 @@ func outboundTagForPolicy(policy string, active map[int]struct{}, defaultID int,
 
 func syncXrayRoutingRulesDynamically() error {
 	var mode string
-	if err := db.QueryRow("SELECT value FROM settings WHERE key='mode'").Scan(&mode); err != nil {
+	if err := getDB().QueryRow("SELECT value FROM settings WHERE key='mode'").Scan(&mode); err != nil {
 		mode = "A"
 	}
 	active, defaultID := getActiveNodeContext()
 	var failoverMode string
-	_ = db.QueryRow("SELECT value FROM settings WHERE key='node_failover_mode'").Scan(&failoverMode)
+	_ = getDB().QueryRow("SELECT value FROM settings WHERE key='node_failover_mode'").Scan(&failoverMode)
 	strictFailover := normalizeNodeFailoverMode(strings.TrimSpace(strings.ToLower(failoverMode))) == "strict"
 	cfg := map[string]interface{}{
 		"routing": map[string]interface{}{
@@ -110,7 +110,7 @@ func syncXrayRoutingRulesDynamically() error {
 		)
 	}
 
-	rRows, err := db.Query("SELECT id, type, value, policy FROM rules ORDER BY priority ASC, id ASC")
+	rRows, err := getDB().Query("SELECT id, type, value, policy FROM rules ORDER BY priority ASC, id ASC")
 	if err != nil {
 		return fmt.Errorf("query rules failed: %w", err)
 	}

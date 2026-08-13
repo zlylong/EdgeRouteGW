@@ -11,22 +11,22 @@ func NewDNSRepository() *DNSRepository { return &DNSRepository{} }
 
 func (r *DNSRepository) GetSetting(key string) (string, error) {
 	var value string
-	err := db.QueryRow("SELECT value FROM settings WHERE key=?", key).Scan(&value)
+	err := getDB().QueryRow("SELECT value FROM settings WHERE key=?", key).Scan(&value)
 	return value, err
 }
 
 func (r *DNSRepository) InsertIgnoreSetting(key, value string) error {
-	_, err := db.Exec("INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)", key, value)
+	_, err := getDB().Exec("INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)", key, value)
 	return err
 }
 
 func (r *DNSRepository) UpdateSetting(key, value string) error {
-	_, err := db.Exec("UPDATE settings SET value=? WHERE key=?", value, key)
+	_, err := getDB().Exec("UPDATE settings SET value=? WHERE key=?", value, key)
 	return err
 }
 
 func (r *DNSRepository) UpsertSetting(key, value string) error {
-	_, err := db.Exec("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)", key, value)
+	_, err := getDB().Exec("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)", key, value)
 	return err
 }
 

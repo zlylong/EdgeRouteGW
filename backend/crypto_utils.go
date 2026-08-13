@@ -76,7 +76,7 @@ func migrateLegacyCredentialsIfNeeded() {
 	}
 	migrateLegacyCredentials = false
 
-	rows, err := db.Query("SELECT id, ssh_credential FROM remote_nodes")
+	rows, err := getDB().Query("SELECT id, ssh_credential FROM remote_nodes")
 	if err != nil {
 		log.Printf("[SECURITY] migrate legacy credentials: query failed: %v", err)
 		return
@@ -117,7 +117,7 @@ func migrateLegacyCredentialsIfNeeded() {
 	rows.Close()
 
 	if len(updates) > 0 {
-		tx, err := db.Begin()
+		tx, err := getDB().Begin()
 		if err != nil {
 			log.Printf("[SECURITY] migrate legacy credentials: begin tx failed: %v", err)
 			return

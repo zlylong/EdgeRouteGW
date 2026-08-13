@@ -52,20 +52,20 @@ var modeSwitchFinalizeRoutes = func(mode string) error {
 	if mode == "C" {
 		return nil
 	}
-	_, err := db.Exec("UPDATE routes_table SET status='candidate' WHERE status='published'")
+	_, err := getDB().Exec("UPDATE routes_table SET status='candidate' WHERE status='published'")
 	return err
 }
 
 func currentMode() string {
 	var mode string
-	if err := db.QueryRow("SELECT value FROM settings WHERE key='mode'").Scan(&mode); err != nil || strings.TrimSpace(mode) == "" {
+	if err := getDB().QueryRow("SELECT value FROM settings WHERE key='mode'").Scan(&mode); err != nil || strings.TrimSpace(mode) == "" {
 		return "A"
 	}
 	return strings.TrimSpace(mode)
 }
 
 func setModeValue(mode string) error {
-	_, err := db.Exec("INSERT OR REPLACE INTO settings (key, value) VALUES ('mode', ?)", mode)
+	_, err := getDB().Exec("INSERT OR REPLACE INTO settings (key, value) VALUES ('mode', ?)", mode)
 	return err
 }
 
@@ -317,8 +317,8 @@ func findNetworkByIface(options []networkInterfaceInfo, ifaceName string) (netwo
 
 func loadNetworkRoleSettings() (string, string) {
 	var managementIface, serviceIface string
-	_ = db.QueryRow("SELECT value FROM settings WHERE key='management_iface'").Scan(&managementIface)
-	_ = db.QueryRow("SELECT value FROM settings WHERE key='service_iface'").Scan(&serviceIface)
+	_ = getDB().QueryRow("SELECT value FROM settings WHERE key='management_iface'").Scan(&managementIface)
+	_ = getDB().QueryRow("SELECT value FROM settings WHERE key='service_iface'").Scan(&serviceIface)
 	managementIface = strings.TrimSpace(managementIface)
 	serviceIface = strings.TrimSpace(serviceIface)
 	return managementIface, serviceIface
@@ -336,8 +336,8 @@ func ensureDefaultNetworkRoleSettings() {
 	if serviceIface == "" {
 		serviceIface = managementIface
 	}
-	_, _ = db.Exec("INSERT OR REPLACE INTO settings (key, value) VALUES ('management_iface', ?)", managementIface)
-	_, _ = db.Exec("INSERT OR REPLACE INTO settings (key, value) VALUES ('service_iface', ?)", serviceIface)
+	_, _ = getDB().Exec("INSERT OR REPLACE INTO settings (key, value) VALUES ('management_iface', ?)", managementIface)
+	_, _ = getDB().Exec("INSERT OR REPLACE INTO settings (key, value) VALUES ('service_iface', ?)", serviceIface)
 }
 
 func getBuildInfo() (string, string) {

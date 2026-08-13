@@ -12,7 +12,7 @@ type ProtectedIPItem struct {
 func NewProtectedIPRepository() *ProtectedIPRepository { return &ProtectedIPRepository{} }
 
 func (r *ProtectedIPRepository) List() ([]ProtectedIPItem, error) {
-	rows, err := db.Query("SELECT id, value, remark, created_at FROM protected_ips ORDER BY id DESC")
+	rows, err := getDB().Query("SELECT id, value, remark, created_at FROM protected_ips ORDER BY id DESC")
 	if err != nil {
 		return nil, err
 	}
@@ -29,11 +29,11 @@ func (r *ProtectedIPRepository) List() ([]ProtectedIPItem, error) {
 }
 
 func (r *ProtectedIPRepository) Create(value, remark string) error {
-	_, err := db.Exec("INSERT INTO protected_ips (value, remark) VALUES (?, ?)", value, remark)
+	_, err := getDB().Exec("INSERT INTO protected_ips (value, remark) VALUES (?, ?)", value, remark)
 	return err
 }
 
 func (r *ProtectedIPRepository) Delete(id string) error {
-	_, err := db.Exec("DELETE FROM protected_ips WHERE id=?", id)
+	_, err := getDB().Exec("DELETE FROM protected_ips WHERE id=?", id)
 	return err
 }

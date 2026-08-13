@@ -8,8 +8,8 @@ import (
 
 func getPrimaryLANIPAndSubnet() (string, string) {
 	serviceIface := ""
-	if db != nil {
-		_ = db.QueryRow("SELECT value FROM settings WHERE key='service_iface'").Scan(&serviceIface)
+	if getDB() != nil {
+		_ = getDB().QueryRow("SELECT value FROM settings WHERE key='service_iface'").Scan(&serviceIface)
 		serviceIface = strings.TrimSpace(serviceIface)
 	}
 
