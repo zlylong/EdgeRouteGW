@@ -8,7 +8,7 @@ import (
 
 func TestBuildMosdnsProxyDomainsIncludesGeositeDomains(t *testing.T) {
 	tdb, _ := setupTestDB(t)
-	db = tdb
+	setDB(tdb)
 	t.Cleanup(func() { db.Close() })
 
 	if _, err := db.Exec("DELETE FROM rules"); err != nil {

@@ -17,6 +17,20 @@ var (
 	cacheMutex    sync.Mutex
 )
 
+var dbMu sync.RWMutex
+
+func getDB() *sql.DB {
+	dbMu.RLock()
+	defer dbMu.RUnlock()
+	return db
+}
+
+func setDB(d *sql.DB) {
+	dbMu.Lock()
+	db = d
+	dbMu.Unlock()
+}
+
 // goSafe runs fn in a goroutine with panic recovery, logging the stack trace.
 // Use this instead of bare "go fn()" for all background goroutines.
 func goSafe(fn func()) {

@@ -103,6 +103,7 @@ func extractHostForProtection(raw string) string {
 }
 
 func collectProtectedRouteKeys() map[string]struct{} {
+	d := getDB()
 	protected := make(map[string]struct{})
 	hosts := make(map[string]struct{})
 
@@ -115,7 +116,10 @@ func collectProtectedRouteKeys() map[string]struct{} {
 	}
 
 	collectColumn := func(query string) {
-		rows, err := db.Query(query)
+		if d == nil {
+			return
+		}
+		rows, err := d.Query(query)
 		if err != nil {
 			log.Printf("[OSPF] collect protected hosts query failed: %v", err)
 			return
@@ -159,6 +163,10 @@ func collectProtectedRouteKeys() map[string]struct{} {
 
 func collectStaticRoutesForMode(mode string, protected map[string]struct{}) (map[string]routeState, []string) {
 	ensureRouteCacheTables()
+	d := getDB()
+	if d == nil {
+		return map[string]routeState{}, nil
+	}
 	staticRoutes := make(map[string]routeState)
 	conflictSet := make(map[string]struct{})
 	geoipPath := getPath("core", "mosdns", "geoip.dat")
@@ -305,7 +313,7 @@ func collectStaticRoutesForMode(mode string, protected map[string]struct{}) (map
 		return keptStr
 	}
 
-	staticRows, err := db.Query("SELECT value FROM rules WHERE type='ip' AND (policy LIKE 'proxy%' OR policy LIKE 'ha-%')")
+	staticRows, err := d.Query("SELECT value FROM rules WHERE type='ip' AND (policy LIKE 'proxy%' OR policy LIKE 'ha-%')")
 	if err == nil {
 		for staticRows.Next() {
 			var ip string
@@ -316,7 +324,7 @@ func collectStaticRoutesForMode(mode string, protected map[string]struct{}) (map
 		staticRows.Close()
 	}
 
-	geoipRows, err := db.Query("SELECT value FROM rules WHERE type='geoip' AND (policy LIKE 'proxy%' OR policy LIKE 'ha-%')")
+	geoipRows, err := d.Query("SELECT value FROM rules WHERE type='geoip' AND (policy LIKE 'proxy%' OR policy LIKE 'ha-%')")
 	if err == nil {
 		for geoipRows.Next() {
 			var tag string
@@ -338,7 +346,7 @@ func collectStaticRoutesForMode(mode string, protected map[string]struct{}) (map
 	}
 
 	if mode == "C" {
-		geositeRows, err := db.Query("SELECT value, policy FROM rules WHERE type='geosite' AND (policy LIKE 'proxy%' OR policy LIKE 'ha-%')")
+		geositeRows, err := d.Query("SELECT value, policy FROM rules WHERE type='geosite' AND (policy LIKE 'proxy%' OR policy LIKE 'ha-%')")
 		if err != nil {
 			log.Printf("[OSPF] geosite rule query failed: %v", err)
 		} else {
@@ -488,7 +496,7 @@ func collectStaticRoutesForMode(mode string, protected map[string]struct{}) (map
 			}
 		}
 
-		domainRows, err := db.Query("SELECT value, policy FROM rules WHERE type='domain' AND (policy LIKE 'proxy%' OR policy LIKE 'direct%' OR policy LIKE 'ha-%')")
+		domainRows, err := d.Query("SELECT value, policy FROM rules WHERE type='domain' AND (policy LIKE 'proxy%' OR policy LIKE 'direct%' OR policy LIKE 'ha-%')")
 		if err == nil {
 			type domainRule struct {
 				domain string

@@ -53,17 +53,17 @@ func TestCreateAndDeployRemoteNode_StoresNodeAndStartsAsyncDeploy(t *testing.T) 
 func TestCheckRemoteNode_UsesMockSSHConnector(t *testing.T) {
 	r := setupFeatureSuiteRouter(t)
 
-	oldConnect := remoteConnect
-	defer func() { remoteConnect = oldConnect }()
+	oldConnect := getRemoteConnect()
+	defer func() { setRemoteConnect(oldConnect) }()
 
-	remoteConnect = func(host string, port int, user string, authType string, credential string, expectedHostKey string) (remoteSSHClient, error) {
+	setRemoteConnect(func(host string, port int, user string, authType string, credential string, expectedHostKey string) (remoteSSHClient, error) {
 		return &fakeSSHClient{run: func(cmd string) (string, string, error) {
 			if cmd != "systemctl is-active xray" {
 				t.Fatalf("unexpected command: %s", cmd)
 			}
 			return "active\n", "", nil
 		}}, nil
-	}
+	})
 
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, authedRequest(http.MethodPost, "/api/remote_nodes/2/check"))
@@ -134,12 +134,12 @@ func TestRollbackRemoteNode_LoadsHistoryAndStartsMockDeploy(t *testing.T) {
 func TestCheckRemoteNode_OfflineWhenConnectorFails(t *testing.T) {
 	r := setupFeatureSuiteRouter(t)
 
-	oldConnect := remoteConnect
-	defer func() { remoteConnect = oldConnect }()
+	oldConnect := getRemoteConnect()
+	defer func() { setRemoteConnect(oldConnect) }()
 
-	remoteConnect = func(host string, port int, user string, authType string, credential string, expectedHostKey string) (remoteSSHClient, error) {
+	setRemoteConnect(func(host string, port int, user string, authType string, credential string, expectedHostKey string) (remoteSSHClient, error) {
 		return nil, errors.New("boom")
-	}
+	})
 
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, authedRequest(http.MethodPost, "/api/remote_nodes/2/check"))
@@ -154,14 +154,14 @@ func TestCheckRemoteNode_OfflineWhenConnectorFails(t *testing.T) {
 func TestDoDeployRoutine_LogsRemoteStdoutAndStderrOnFailure(t *testing.T) {
 	setupFeatureSuiteRouter(t)
 
-	oldConnect := remoteConnect
-	defer func() { remoteConnect = oldConnect }()
+	oldConnect := getRemoteConnect()
+	defer func() { setRemoteConnect(oldConnect) }()
 
-	remoteConnect = func(host string, port int, user string, authType string, credential string, expectedHostKey string) (remoteSSHClient, error) {
+	setRemoteConnect(func(host string, port int, user string, authType string, credential string, expectedHostKey string) (remoteSSHClient, error) {
 		return &fakeSSHClient{run: func(cmd string) (string, string, error) {
 			return "apt stdout", "apt stderr", fmt.Errorf("Process exited with status 100")
 		}}, nil
-	}
+	})
 
 	req := RemoteNodeReq{
 		Name:          "192.168.20.152",
@@ -200,18 +200,18 @@ func TestDoDeployRoutine_LogsRemoteStdoutAndStderrOnFailure(t *testing.T) {
 func TestDoDeployRoutine_RefusesToAutoTrustRotatedFingerprint(t *testing.T) {
 	setupFeatureSuiteRouter(t)
 
-	oldConnect := remoteConnect
-	defer func() { remoteConnect = oldConnect }()
+	oldConnect := getRemoteConnect()
+	defer func() { setRemoteConnect(oldConnect) }()
 
 	newFP := "SHA256:wo1Wuz3UhufbAdlhwnCKYyvQlYmcLeLBQVq3tkq1PRo"
 	calls := 0
-	remoteConnect = func(host string, port int, user string, authType string, credential string, expectedHostKey string) (remoteSSHClient, error) {
+	setRemoteConnect(func(host string, port int, user string, authType string, credential string, expectedHostKey string) (remoteSSHClient, error) {
 		calls++
 		if expectedHostKey != "SHA256:test" {
 			t.Fatalf("expected pinned key, got %s", expectedHostKey)
 		}
 		return nil, fmt.Errorf("failed to dial: ssh: handshake failed: Strict Host Key checking failed. The server's fingerprint is %s. Please update", newFP)
-	}
+	})
 
 	req := RemoteNodeReq{
 		Name:          "192.168.20.152",

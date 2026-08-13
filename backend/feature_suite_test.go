@@ -60,14 +60,14 @@ func setupFeatureSuiteRouter(t *testing.T) *gin.Engine {
 	if err != nil {
 		t.Fatal(err)
 	}
-	db = tdb
+	setDB(tdb)
 	t.Cleanup(func() {
 		applyMutex.Lock()
 		if applyTimer != nil {
 			applyTimer.Stop()
 			applyTimer = nil
 		}
-		db = oldDB
+		setDB(oldDB)
 		cachedGeosite = oldCachedGeosite
 		cachedGeoip = oldCachedGeoip
 		ospfLogs = oldOspfLogs

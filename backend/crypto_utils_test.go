@@ -36,9 +36,9 @@ func newTestDB(t *testing.T) (*sql.DB, func()) {
 	oldDB := db
 	oldKey := aesKey
 	oldMigrate := migrateLegacyCredentials
-	db = tdb
+	setDB(tdb)
 	aesKey = []byte("abcdef0123456789abcdef0123456789")
-	return tdb, func() { tdb.Close(); db = oldDB; aesKey = oldKey; migrateLegacyCredentials = oldMigrate }
+	return tdb, func() { tdb.Close(); setDB(oldDB); aesKey = oldKey; migrateLegacyCredentials = oldMigrate }
 }
 
 func TestMigrateLegacyCredentialsIfNeeded(t *testing.T) {

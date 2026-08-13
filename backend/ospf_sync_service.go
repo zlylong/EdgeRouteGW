@@ -97,9 +97,9 @@ func scheduleStaticRouteSync(mode string) {
 			staticRouteSyncMu.Unlock()
 
 			currentMode := mode
-			if db != nil {
+			if d := getDB(); d != nil {
 				var dbMode string
-				if err := db.QueryRow("SELECT value FROM settings WHERE key='mode'").Scan(&dbMode); err == nil && dbMode != "" {
+				if err := d.QueryRow("SELECT value FROM settings WHERE key='mode'").Scan(&dbMode); err == nil && dbMode != "" {
 					currentMode = dbMode
 				}
 			}
@@ -119,6 +119,10 @@ func scheduleStaticRouteSync(mode string) {
 }
 
 func syncStaticRoutesToOSPF(mode string) {
+	d := getDB()
+	if d == nil {
+		return
+	}
 	protected := collectProtectedRouteKeys()
 	staticRoutes, conflicts := collectStaticRoutesForMode(mode, protected)
 	staticRoutes, pruned := pruneStaticRoutesPreferBroad(staticRoutes)
@@ -130,7 +134,7 @@ func syncStaticRoutesToOSPF(mode string) {
 	}
 
 	var toDelete []string
-	oldRows, err := db.Query("SELECT ip FROM routes_table WHERE source='static'")
+	oldRows, err := d.Query("SELECT ip FROM routes_table WHERE source='static'")
 	if err == nil {
 		for oldRows.Next() {
 			var ip string
@@ -143,7 +147,7 @@ func syncStaticRoutesToOSPF(mode string) {
 		oldRows.Close()
 	}
 
-	txSync, err := db.Begin()
+	txSync, err := d.Begin()
 	if err != nil {
 		log.Printf("[WARN] syncStaticRoutesToOSPF begin tx failed: %v", err)
 		return

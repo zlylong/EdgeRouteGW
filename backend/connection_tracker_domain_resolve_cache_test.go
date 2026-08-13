@@ -4,7 +4,7 @@ import "testing"
 
 func TestLookupRecentDomainByIPFromResolveCache(t *testing.T) {
 	tdb, _ := setupTestDB(t)
-	db = tdb
+	setDB(tdb)
 	t.Cleanup(func() { db.Close() })
 
 	if _, err := db.Exec(`

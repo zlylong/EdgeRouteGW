@@ -17,7 +17,7 @@ func ensureConnectionTrackerLookupTables(t *testing.T) {
 
 func TestAttachRuleMatchMeta_UnmatchedReason_NoPolicyMatch(t *testing.T) {
 	tdb, _ := setupTestDB(t)
-	db = tdb
+	setDB(tdb)
 	t.Cleanup(func() { db.Close() })
 	ensureConnectionTrackerLookupTables(t)
 
@@ -45,7 +45,7 @@ func TestAttachRuleMatchMeta_UnmatchedReason_NoPolicyMatch(t *testing.T) {
 
 func TestAttachRuleMatchMeta_UnmatchedReason_IPWithoutDomainBackfill(t *testing.T) {
 	tdb, _ := setupTestDB(t)
-	db = tdb
+	setDB(tdb)
 	t.Cleanup(func() { db.Close() })
 	ensureConnectionTrackerLookupTables(t)
 
