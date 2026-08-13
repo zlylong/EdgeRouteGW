@@ -22,25 +22,30 @@ func applyOspfDeleteBatch(toDel []string) bool {
 		return false
 	}
 	var buf bytes.Buffer
+	applied := make([]string, 0, len(toDel))
 	for _, ip := range toDel {
 		addOspfLog("[DEL] " + ip + " (Miss count >= 3)")
 		routeStr := formatRouteCIDR(ip)
 		if routeStr == "" {
 			continue
 		}
+		applied = append(applied, ip)
 		buf.WriteString(fmt.Sprintf("no ip route %s 127.0.0.1 tag 100\n", routeStr))
+	}
+	if len(applied) == 0 {
+		return false
 	}
 	out, err := runVtyshConfigBatch(buf.String())
 	if err != nil {
-		log.Printf("[FRR] DEL batch=%d apply_failed: %v, out=%q", len(toDel), err, strings.TrimSpace(out))
+		log.Printf("[FRR] DEL batch=%d apply_failed: %v, out=%q", len(applied), err, strings.TrimSpace(out))
 		return false
 	}
 	tx, _ := db.Begin()
-	for _, ip := range toDel {
+	for _, ip := range applied {
 		tx.Exec("DELETE FROM routes_table WHERE ip=?", ip)
 	}
 	tx.Commit()
-	log.Printf("[FRR] DEL batch=%d applied via vtysh", len(toDel))
+	log.Printf("[FRR] DEL batch=%d applied via vtysh", len(applied))
 	return true
 }
 
