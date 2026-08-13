@@ -15,10 +15,10 @@ jobs:
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Setup Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v6
         with:
           go-version: '1.25'
           cache-dependency-path: backend/go.sum
@@ -46,7 +46,7 @@ jobs:
           test -s /tmp/release_notes.md
 
       - name: Create Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           name: ${{ contains(github.ref_name, '-rc.') && format('EdgeRouteGW {0} Pre-release', github.ref_name) || format('EdgeRouteGW {0} Stable', github.ref_name) }}
           prerelease: ${{ contains(github.ref_name, '-rc.') }}
