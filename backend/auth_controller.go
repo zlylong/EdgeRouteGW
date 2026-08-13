@@ -100,7 +100,7 @@ func (ctl *AuthController) ChangePassword(c *gin.Context) {
 		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "hash error"})
 		return
 	}
-	tx, err := db.Begin()
+	tx, err := getDB().Begin()
 	if err != nil {
 		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "db error"})
 		return

@@ -34,7 +34,7 @@ func (ctl *TestController) HandleHealthCheck(c *gin.Context) {
 	// 1. DB Check
 	dbStatus := "OK"
 	dbDetails := ""
-	if err := db.Ping(); err != nil {
+	if err := getDB().Ping(); err != nil {
 		dbStatus = "Error"
 		dbDetails = err.Error()
 	}
@@ -89,7 +89,7 @@ func (ctl *TestController) HandleHealthCheck(c *gin.Context) {
 
 	// 5. Mode-specific check
 	var mode string
-	_ = db.QueryRow("SELECT value FROM settings WHERE key='mode'").Scan(&mode)
+	_ = getDB().QueryRow("SELECT value FROM settings WHERE key='mode'").Scan(&mode)
 	if mode == "A" {
 		res := sysCmd.runCombinedOutput("nft", "list", "ruleset")
 		if res.Err != nil {
@@ -132,7 +132,7 @@ func (ctl *TestController) HandleTrace(c *gin.Context) {
 
 	active, defaultID := getActiveNodeContext()
 	var failoverMode string
-	_ = db.QueryRow("SELECT value FROM settings WHERE key='node_failover_mode'").Scan(&failoverMode)
+	_ = getDB().QueryRow("SELECT value FROM settings WHERE key='node_failover_mode'").Scan(&failoverMode)
 	strictFailover := normalizeNodeFailoverMode(strings.TrimSpace(strings.ToLower(failoverMode))) == "strict"
 
 	ip := net.ParseIP(target)
@@ -142,7 +142,7 @@ func (ctl *TestController) HandleTrace(c *gin.Context) {
 		targetType = "ip"
 	}
 
-	rows, err := db.Query("SELECT id, type, value, policy FROM rules ORDER BY priority ASC, id ASC")
+	rows, err := getDB().Query("SELECT id, type, value, policy FROM rules ORDER BY priority ASC, id ASC")
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "db error"})
 		return
@@ -192,7 +192,7 @@ func (ctl *TestController) HandleTrace(c *gin.Context) {
 					targetTag := strings.ToLower(strings.TrimSpace(rvalue))
 					isExclude := strings.HasPrefix(targetTag, "!")
 					pureTag := strings.TrimPrefix(targetTag, "!")
-					
+
 					tagFound := false
 					for _, t := range tags {
 						if t == pureTag {
@@ -246,10 +246,10 @@ func (ctl *TestController) HandleTrace(c *gin.Context) {
 	if result == nil {
 		// Default fallback
 		var defaultPolicy string
-		if err := db.QueryRow("SELECT value FROM settings WHERE key='lan_default_policy'").Scan(&defaultPolicy); err != nil {
+		if err := getDB().QueryRow("SELECT value FROM settings WHERE key='lan_default_policy'").Scan(&defaultPolicy); err != nil {
 			defaultPolicy = "proxy"
 		}
-		
+
 		outbound := "direct"
 		if strings.ToLower(defaultPolicy) == "proxy" {
 			if defaultID > 0 {

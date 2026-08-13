@@ -17,9 +17,9 @@ func initDB() {
 	}
 
 	// Enable WAL mode for high concurrency
-	db.Exec("PRAGMA journal_mode=WAL;")
-	db.Exec("PRAGMA synchronous=NORMAL;")
-	db.Exec("PRAGMA busy_timeout=5000;")
+	getDB().Exec("PRAGMA journal_mode=WAL;")
+	getDB().Exec("PRAGMA synchronous=NORMAL;")
+	getDB().Exec("PRAGMA busy_timeout=5000;")
 
 	tables := []string{
 
@@ -67,108 +67,108 @@ func initDB() {
 		);`,
 	}
 	for _, t := range tables {
-		if _, err := db.Exec(t); err != nil {
+		if _, err := getDB().Exec(t); err != nil {
 			log.Fatalf("[FATAL] failed to create table: %v", err)
 		}
 	}
-	if _, err := db.Exec("CREATE TABLE IF NOT EXISTS protected_ips (id INTEGER PRIMARY KEY AUTOINCREMENT, value TEXT NOT NULL UNIQUE, remark TEXT, created_at DATETIME DEFAULT CURRENT_TIMESTAMP)"); err != nil {
+	if _, err := getDB().Exec("CREATE TABLE IF NOT EXISTS protected_ips (id INTEGER PRIMARY KEY AUTOINCREMENT, value TEXT NOT NULL UNIQUE, remark TEXT, created_at DATETIME DEFAULT CURRENT_TIMESTAMP)"); err != nil {
 		log.Fatalf("[FATAL] failed to create protected_ips table: %v", err)
 	}
 	ensureGatewayEventTable()
 
-	if _, err := db.Exec("ALTER TABLE nodes ADD COLUMN params TEXT DEFAULT '{}'"); err != nil && !strings.Contains(err.Error(), "duplicate column name") {
+	if _, err := getDB().Exec("ALTER TABLE nodes ADD COLUMN params TEXT DEFAULT '{}'"); err != nil && !strings.Contains(err.Error(), "duplicate column name") {
 		log.Printf("[WARN] ALTER TABLE failed: %v", err)
 	}
 
-	if _, err := db.Exec("ALTER TABLE remote_nodes ADD COLUMN ssh_host_key TEXT DEFAULT ''"); err != nil && !strings.Contains(err.Error(), "duplicate column name") {
+	if _, err := getDB().Exec("ALTER TABLE remote_nodes ADD COLUMN ssh_host_key TEXT DEFAULT ''"); err != nil && !strings.Contains(err.Error(), "duplicate column name") {
 		log.Printf("[WARN] ALTER TABLE failed: %v", err)
 	}
-	if _, err := db.Exec("ALTER TABLE nodes ADD COLUMN ping INTEGER DEFAULT 0"); err != nil && !strings.Contains(err.Error(), "duplicate column name") {
+	if _, err := getDB().Exec("ALTER TABLE nodes ADD COLUMN ping INTEGER DEFAULT 0"); err != nil && !strings.Contains(err.Error(), "duplicate column name") {
 		log.Printf("[WARN] ALTER TABLE failed: %v", err)
 	}
-	if _, err := db.Exec("ALTER TABLE routes_table ADD COLUMN miss_count INTEGER DEFAULT 0"); err != nil && !strings.Contains(err.Error(), "duplicate column name") {
+	if _, err := getDB().Exec("ALTER TABLE routes_table ADD COLUMN miss_count INTEGER DEFAULT 0"); err != nil && !strings.Contains(err.Error(), "duplicate column name") {
 		log.Printf("[WARN] ALTER TABLE failed: %v", err)
 	}
-	if _, err := db.Exec("ALTER TABLE rules ADD COLUMN priority INTEGER NOT NULL DEFAULT 0"); err != nil && !strings.Contains(err.Error(), "duplicate column name") {
+	if _, err := getDB().Exec("ALTER TABLE rules ADD COLUMN priority INTEGER NOT NULL DEFAULT 0"); err != nil && !strings.Contains(err.Error(), "duplicate column name") {
 		log.Printf("[WARN] ALTER TABLE failed: %v", err)
 	}
-	if _, err := db.Exec("UPDATE rules SET priority=id WHERE priority=0"); err != nil {
+	if _, err := getDB().Exec("UPDATE rules SET priority=id WHERE priority=0"); err != nil {
 		log.Printf("[WARN] rules priority backfill failed: %v", err)
 	}
-	if _, err := db.Exec("CREATE INDEX IF NOT EXISTS idx_rules_priority_id ON rules(priority ASC, id ASC)"); err != nil {
+	if _, err := getDB().Exec("CREATE INDEX IF NOT EXISTS idx_rules_priority_id ON rules(priority ASC, id ASC)"); err != nil {
 		log.Printf("[WARN] create rules priority index failed: %v", err)
 	}
-	if _, err := db.Exec("CREATE INDEX IF NOT EXISTS idx_routes_status_firstseen ON routes_table(status, first_seen)"); err != nil {
+	if _, err := getDB().Exec("CREATE INDEX IF NOT EXISTS idx_routes_status_firstseen ON routes_table(status, first_seen)"); err != nil {
 		log.Printf("[WARN] create routes status+first_seen index failed: %v", err)
 	}
-	if _, err := db.Exec("CREATE INDEX IF NOT EXISTS idx_routes_status_misscount ON routes_table(status, miss_count)"); err != nil {
+	if _, err := getDB().Exec("CREATE INDEX IF NOT EXISTS idx_routes_status_misscount ON routes_table(status, miss_count)"); err != nil {
 		log.Printf("[WARN] create routes status+miss_count index failed: %v", err)
 	}
-	if _, err := db.Exec("CREATE INDEX IF NOT EXISTS idx_gateway_events_ts ON gateway_events(ts)"); err != nil {
+	if _, err := getDB().Exec("CREATE INDEX IF NOT EXISTS idx_gateway_events_ts ON gateway_events(ts)"); err != nil {
 		log.Printf("[WARN] create gateway_events ts index failed: %v", err)
 	}
-	if _, err := db.Exec("CREATE INDEX IF NOT EXISTS idx_node_traffic_history_ts_node ON node_traffic_history(ts, node_id)"); err != nil {
+	if _, err := getDB().Exec("CREATE INDEX IF NOT EXISTS idx_node_traffic_history_ts_node ON node_traffic_history(ts, node_id)"); err != nil {
 		log.Printf("[WARN] create node_traffic_history ts+node_id index failed: %v", err)
 	}
-	if _, err := db.Exec("ALTER TABLE rules ADD COLUMN group_id TEXT NOT NULL DEFAULT ''"); err != nil && !strings.Contains(err.Error(), "duplicate column name") {
+	if _, err := getDB().Exec("ALTER TABLE rules ADD COLUMN group_id TEXT NOT NULL DEFAULT ''"); err != nil && !strings.Contains(err.Error(), "duplicate column name") {
 		log.Printf("[WARN] ALTER TABLE failed: %v", err)
 	}
-	if _, err := db.Exec("ALTER TABLE rules ADD COLUMN group_name TEXT NOT NULL DEFAULT ''"); err != nil && !strings.Contains(err.Error(), "duplicate column name") {
+	if _, err := getDB().Exec("ALTER TABLE rules ADD COLUMN group_name TEXT NOT NULL DEFAULT ''"); err != nil && !strings.Contains(err.Error(), "duplicate column name") {
 		log.Printf("[WARN] ALTER TABLE failed: %v", err)
 	}
 
-	if _, err := db.Exec("INSERT OR IGNORE INTO settings (key, value) VALUES ('mode', 'B')"); err != nil {
+	if _, err := getDB().Exec("INSERT OR IGNORE INTO settings (key, value) VALUES ('mode', 'B')"); err != nil {
 		log.Printf("[WARN] default data insert failed: %v", err)
 	}
-	if _, err := db.Exec("INSERT OR IGNORE INTO settings (key, value) VALUES ('dns_local', '119.29.29.29,223.5.5.5')"); err != nil {
+	if _, err := getDB().Exec("INSERT OR IGNORE INTO settings (key, value) VALUES ('dns_local', '119.29.29.29,223.5.5.5')"); err != nil {
 		log.Printf("[WARN] default data insert failed: %v", err)
 	}
-	if _, err := db.Exec("INSERT OR IGNORE INTO settings (key, value) VALUES ('dns_remote', '1.1.1.1,8.8.8.8')"); err != nil {
+	if _, err := getDB().Exec("INSERT OR IGNORE INTO settings (key, value) VALUES ('dns_remote', '1.1.1.1,8.8.8.8')"); err != nil {
 		log.Printf("[WARN] default data insert failed: %v", err)
 	}
-	if _, err := db.Exec("INSERT OR IGNORE INTO settings (key, value) VALUES ('dns_lazy', 'true')"); err != nil {
+	if _, err := getDB().Exec("INSERT OR IGNORE INTO settings (key, value) VALUES ('dns_lazy', 'true')"); err != nil {
 		log.Printf("[WARN] default data insert failed: %v", err)
 	}
-	if _, err := db.Exec("INSERT OR IGNORE INTO settings (key, value) VALUES ('dns_mode', 'smart')"); err != nil {
+	if _, err := getDB().Exec("INSERT OR IGNORE INTO settings (key, value) VALUES ('dns_mode', 'smart')"); err != nil {
 		log.Printf("[WARN] default data insert failed: %v", err)
 	}
-	if _, err := db.Exec("INSERT OR IGNORE INTO settings (key, value) VALUES ('cron_enabled', 'true')"); err != nil {
+	if _, err := getDB().Exec("INSERT OR IGNORE INTO settings (key, value) VALUES ('cron_enabled', 'true')"); err != nil {
 		log.Printf("[WARN] default data insert failed: %v", err)
 	}
-	if _, err := db.Exec("INSERT OR IGNORE INTO settings (key, value) VALUES ('cron_time', '04:00')"); err != nil {
+	if _, err := getDB().Exec("INSERT OR IGNORE INTO settings (key, value) VALUES ('cron_time', '04:00')"); err != nil {
 		log.Printf("[WARN] default data insert failed: %v", err)
 	}
-	if _, err := db.Exec("INSERT OR IGNORE INTO settings (key, value) VALUES ('cron_schedule_type', 'daily')"); err != nil {
+	if _, err := getDB().Exec("INSERT OR IGNORE INTO settings (key, value) VALUES ('cron_schedule_type', 'daily')"); err != nil {
 		log.Printf("[WARN] default data insert failed: %v", err)
 	}
-	if _, err := db.Exec("INSERT OR IGNORE INTO settings (key, value) VALUES ('cron_weekday', '1')"); err != nil {
+	if _, err := getDB().Exec("INSERT OR IGNORE INTO settings (key, value) VALUES ('cron_weekday', '1')"); err != nil {
 		log.Printf("[WARN] default data insert failed: %v", err)
 	}
-	if _, err := db.Exec("INSERT OR IGNORE INTO settings (key, value) VALUES ('cron_monthday', '1')"); err != nil {
+	if _, err := getDB().Exec("INSERT OR IGNORE INTO settings (key, value) VALUES ('cron_monthday', '1')"); err != nil {
 		log.Printf("[WARN] default data insert failed: %v", err)
 	}
-	if _, err := db.Exec("INSERT OR IGNORE INTO settings (key, value) VALUES ('ospf_push_batch_limit', '500')"); err != nil {
+	if _, err := getDB().Exec("INSERT OR IGNORE INTO settings (key, value) VALUES ('ospf_push_batch_limit', '500')"); err != nil {
 		log.Printf("[WARN] default data insert failed: %v", err)
 	}
-	if _, err := db.Exec("INSERT OR IGNORE INTO settings (key, value) VALUES ('ospf_push_interval_seconds', '10')"); err != nil {
+	if _, err := getDB().Exec("INSERT OR IGNORE INTO settings (key, value) VALUES ('ospf_push_interval_seconds', '10')"); err != nil {
 		log.Printf("[WARN] default data insert failed: %v", err)
 	}
-	if _, err := db.Exec("INSERT OR IGNORE INTO settings (key, value) VALUES ('ospf_resolve_workers', '16')"); err != nil {
+	if _, err := getDB().Exec("INSERT OR IGNORE INTO settings (key, value) VALUES ('ospf_resolve_workers', '16')"); err != nil {
 		log.Printf("[WARN] default data insert failed: %v", err)
 	}
-	if _, err := db.Exec("INSERT OR IGNORE INTO settings (key, value) VALUES ('lan_default_policy', 'proxy')"); err != nil {
+	if _, err := getDB().Exec("INSERT OR IGNORE INTO settings (key, value) VALUES ('lan_default_policy', 'proxy')"); err != nil {
 		log.Printf("[WARN] default data insert failed: %v", err)
 	}
 
 	purgeDirtyRoutesTable()
-	db.Exec("UPDATE routes_table SET status='candidate' WHERE status='published'")
+	getDB().Exec("UPDATE routes_table SET status='candidate' WHERE status='published'")
 
 	migrateLegacyCredentialsIfNeeded()
 	ensurePasswordInitialized()
 }
 
 func purgeDirtyRoutesTable() {
-	rows, err := db.Query("SELECT ip FROM routes_table")
+	rows, err := getDB().Query("SELECT ip FROM routes_table")
 	if err != nil {
 		log.Printf("[WARN] purge dirty routes query failed: %v", err)
 		return
@@ -189,7 +189,7 @@ func purgeDirtyRoutesTable() {
 		return
 	}
 
-	tx, err := db.Begin()
+	tx, err := getDB().Begin()
 	if err != nil {
 		log.Printf("[WARN] purge dirty routes begin tx failed: %v", err)
 		return
@@ -210,11 +210,11 @@ func purgeDirtyRoutesTable() {
 
 func ensurePasswordInitialized() {
 	var pwdHash, legacyPwd string
-	err := db.QueryRow("SELECT value FROM settings WHERE key='password_hash'").Scan(&pwdHash)
+	err := getDB().QueryRow("SELECT value FROM settings WHERE key='password_hash'").Scan(&pwdHash)
 	if err != nil && err != sql.ErrNoRows {
 		log.Printf("[WARN] get password_hash err: %v", err)
 	}
-	err = db.QueryRow("SELECT value FROM settings WHERE key='password'").Scan(&legacyPwd)
+	err = getDB().QueryRow("SELECT value FROM settings WHERE key='password'").Scan(&legacyPwd)
 	if err != nil && err != sql.ErrNoRows {
 		log.Printf("[WARN] get legacy pwd err: %v", err)
 	}
@@ -241,7 +241,7 @@ func ensurePasswordInitialized() {
 		log.Printf("[SECURITY] password bootstrap hash failed: %v", err)
 		return
 	}
-	if _, err = db.Exec("INSERT OR REPLACE INTO settings (key, value) VALUES ('password_hash', ?)", hash); err != nil {
+	if _, err = getDB().Exec("INSERT OR REPLACE INTO settings (key, value) VALUES ('password_hash', ?)", hash); err != nil {
 		log.Printf("[SECURITY] password bootstrap db write failed: %v", err)
 		return
 	}

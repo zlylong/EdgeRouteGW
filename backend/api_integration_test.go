@@ -47,7 +47,7 @@ func setupTestRouter(t *testing.T) *gin.Engine {
 	t.Helper()
 	gin.SetMode(gin.TestMode)
 	tdb, _ := setupTestDB(t)
-	db = tdb
+	setDB(tdb)
 	t.Cleanup(func() {
 		db.Close()
 	})

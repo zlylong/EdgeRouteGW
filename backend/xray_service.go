@@ -121,16 +121,16 @@ func applyXrayConfigInternal(restart bool) error {
 	}
 
 	var mode string
-	db.QueryRow("SELECT value FROM settings WHERE key='mode'").Scan(&mode)
+	getDB().QueryRow("SELECT value FROM settings WHERE key='mode'").Scan(&mode)
 	config := buildBaseXrayConfig(mode)
 
-	rows, err := db.Query("SELECT id, name, type, address, port, uuid, COALESCE(params, '{}'), active FROM nodes")
+	rows, err := getDB().Query("SELECT id, name, type, address, port, uuid, COALESCE(params, '{}'), active FROM nodes")
 	if err != nil {
 		return err
 	}
 	defer rows.Close()
 	var defNodeStr string
-	db.QueryRow("SELECT value FROM settings WHERE key='default_node_id'").Scan(&defNodeStr)
+	getDB().QueryRow("SELECT value FROM settings WHERE key='default_node_id'").Scan(&defNodeStr)
 	defaultNodeId, _ := strconv.Atoi(defNodeStr)
 
 	var activeIds []int
@@ -240,7 +240,7 @@ func applyXrayConfigInternal(restart bool) error {
 		}
 	}
 
-	rRows, err := db.Query("SELECT id, type, value, policy FROM rules ORDER BY priority ASC, id ASC")
+	rRows, err := getDB().Query("SELECT id, type, value, policy FROM rules ORDER BY priority ASC, id ASC")
 	if err != nil {
 		log.Printf("[WARN] routing rules query err: %v", err)
 		return err
@@ -314,11 +314,11 @@ func applyXrayConfigInternal(restart bool) error {
 	}
 
 	defaultPolicy := "proxy"
-	if err := db.QueryRow("SELECT value FROM settings WHERE key='lan_default_policy'").Scan(&defaultPolicy); err != nil || strings.TrimSpace(defaultPolicy) == "" {
+	if err := getDB().QueryRow("SELECT value FROM settings WHERE key='lan_default_policy'").Scan(&defaultPolicy); err != nil || strings.TrimSpace(defaultPolicy) == "" {
 		defaultPolicy = "proxy"
 	}
 	var failoverMode string
-	_ = db.QueryRow("SELECT value FROM settings WHERE key='node_failover_mode'").Scan(&failoverMode)
+	_ = getDB().QueryRow("SELECT value FROM settings WHERE key='node_failover_mode'").Scan(&failoverMode)
 	strictFailover := normalizeNodeFailoverMode(strings.TrimSpace(strings.ToLower(failoverMode))) == "strict"
 	catchAllRule := map[string]interface{}{
 		"type":    "field",

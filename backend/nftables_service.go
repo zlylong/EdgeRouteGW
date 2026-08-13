@@ -94,12 +94,12 @@ table inet proxygw {
 
 func applyNftablesConfig() error {
 	var defaultPolicy string
-	if err := db.QueryRow("SELECT value FROM settings WHERE key='lan_default_policy'").Scan(&defaultPolicy); err != nil {
+	if err := getDB().QueryRow("SELECT value FROM settings WHERE key='lan_default_policy'").Scan(&defaultPolicy); err != nil {
 		defaultPolicy = "proxy"
 	}
 
 	var mode string
-	if err := db.QueryRow("SELECT value FROM settings WHERE key='mode'").Scan(&mode); err != nil {
+	if err := getDB().QueryRow("SELECT value FROM settings WHERE key='mode'").Scan(&mode); err != nil {
 		mode = "A" // default
 	}
 
@@ -110,7 +110,7 @@ func applyNftablesConfig() error {
 	if mode == "A" {
 
 		// Mode A protected IP list: always direct, to avoid disconnect during xray rule reload
-		if rows, err := db.Query("SELECT value FROM protected_ips ORDER BY id"); err == nil {
+		if rows, err := getDB().Query("SELECT value FROM protected_ips ORDER BY id"); err == nil {
 			defer rows.Close()
 			for rows.Next() {
 				var v string
@@ -126,7 +126,7 @@ func applyNftablesConfig() error {
 				}
 			}
 		}
-		rows, err := db.Query("SELECT type, value, policy FROM lan_acls")
+		rows, err := getDB().Query("SELECT type, value, policy FROM lan_acls")
 		if err == nil {
 			defer rows.Close()
 			for rows.Next() {

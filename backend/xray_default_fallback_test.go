@@ -10,7 +10,7 @@ import (
 func renderXrayConfigForFallbackTest(t *testing.T, mode, lanPolicy, failoverMode string, nodeActive bool) map[string]any {
 	t.Helper()
 	tdb, _ := setupTestDB(t)
-	db = tdb
+	setDB(tdb)
 	t.Cleanup(func() { db.Close() })
 
 	if _, err := db.Exec(`INSERT OR REPLACE INTO settings(key,value) VALUES ('mode',?)`, mode); err != nil {

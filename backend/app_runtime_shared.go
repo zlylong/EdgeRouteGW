@@ -17,6 +17,20 @@ var (
 	cacheMutex    sync.Mutex
 )
 
+var dbMu sync.RWMutex
+
+func getDB() *sql.DB {
+	dbMu.RLock()
+	defer dbMu.RUnlock()
+	return db
+}
+
+func setDB(d *sql.DB) {
+	dbMu.Lock()
+	db = d
+	dbMu.Unlock()
+}
+
 // goSafe runs fn in a goroutine with panic recovery, logging the stack trace.
 // Use this instead of bare "go fn()" for all background goroutines.
 func goSafe(fn func()) {
@@ -123,7 +137,7 @@ func clampOspfResolveWorkers(v int) int {
 func readIntSettingWithDefault(key string, fallback int, clamp func(int) int) int {
 	value := fallback
 	var raw string
-	err := db.QueryRow("SELECT value FROM settings WHERE key=?", key).Scan(&raw)
+	err := getDB().QueryRow("SELECT value FROM settings WHERE key=?", key).Scan(&raw)
 	switch {
 	case err == nil:
 		if parsed, parseErr := strconv.Atoi(strings.TrimSpace(raw)); parseErr == nil {
@@ -135,7 +149,7 @@ func readIntSettingWithDefault(key string, fallback int, clamp func(int) int) in
 	if clamp != nil {
 		value = clamp(value)
 	}
-	if _, err := db.Exec("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)", key, strconv.Itoa(value)); err != nil {
+	if _, err := getDB().Exec("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)", key, strconv.Itoa(value)); err != nil {
 		log.Printf("[WARN] persist default setting %s failed: %v", key, err)
 	}
 	return value

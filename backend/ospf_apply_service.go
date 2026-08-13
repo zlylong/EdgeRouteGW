@@ -40,7 +40,7 @@ func applyOspfDeleteBatch(toDel []string) bool {
 		log.Printf("[FRR] DEL batch=%d apply_failed: %v, out=%q", len(applied), err, strings.TrimSpace(out))
 		return false
 	}
-	tx, _ := db.Begin()
+	tx, _ := getDB().Begin()
 	for _, ip := range applied {
 		tx.Exec("DELETE FROM routes_table WHERE ip=?", ip)
 	}
@@ -81,7 +81,7 @@ func applyOspfAddBatch(toAdd []string) bool {
 			log.Printf("[FRR] ADD blocked by ospf publish allowlist: requested=%d skipped=%d", len(toAdd), skipped)
 			// GC blocked candidates: if a candidate is blocked by policy/allowlist,
 			// mark it as 'failed_policy' so it doesn't stay in 'candidate' forever.
-			tx, _ := db.Begin()
+			tx, _ := getDB().Begin()
 			for _, ip := range toAdd {
 				// We don't want to keep retrying these in every sync cycle
 				tx.Exec("UPDATE routes_table SET status='failed_policy', miss_count=miss_count+1 WHERE ip=? AND status='candidate'", ip)
@@ -95,7 +95,7 @@ func applyOspfAddBatch(toAdd []string) bool {
 		log.Printf("[FRR] ADD batch=%d apply_failed: %v, out=%q", len(allowed), err, strings.TrimSpace(out))
 		return false
 	}
-	tx, _ := db.Begin()
+	tx, _ := getDB().Begin()
 	for _, ip := range allowed {
 		tx.Exec("UPDATE routes_table SET status='published', last_seen=datetime('now'), miss_count=0 WHERE ip=?", ip)
 	}

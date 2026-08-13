@@ -91,19 +91,19 @@ func calcNextCronRun(now time.Time, scheduleType string, hour int, minute int, w
 func loadCronScheduleSettings() cronScheduleSettings {
 	cfg := cronScheduleSettings{Enabled: false, Time: "04:00", ScheduleType: "daily", Weekday: 1, Monthday: 1}
 	var enabled, cronTime, scheduleType, weekday, monthday string
-	if err := db.QueryRow("SELECT value FROM settings WHERE key='cron_enabled'").Scan(&enabled); err != nil && err != sql.ErrNoRows {
+	if err := getDB().QueryRow("SELECT value FROM settings WHERE key='cron_enabled'").Scan(&enabled); err != nil && err != sql.ErrNoRows {
 		log.Printf("[WARN] cron_enabled check err: %v", err)
 	}
-	if err := db.QueryRow("SELECT value FROM settings WHERE key='cron_time'").Scan(&cronTime); err != nil && err != sql.ErrNoRows {
+	if err := getDB().QueryRow("SELECT value FROM settings WHERE key='cron_time'").Scan(&cronTime); err != nil && err != sql.ErrNoRows {
 		log.Printf("[WARN] cron_time check err: %v", err)
 	}
-	if err := db.QueryRow("SELECT value FROM settings WHERE key='cron_schedule_type'").Scan(&scheduleType); err != nil && err != sql.ErrNoRows {
+	if err := getDB().QueryRow("SELECT value FROM settings WHERE key='cron_schedule_type'").Scan(&scheduleType); err != nil && err != sql.ErrNoRows {
 		log.Printf("[WARN] cron_schedule_type check err: %v", err)
 	}
-	if err := db.QueryRow("SELECT value FROM settings WHERE key='cron_weekday'").Scan(&weekday); err != nil && err != sql.ErrNoRows {
+	if err := getDB().QueryRow("SELECT value FROM settings WHERE key='cron_weekday'").Scan(&weekday); err != nil && err != sql.ErrNoRows {
 		log.Printf("[WARN] cron_weekday check err: %v", err)
 	}
-	if err := db.QueryRow("SELECT value FROM settings WHERE key='cron_monthday'").Scan(&monthday); err != nil && err != sql.ErrNoRows {
+	if err := getDB().QueryRow("SELECT value FROM settings WHERE key='cron_monthday'").Scan(&monthday); err != nil && err != sql.ErrNoRows {
 		log.Printf("[WARN] cron_monthday check err: %v", err)
 	}
 	cfg.Enabled = strings.TrimSpace(enabled) == "true"
@@ -193,7 +193,7 @@ func domainIPUpdater() {
 	ticker := time.NewTicker(5 * time.Minute)
 	for range ticker.C {
 		var mode string
-		if err := db.QueryRow("SELECT value FROM settings WHERE key='mode'").Scan(&mode); err != nil {
+		if err := getDB().QueryRow("SELECT value FROM settings WHERE key='mode'").Scan(&mode); err != nil {
 			mode = "A"
 		}
 		if mode == "C" {

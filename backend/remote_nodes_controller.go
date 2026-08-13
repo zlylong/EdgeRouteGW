@@ -11,6 +11,7 @@ import (
 	"regexp"
 	"runtime/debug"
 	"strings"
+	"sync"
 )
 
 type RemoteNodeReq struct {
@@ -33,6 +34,20 @@ type remoteSSHClient interface {
 
 var remoteConnect = func(host string, port int, user string, authType string, credential string, expectedHostKey string) (remoteSSHClient, error) {
 	return remote_deploy.Connect(host, port, user, authType, credential, expectedHostKey)
+}
+
+var remoteConnectMu sync.RWMutex
+
+func getRemoteConnect() func(host string, port int, user string, authType string, credential string, expectedHostKey string) (remoteSSHClient, error) {
+	remoteConnectMu.RLock()
+	defer remoteConnectMu.RUnlock()
+	return remoteConnect
+}
+
+func setRemoteConnect(fn func(host string, port int, user string, authType string, credential string, expectedHostKey string) (remoteSSHClient, error)) {
+	remoteConnectMu.Lock()
+	remoteConnect = fn
+	remoteConnectMu.Unlock()
 }
 
 var startDeployRoutine = func(id int64, req RemoteNodeReq, isUpdate bool, params map[string]interface{}) {
@@ -199,7 +214,7 @@ func extractFingerprintFromSSHError(err error) string {
 }
 
 func connectWithAutoHostKey(id int64, req *RemoteNodeReq) (remoteSSHClient, error) {
-	sshClient, err := remoteConnect(req.SSHHost, req.SSHPort, req.SSHUser, req.SSHAuthType, req.SSHCredential, req.SSHHostKey)
+	sshClient, err := getRemoteConnect()(req.SSHHost, req.SSHPort, req.SSHUser, req.SSHAuthType, req.SSHCredential, req.SSHHostKey)
 	if err == nil {
 		return sshClient, nil
 	}
@@ -233,7 +248,7 @@ func connectWithAutoHostKey(id int64, req *RemoteNodeReq) (remoteSSHClient, erro
 	logAction(id, "deploy", "running", fmt.Sprintf("Pinned initial SSH host fingerprint to %s and retrying deployment", fp))
 	req.SSHHostKey = fp
 
-	sshClient, err = remoteConnect(req.SSHHost, req.SSHPort, req.SSHUser, req.SSHAuthType, req.SSHCredential, req.SSHHostKey)
+	sshClient, err = getRemoteConnect()(req.SSHHost, req.SSHPort, req.SSHUser, req.SSHAuthType, req.SSHCredential, req.SSHHostKey)
 	if err != nil {
 		return nil, err
 	}
@@ -419,7 +434,7 @@ func deleteRemoteNode(c *gin.Context) {
 	req, err := fetchNodeReq(id)
 	if err == nil {
 		goSafe(func() {
-			client, err := remoteConnect(req.SSHHost, req.SSHPort, req.SSHUser, req.SSHAuthType, req.SSHCredential, req.SSHHostKey)
+			client, err := getRemoteConnect()(req.SSHHost, req.SSHPort, req.SSHUser, req.SSHAuthType, req.SSHCredential, req.SSHHostKey)
 			if err == nil {
 				defer client.Close()
 				if req.Type == "wg" {
@@ -447,7 +462,7 @@ func checkRemoteNode(c *gin.Context) {
 		return
 	}
 
-	client, err := remoteConnect(info.Host, info.Port, info.User, info.AuthType, info.Credential, info.HostKey)
+	client, err := getRemoteConnect()(info.Host, info.Port, info.User, info.AuthType, info.Credential, info.HostKey)
 	if err != nil {
 		NewRemoteNodesRepository().SetRemoteNodeStatus(id, "Offline")
 		logAction(0, "check", "failed", fmt.Sprintf("Node %s SSH check failed: %v", id, err))

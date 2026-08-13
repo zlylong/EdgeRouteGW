@@ -26,7 +26,7 @@ func applyNodeChangeDynamically(extraRemoveTags ...string) error {
 
 func syncXrayOutboundsDynamically(extraRemoveTags ...string) error {
 	removeTags := map[string]struct{}{}
-	rows, err := db.Query("SELECT id FROM nodes")
+	rows, err := getDB().Query("SELECT id FROM nodes")
 	if err != nil {
 		return fmt.Errorf("query node ids failed: %w", err)
 	}

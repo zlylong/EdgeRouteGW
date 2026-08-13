@@ -219,7 +219,7 @@ func lookupRecentDomainByIP(ip string) string {
 		return ""
 	}
 	var domain string
-	if err := db.QueryRow(
+	if err := getDB().QueryRow(
 		"SELECT COALESCE(domain, '') FROM routes_table WHERE (ip=? OR ip=? || '/32') AND COALESCE(domain, '') <> '' ORDER BY CASE WHEN ip=? THEN 0 ELSE 1 END, datetime(last_seen) DESC LIMIT 1",
 		ip, ip, ip,
 	).Scan(&domain); err == nil {
@@ -234,7 +234,7 @@ func lookupRecentDomainByIPFromResolveCache(ip string) string {
 		return ""
 	}
 	var domain string
-	if err := db.QueryRow(
+	if err := getDB().QueryRow(
 		"SELECT COALESCE(domain, '') FROM domain_resolve_cache WHERE ips_json LIKE '%' || char(34) || ? || char(34) || '%' ORDER BY CAST(COALESCE(resolved_at, '0') AS INTEGER) DESC LIMIT 1",
 		ip,
 	).Scan(&domain); err != nil {
@@ -296,7 +296,7 @@ func policyMatchesConnection(rulePolicy, connPolicy string) bool {
 }
 
 func attachRuleMatchMeta(records []ConnectionRecord) []ConnectionRecord {
-	rows, err := db.Query("SELECT id, type, value, policy FROM rules ORDER BY priority ASC, id ASC")
+	rows, err := getDB().Query("SELECT id, type, value, policy FROM rules ORDER BY priority ASC, id ASC")
 	if err != nil {
 		return records
 	}

@@ -98,7 +98,7 @@ func (ctl *DNSController) SetDNS(c *gin.Context) {
 		return
 	}
 	// Clear domain resolve cache to ensure new DNS settings take effect for OSPF
-	_, _ = db.Exec("DELETE FROM domain_resolve_cache")
+	_, _ = getDB().Exec("DELETE FROM domain_resolve_cache")
 	log.Println("[INFO] Cleared domain_resolve_cache due to DNS settings update")
 
 	c.JSON(http.StatusOK, gin.H{

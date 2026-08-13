@@ -83,7 +83,7 @@ func hashPassword(password string) (string, error) {
 
 func verifyAndMaybeMigratePassword(input string) (bool, error) {
 	var hash string
-	err := db.QueryRow("SELECT value FROM settings WHERE key='password_hash'").Scan(&hash)
+	err := getDB().QueryRow("SELECT value FROM settings WHERE key='password_hash'").Scan(&hash)
 	if err != nil && err != sql.ErrNoRows {
 		return false, err
 	}
@@ -96,7 +96,7 @@ func verifyAndMaybeMigratePassword(input string) (bool, error) {
 	}
 
 	var legacyPwd string
-	err = db.QueryRow("SELECT value FROM settings WHERE key='password'").Scan(&legacyPwd)
+	err = getDB().QueryRow("SELECT value FROM settings WHERE key='password'").Scan(&legacyPwd)
 	if err != nil && err != sql.ErrNoRows {
 		return false, err
 	}
@@ -108,7 +108,7 @@ func verifyAndMaybeMigratePassword(input string) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	tx, err := db.Begin()
+	tx, err := getDB().Begin()
 	if err != nil {
 		return false, err
 	}

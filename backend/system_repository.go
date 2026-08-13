@@ -18,57 +18,57 @@ type SystemRepository struct{}
 func NewSystemRepository() *SystemRepository { return &SystemRepository{} }
 
 func (r *SystemRepository) SaveNetworkRoleSettings(managementIface, serviceIface string) error {
-	if _, err := db.Exec("INSERT OR REPLACE INTO settings (key, value) VALUES ('management_iface', ?)", managementIface); err != nil {
+	if _, err := getDB().Exec("INSERT OR REPLACE INTO settings (key, value) VALUES ('management_iface', ?)", managementIface); err != nil {
 		return err
 	}
-	if _, err := db.Exec("INSERT OR REPLACE INTO settings (key, value) VALUES ('service_iface', ?)", serviceIface); err != nil {
+	if _, err := getDB().Exec("INSERT OR REPLACE INTO settings (key, value) VALUES ('service_iface', ?)", serviceIface); err != nil {
 		return err
 	}
 	return nil
 }
 
 func (r *SystemRepository) SaveMode(mode string) error {
-	_, err := db.Exec("INSERT OR REPLACE INTO settings (key, value) VALUES ('mode', ?)", mode)
+	_, err := getDB().Exec("INSERT OR REPLACE INTO settings (key, value) VALUES ('mode', ?)", mode)
 	return err
 }
 
 func (r *SystemRepository) SaveCronDefaults(cronTime, scheduleType string, weekday, monthday int) {
-	_, _ = db.Exec("INSERT OR REPLACE INTO settings (key, value) VALUES ('cron_time', ?)", cronTime)
-	_, _ = db.Exec("INSERT OR REPLACE INTO settings (key, value) VALUES ('cron_schedule_type', ?)", scheduleType)
-	_, _ = db.Exec("INSERT OR REPLACE INTO settings (key, value) VALUES ('cron_weekday', ?)", strconv.Itoa(weekday))
-	_, _ = db.Exec("INSERT OR REPLACE INTO settings (key, value) VALUES ('cron_monthday', ?)", strconv.Itoa(monthday))
+	_, _ = getDB().Exec("INSERT OR REPLACE INTO settings (key, value) VALUES ('cron_time', ?)", cronTime)
+	_, _ = getDB().Exec("INSERT OR REPLACE INTO settings (key, value) VALUES ('cron_schedule_type', ?)", scheduleType)
+	_, _ = getDB().Exec("INSERT OR REPLACE INTO settings (key, value) VALUES ('cron_weekday', ?)", strconv.Itoa(weekday))
+	_, _ = getDB().Exec("INSERT OR REPLACE INTO settings (key, value) VALUES ('cron_monthday', ?)", strconv.Itoa(monthday))
 }
 
 func (r *SystemRepository) SaveCronSettings(enabled bool, cronTime, scheduleType string, weekday, monthday int) error {
-	if _, err := db.Exec("INSERT OR REPLACE INTO settings (key, value) VALUES ('cron_enabled', ?)", fmt.Sprintf("%t", enabled)); err != nil {
+	if _, err := getDB().Exec("INSERT OR REPLACE INTO settings (key, value) VALUES ('cron_enabled', ?)", fmt.Sprintf("%t", enabled)); err != nil {
 		return err
 	}
-	if _, err := db.Exec("INSERT OR REPLACE INTO settings (key, value) VALUES ('cron_time', ?)", cronTime); err != nil {
+	if _, err := getDB().Exec("INSERT OR REPLACE INTO settings (key, value) VALUES ('cron_time', ?)", cronTime); err != nil {
 		return err
 	}
-	if _, err := db.Exec("INSERT OR REPLACE INTO settings (key, value) VALUES ('cron_schedule_type', ?)", scheduleType); err != nil {
+	if _, err := getDB().Exec("INSERT OR REPLACE INTO settings (key, value) VALUES ('cron_schedule_type', ?)", scheduleType); err != nil {
 		return err
 	}
-	if _, err := db.Exec("INSERT OR REPLACE INTO settings (key, value) VALUES ('cron_weekday', ?)", strconv.Itoa(weekday)); err != nil {
+	if _, err := getDB().Exec("INSERT OR REPLACE INTO settings (key, value) VALUES ('cron_weekday', ?)", strconv.Itoa(weekday)); err != nil {
 		return err
 	}
-	if _, err := db.Exec("INSERT OR REPLACE INTO settings (key, value) VALUES ('cron_monthday', ?)", strconv.Itoa(monthday)); err != nil {
+	if _, err := getDB().Exec("INSERT OR REPLACE INTO settings (key, value) VALUES ('cron_monthday', ?)", strconv.Itoa(monthday)); err != nil {
 		return err
 	}
 	return nil
 }
 
 func (r *SystemRepository) SaveOspfSettings(batchLimit, intervalSeconds, resolveWorkers int, allowlist string) error {
-	if _, err := db.Exec("INSERT OR REPLACE INTO settings (key, value) VALUES ('ospf_push_batch_limit', ?)", strconv.Itoa(batchLimit)); err != nil {
+	if _, err := getDB().Exec("INSERT OR REPLACE INTO settings (key, value) VALUES ('ospf_push_batch_limit', ?)", strconv.Itoa(batchLimit)); err != nil {
 		return err
 	}
-	if _, err := db.Exec("INSERT OR REPLACE INTO settings (key, value) VALUES ('ospf_push_interval_seconds', ?)", strconv.Itoa(intervalSeconds)); err != nil {
+	if _, err := getDB().Exec("INSERT OR REPLACE INTO settings (key, value) VALUES ('ospf_push_interval_seconds', ?)", strconv.Itoa(intervalSeconds)); err != nil {
 		return err
 	}
-	if _, err := db.Exec("INSERT OR REPLACE INTO settings (key, value) VALUES ('ospf_resolve_workers', ?)", strconv.Itoa(resolveWorkers)); err != nil {
+	if _, err := getDB().Exec("INSERT OR REPLACE INTO settings (key, value) VALUES ('ospf_resolve_workers', ?)", strconv.Itoa(resolveWorkers)); err != nil {
 		return err
 	}
-	if _, err := db.Exec("INSERT OR REPLACE INTO settings (key, value) VALUES ('ospf_publish_allowlist', ?)", allowlist); err != nil {
+	if _, err := getDB().Exec("INSERT OR REPLACE INTO settings (key, value) VALUES ('ospf_publish_allowlist', ?)", allowlist); err != nil {
 		return err
 	}
 	return nil
@@ -76,13 +76,13 @@ func (r *SystemRepository) SaveOspfSettings(batchLimit, intervalSeconds, resolve
 
 func (r *SystemRepository) GetMode() (string, error) {
 	var mode string
-	err := db.QueryRow("SELECT value FROM settings WHERE key='mode'").Scan(&mode)
+	err := getDB().QueryRow("SELECT value FROM settings WHERE key='mode'").Scan(&mode)
 	return mode, err
 }
 
 func (r *SystemRepository) GetMonthlyTrafficTotal() (int64, int64, error) {
 	var totalMonthUp, totalMonthDown int64
-	err := db.QueryRow(`
+	err := getDB().QueryRow(`
 		SELECT COALESCE(SUM(up_bytes), 0), COALESCE(SUM(down_bytes), 0)
 		FROM traffic_history
 		WHERE ts >= date('now', 'start of month')
@@ -91,7 +91,7 @@ func (r *SystemRepository) GetMonthlyTrafficTotal() (int64, int64, error) {
 }
 
 func (r *SystemRepository) GetMonthlyNodeTrafficRanking(limit int) ([]NodeTrafficRanking, error) {
-	rows, err := db.Query(`
+	rows, err := getDB().Query(`
 		SELECT n.id,
 		       n.name,
 		       COALESCE(SUM(h.up_bytes), 0)   AS up_bytes,
@@ -126,10 +126,10 @@ func (r *SystemRepository) GetMonthlyNodeTrafficRanking(limit int) ([]NodeTraffi
 }
 
 func (r *SystemRepository) GetOspfRouteCounts() (published int, candidate int, err error) {
-	if err = db.QueryRow("SELECT count(*) FROM routes_table WHERE status='published'").Scan(&published); err != nil {
+	if err = getDB().QueryRow("SELECT count(*) FROM routes_table WHERE status='published'").Scan(&published); err != nil {
 		return 0, 0, err
 	}
-	if err = db.QueryRow("SELECT count(*) FROM routes_table WHERE status='candidate'").Scan(&candidate); err != nil {
+	if err = getDB().QueryRow("SELECT count(*) FROM routes_table WHERE status='candidate'").Scan(&candidate); err != nil {
 		return 0, 0, err
 	}
 	return published, candidate, nil
@@ -137,12 +137,12 @@ func (r *SystemRepository) GetOspfRouteCounts() (published int, candidate int, e
 
 func (r *SystemRepository) GetOspfPublishAllowlist() (string, error) {
 	var allowlist string
-	err := db.QueryRow("SELECT value FROM settings WHERE key='ospf_publish_allowlist'").Scan(&allowlist)
+	err := getDB().QueryRow("SELECT value FROM settings WHERE key='ospf_publish_allowlist'").Scan(&allowlist)
 	return allowlist, err
 }
 
 func (r *SystemRepository) ResetOspfPendingStaticRoutes() (int64, error) {
-	res, err := db.Exec("DELETE FROM routes_table WHERE status='candidate' AND source='static'")
+	res, err := getDB().Exec("DELETE FROM routes_table WHERE status='candidate' AND source='static'")
 	if err != nil {
 		return 0, err
 	}

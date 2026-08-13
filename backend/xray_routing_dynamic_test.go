@@ -41,7 +41,7 @@ func TestBuildXrayDomainRuleValues(t *testing.T) {
 
 func TestSyncXrayRoutingRulesDynamicallySupportsDomainWildcard(t *testing.T) {
 	tdb, _ := setupTestDB(t)
-	db = tdb
+	setDB(tdb)
 	t.Cleanup(func() { db.Close() })
 	_, err := db.Exec(`DELETE FROM rules; INSERT INTO rules(type, value, policy) VALUES ('domain', '*.c.com', 'proxy')`)
 	if err != nil {

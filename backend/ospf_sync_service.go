@@ -8,8 +8,8 @@ import (
 
 func syncFRRConfig() {
 	var mode string
-	if db != nil {
-		db.QueryRow("SELECT value FROM settings WHERE key='mode'").Scan(&mode)
+	if getDB() != nil {
+		getDB().QueryRow("SELECT value FROM settings WHERE key='mode'").Scan(&mode)
 	}
 
 	if mode == "A" || mode == "" {
@@ -65,7 +65,7 @@ route-map OSPF-EXPORT permit 10
 	_ = sysCmd.run("systemctl", "enable", "frr")
 	if configChanged {
 		sysCmd.run("systemctl", "restart", "frr")
-		db.Exec("UPDATE routes_table SET status='candidate' WHERE status='published'")
+		getDB().Exec("UPDATE routes_table SET status='candidate' WHERE status='published'")
 	} else if sysCmd.run("systemctl", "is-active", "--quiet", "frr") != nil {
 		log.Printf("[OSPF] FRR config unchanged but service inactive; starting frr for mode=%s", mode)
 		sysCmd.run("systemctl", "start", "frr")
@@ -85,6 +85,8 @@ func scheduleStaticRouteSync(mode string) {
 	staticRouteSyncRunning = true
 	staticRouteSyncMu.Unlock()
 
+	syncFn := syncStaticRoutesToOSPFFunc
+
 	go func() {
 		defer func() {
 			if r := recover(); r != nil {
@@ -97,14 +99,14 @@ func scheduleStaticRouteSync(mode string) {
 			staticRouteSyncMu.Unlock()
 
 			currentMode := mode
-			if db != nil {
+			if d := getDB(); d != nil {
 				var dbMode string
-				if err := db.QueryRow("SELECT value FROM settings WHERE key='mode'").Scan(&dbMode); err == nil && dbMode != "" {
+				if err := d.QueryRow("SELECT value FROM settings WHERE key='mode'").Scan(&dbMode); err == nil && dbMode != "" {
 					currentMode = dbMode
 				}
 			}
 			if currentMode == "B" || currentMode == "C" {
-				syncStaticRoutesToOSPFFunc(currentMode)
+				syncFn(currentMode)
 			}
 
 			staticRouteSyncMu.Lock()
@@ -119,6 +121,10 @@ func scheduleStaticRouteSync(mode string) {
 }
 
 func syncStaticRoutesToOSPF(mode string) {
+	d := getDB()
+	if d == nil {
+		return
+	}
 	protected := collectProtectedRouteKeys()
 	staticRoutes, conflicts := collectStaticRoutesForMode(mode, protected)
 	staticRoutes, pruned := pruneStaticRoutesPreferBroad(staticRoutes)
@@ -130,7 +136,7 @@ func syncStaticRoutesToOSPF(mode string) {
 	}
 
 	var toDelete []string
-	oldRows, err := db.Query("SELECT ip FROM routes_table WHERE source='static'")
+	oldRows, err := d.Query("SELECT ip FROM routes_table WHERE source='static'")
 	if err == nil {
 		for oldRows.Next() {
 			var ip string
@@ -143,7 +149,7 @@ func syncStaticRoutesToOSPF(mode string) {
 		oldRows.Close()
 	}
 
-	txSync, err := db.Begin()
+	txSync, err := d.Begin()
 	if err != nil {
 		log.Printf("[WARN] syncStaticRoutesToOSPF begin tx failed: %v", err)
 		return

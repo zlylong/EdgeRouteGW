@@ -2,7 +2,6 @@ package main
 
 import (
 	"bytes"
-	
 
 	"context"
 	"database/sql"
@@ -202,7 +201,7 @@ func lookupIPv4WithDNSServer(domain string, server string, _ bool) ([]string, er
 		return nil, fmt.Errorf("dig execution failed: %w", err)
 	}
 
-		lines := strings.Split(strings.TrimSpace(out.String()), "\n")
+	lines := strings.Split(strings.TrimSpace(out.String()), "\n")
 	var ips []string
 	for _, line := range lines {
 		line = strings.TrimSpace(line)
@@ -224,7 +223,7 @@ var resolveDomainIPv4WithTTLViaServers = func(domain string, dnsServers []string
 	}
 	var firstErr error
 	for _, server := range dnsServers {
-		// No more OS 'host' command for OSPF expansion. 
+		// No more OS 'host' command for OSPF expansion.
 		// We trust our resolver to query 127.0.0.1 (Mosdns).
 		ips, lookupErr := lookupIPv4WithDNSServer(domain, server, isRemote)
 		if lookupErr == nil {
@@ -251,7 +250,7 @@ var resolveDomainIPv4WithTTL = func(domain string) ([]string, int, error) {
 }
 
 func ensureRouteCacheTables() {
-	if db == nil {
+	if getDB() == nil {
 		return
 	}
 
@@ -284,7 +283,7 @@ func ensureRouteCacheTables() {
 		);`,
 	}
 	for _, stmt := range stmts {
-		if _, err := db.Exec(stmt); err != nil {
+		if _, err := getDB().Exec(stmt); err != nil {
 			log.Printf("[WARN] ensure route cache table failed: %v", err)
 		}
 	}
@@ -293,10 +292,10 @@ func ensureRouteCacheTables() {
 }
 
 func migrateLegacyDomainResolveCacheKeys() {
-	if db == nil {
+	if getDB() == nil {
 		return
 	}
-	result, err := db.Exec(`
+	result, err := getDB().Exec(`
 		INSERT OR IGNORE INTO domain_resolve_cache (domain, ips_json, dns_ttl, resolved_at, expire_at, last_error, fail_count, geodata_ver)
 		SELECT 'remote:' || domain, ips_json, dns_ttl, resolved_at, expire_at, last_error, fail_count, geodata_ver
 		FROM domain_resolve_cache
@@ -312,13 +311,13 @@ func migrateLegacyDomainResolveCacheKeys() {
 }
 
 func sweepLegacyDomainResolveCacheKeys(limit int) (migrated int64, removed int64, err error) {
-	if db == nil {
+	if getDB() == nil {
 		return 0, 0, nil
 	}
 	if limit <= 0 {
 		limit = 200
 	}
-	rows, err := db.Query("SELECT domain FROM domain_resolve_cache WHERE instr(domain, ':')=0 LIMIT ?", limit)
+	rows, err := getDB().Query("SELECT domain FROM domain_resolve_cache WHERE instr(domain, ':')=0 LIMIT ?", limit)
 	if err != nil {
 		return 0, 0, err
 	}
@@ -339,7 +338,7 @@ func sweepLegacyDomainResolveCacheKeys(limit int) (migrated int64, removed int64
 		return 0, 0, nil
 	}
 
-	tx, err := db.Begin()
+	tx, err := getDB().Begin()
 	if err != nil {
 		return 0, 0, err
 	}
@@ -493,7 +492,7 @@ func getOrRefreshGeositeDomainCache(tag string) ([]string, int, error) {
 	geodataVer := getGeoDataVersion()
 	var domainsJSON string
 	var skipped int
-	if err := db.QueryRow("SELECT domains_json, skipped_count FROM geosite_expand_cache WHERE tag=? AND geodata_ver=?", tag, geodataVer).Scan(&domainsJSON, &skipped); err == nil {
+	if err := getDB().QueryRow("SELECT domains_json, skipped_count FROM geosite_expand_cache WHERE tag=? AND geodata_ver=?", tag, geodataVer).Scan(&domainsJSON, &skipped); err == nil {
 		var domains []string
 		if err := json.Unmarshal([]byte(domainsJSON), &domains); err == nil {
 			return domains, skipped, nil
@@ -505,7 +504,7 @@ func getOrRefreshGeositeDomainCache(tag string) ([]string, int, error) {
 		return nil, 0, err
 	}
 	payload, _ := json.Marshal(domains)
-	if _, err := db.Exec("INSERT INTO geosite_expand_cache (tag, geodata_ver, domains_json, skipped_count, updated_at) VALUES (?, ?, ?, ?, datetime('now')) ON CONFLICT(tag, geodata_ver) DO UPDATE SET domains_json=excluded.domains_json, skipped_count=excluded.skipped_count, updated_at=datetime('now')", tag, geodataVer, string(payload), skipped); err != nil {
+	if _, err := getDB().Exec("INSERT INTO geosite_expand_cache (tag, geodata_ver, domains_json, skipped_count, updated_at) VALUES (?, ?, ?, ?, datetime('now')) ON CONFLICT(tag, geodata_ver) DO UPDATE SET domains_json=excluded.domains_json, skipped_count=excluded.skipped_count, updated_at=datetime('now')", tag, geodataVer, string(payload), skipped); err != nil {
 		log.Printf("[WARN] persist geosite cache %q failed: %v", tag, err)
 	}
 	return domains, skipped, nil
@@ -529,7 +528,7 @@ func getOrRefreshDomainCacheWithResolver(domain string, resolverGroup string) ([
 	var expireAtUnix, resolvedAtUnix int64
 	var dnsTTL, failCount int
 	cacheHit := false
-	if err := db.QueryRow("SELECT ips_json, dns_ttl, CAST(resolved_at AS INTEGER), CAST(expire_at AS INTEGER), last_error, fail_count FROM domain_resolve_cache WHERE domain=?", cacheKey).Scan(&cachedIPsJSON, &dnsTTL, &resolvedAtUnix, &expireAtUnix, &lastError, &failCount); err == nil {
+	if err := getDB().QueryRow("SELECT ips_json, dns_ttl, CAST(resolved_at AS INTEGER), CAST(expire_at AS INTEGER), last_error, fail_count FROM domain_resolve_cache WHERE domain=?", cacheKey).Scan(&cachedIPsJSON, &dnsTTL, &resolvedAtUnix, &expireAtUnix, &lastError, &failCount); err == nil {
 		cacheHit = true
 		var cachedIPs []string
 		_ = json.Unmarshal([]byte(cachedIPsJSON), &cachedIPs)
@@ -547,7 +546,7 @@ func getOrRefreshDomainCacheWithResolver(domain string, resolverGroup string) ([
 		payload, _ := json.Marshal(ips)
 		expireAt := now.Add(time.Duration(ttl) * time.Second).Unix()
 		resolvedAt := now.Unix()
-		if _, execErr := db.Exec("INSERT INTO domain_resolve_cache (domain, ips_json, dns_ttl, resolved_at, expire_at, last_error, fail_count, geodata_ver) VALUES (?, ?, ?, ?, ?, '', 0, ?) ON CONFLICT(domain) DO UPDATE SET ips_json=excluded.ips_json, dns_ttl=excluded.dns_ttl, resolved_at=excluded.resolved_at, expire_at=excluded.expire_at, last_error='', fail_count=0, geodata_ver=excluded.geodata_ver", cacheKey, string(payload), ttl, resolvedAt, expireAt, getGeoDataVersion()); execErr != nil {
+		if _, execErr := getDB().Exec("INSERT INTO domain_resolve_cache (domain, ips_json, dns_ttl, resolved_at, expire_at, last_error, fail_count, geodata_ver) VALUES (?, ?, ?, ?, ?, '', 0, ?) ON CONFLICT(domain) DO UPDATE SET ips_json=excluded.ips_json, dns_ttl=excluded.dns_ttl, resolved_at=excluded.resolved_at, expire_at=excluded.expire_at, last_error='', fail_count=0, geodata_ver=excluded.geodata_ver", cacheKey, string(payload), ttl, resolvedAt, expireAt, getGeoDataVersion()); execErr != nil {
 			log.Printf("[WARN] persist domain cache %q failed: %v", domain, execErr)
 		}
 		return ips, ttl, false, nil
@@ -564,7 +563,7 @@ func getOrRefreshDomainCacheWithResolver(domain string, resolverGroup string) ([
 			}
 			nextRetryTTL = clampDomainCacheTTL(nextRetryTTL)
 			nextRetryAt := now.Add(time.Duration(domainFailureRetrySeconds) * time.Second).Unix()
-			if _, execErr := db.Exec("UPDATE domain_resolve_cache SET expire_at=?, last_error=?, fail_count=fail_count+1 WHERE domain=?", nextRetryAt, err.Error(), cacheKey); execErr != nil {
+			if _, execErr := getDB().Exec("UPDATE domain_resolve_cache SET expire_at=?, last_error=?, fail_count=fail_count+1 WHERE domain=?", nextRetryAt, err.Error(), cacheKey); execErr != nil {
 				log.Printf("[WARN] update domain cache failure state %q failed: %v", domain, execErr)
 			}
 			return cachedIPs, nextRetryTTL, false, nil

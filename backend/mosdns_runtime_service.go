@@ -47,7 +47,7 @@ func buildMosdnsProxyDomains(mode string) ([]string, error) {
 		proxyDomains = append(proxyDomains, domain)
 	}
 
-	dRows, err := db.Query("SELECT value FROM rules WHERE type='domain' AND policy LIKE 'proxy%'")
+	dRows, err := getDB().Query("SELECT value FROM rules WHERE type='domain' AND policy LIKE 'proxy%'")
 	if err != nil {
 		return nil, fmt.Errorf("query domain rules failed: %w", err)
 	}
@@ -68,7 +68,7 @@ func buildMosdnsProxyDomains(mode string) ([]string, error) {
 	}
 	dRows.Close()
 
-	gRows, err := db.Query("SELECT value FROM rules WHERE type='geosite' AND policy LIKE 'proxy%'")
+	gRows, err := getDB().Query("SELECT value FROM rules WHERE type='geosite' AND policy LIKE 'proxy%'")
 	if err != nil {
 		return nil, fmt.Errorf("query geosite rules failed: %w", err)
 	}
@@ -128,22 +128,22 @@ func applyMosdnsConfig() error {
 	log.Println("[AUDIT] Applying Mosdns Config")
 	var local, remote, lazyStr, logLevel, cacheSizeStr, lazyTTLStr string
 
-	if err := db.QueryRow("SELECT value FROM settings WHERE key='dns_local'").Scan(&local); err != nil {
+	if err := getDB().QueryRow("SELECT value FROM settings WHERE key='dns_local'").Scan(&local); err != nil {
 		local = "119.29.29.29,223.5.5.5"
 	}
-	if err := db.QueryRow("SELECT value FROM settings WHERE key='dns_remote'").Scan(&remote); err != nil {
+	if err := getDB().QueryRow("SELECT value FROM settings WHERE key='dns_remote'").Scan(&remote); err != nil {
 		remote = "1.1.1.1,8.8.8.8"
 	}
-	if err := db.QueryRow("SELECT value FROM settings WHERE key='dns_lazy'").Scan(&lazyStr); err != nil {
+	if err := getDB().QueryRow("SELECT value FROM settings WHERE key='dns_lazy'").Scan(&lazyStr); err != nil {
 		lazyStr = "true"
 	}
-	if err := db.QueryRow("SELECT value FROM settings WHERE key='dns_log_level'").Scan(&logLevel); err != nil {
+	if err := getDB().QueryRow("SELECT value FROM settings WHERE key='dns_log_level'").Scan(&logLevel); err != nil {
 		logLevel = "info"
 	}
-	if err := db.QueryRow("SELECT value FROM settings WHERE key='dns_cache_size'").Scan(&cacheSizeStr); err != nil {
+	if err := getDB().QueryRow("SELECT value FROM settings WHERE key='dns_cache_size'").Scan(&cacheSizeStr); err != nil {
 		cacheSizeStr = "10240"
 	}
-	if err := db.QueryRow("SELECT value FROM settings WHERE key='dns_lazy_ttl'").Scan(&lazyTTLStr); err != nil {
+	if err := getDB().QueryRow("SELECT value FROM settings WHERE key='dns_lazy_ttl'").Scan(&lazyTTLStr); err != nil {
 		lazyTTLStr = "86400"
 	}
 
@@ -151,7 +151,7 @@ func applyMosdnsConfig() error {
 	lazyTTL, _ := strconv.Atoi(lazyTTLStr)
 
 	var mode string
-	db.QueryRow("SELECT value FROM settings WHERE key='mode'").Scan(&mode)
+	getDB().QueryRow("SELECT value FROM settings WHERE key='mode'").Scan(&mode)
 	proxyDomains, err := buildMosdnsProxyDomains(mode)
 	if err != nil {
 		return err
