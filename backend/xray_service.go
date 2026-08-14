@@ -453,8 +453,19 @@ func applyXrayConfigInternal(restart bool) error {
 
 	configData, _ := json.MarshalIndent(config, "", "  ")
 
-	tempTestPath := "/tmp/proxygw_xray_test.json"
-	os.WriteFile(tempTestPath, configData, 0644)
+	tmpTest, err := os.CreateTemp("", "proxygw_xray_test-*.json")
+	if err != nil {
+		return fmt.Errorf("failed to create temp xray test config: %v", err)
+	}
+	tempTestPath := tmpTest.Name()
+	defer os.Remove(tempTestPath)
+	if _, err := tmpTest.Write(configData); err != nil {
+		tmpTest.Close()
+		return fmt.Errorf("failed to write temp xray test config: %v", err)
+	}
+	if err := tmpTest.Close(); err != nil {
+		return fmt.Errorf("failed to close temp xray test config: %v", err)
+	}
 	if err := sysCmd.run(getPath("core", "xray", "xray"), "-test", "-config", tempTestPath); err != nil {
 		log.Printf("[ERROR] Xray config validation failed: %v. Config rejected.", err)
 		return fmt.Errorf("xray config validation failed, check node parameters")
