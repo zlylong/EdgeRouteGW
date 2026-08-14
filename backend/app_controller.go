@@ -43,8 +43,12 @@ func (c *AppController) BuildRouter() *gin.Engine {
 }
 
 func (c *AppController) Run(r *gin.Engine) {
-	log.Println("EdgeRouteGW backend starting on :80")
-	r.Run(":80")
+	addr := os.Getenv("PROXYGW_LISTEN_ADDR")
+	if addr == "" {
+		addr = ":80"
+	}
+	log.Printf("EdgeRouteGW backend starting on %s", addr)
+	r.Run(addr)
 }
 
 func getLogWriter() gin.HandlerFunc {
