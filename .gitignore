@@ -26,6 +26,7 @@ backend/proxygw.db-wal
 /core/mosdns/geodata.ver
 
 # Binaries & Artifacts
+/proxygw-backend
 /backend/proxygw
 /backend/proxygw-backend
 /backend/proxygw-backend-test
