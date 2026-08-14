@@ -1,7 +1,9 @@
 package main
 
 import (
+	"net"
 	"net/http"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 )
@@ -45,6 +47,31 @@ func (ctl *LanACLController) Create(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "bad request"})
 		return
 	}
+
+	// The value is interpolated verbatim into the nftables set template
+	// (applyNftablesConfig), so it must be a well-formed MAC or IP/CIDR — an
+	// arbitrary string could corrupt or inject into the generated ruleset.
+	req.Type = strings.ToLower(strings.TrimSpace(req.Type))
+	req.Policy = strings.ToLower(strings.TrimSpace(req.Policy))
+	req.Value = strings.TrimSpace(req.Value)
+	if req.Type != "mac" && req.Type != "ip" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid type (mac|ip)"})
+		return
+	}
+	if req.Policy != "proxy" && req.Policy != "direct" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid policy (proxy|direct)"})
+		return
+	}
+	if req.Type == "mac" {
+		if _, err := net.ParseMAC(req.Value); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid MAC address"})
+			return
+		}
+	} else if !isValidIPOrCIDR(req.Value) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid IP/CIDR"})
+		return
+	}
+
 	if err := ctl.repo.Create(req.Type, req.Value, req.Policy, req.Remark); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to add acl"})
 		return
