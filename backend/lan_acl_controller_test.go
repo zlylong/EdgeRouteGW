@@ -29,9 +29,15 @@ func TestLanACLCreateValidatesInput(t *testing.T) {
 
 	// Valid MAC/IP must pass validation (they then fail later at nft apply,
 	// since nft is unavailable in tests — so we only assert they are NOT 400).
+	// IPv6 and private-supernet CIDRs are valid LAN ACL inputs: the nft
+	// template renders separate ip6 sets and interval sets in applyNftablesConfig.
 	accept := []string{
 		`{"type":"mac","value":"aa:bb:cc:dd:ee:ff","policy":"proxy"}`,
 		`{"type":"ip","value":"1.2.3.4/32","policy":"direct"}`,
+		`{"type":"ip","value":"192.168.0.0/16","policy":"direct"}`,
+		`{"type":"ip","value":"10.0.0.0/8","policy":"proxy"}`,
+		`{"type":"ip","value":"2001:db8::/64","policy":"direct"}`,
+		`{"type":"ip","value":"fd00::1","policy":"proxy"}`,
 	}
 	for _, body := range accept {
 		w := httptest.NewRecorder()
