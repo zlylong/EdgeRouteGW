@@ -16,16 +16,20 @@ if ! (cd backend && go build -o /dev/null .); then
 fi
 echo "  ✓ Build OK"
 
-# Run only changed package tests (fast)
-echo "  → Running affected backend tests..."
+# Run the backend tests when any Go file is staged. This previously derived a
+# list of changed packages, used it only as an "is anything staged" flag, and
+# then ran the whole suite anyway -- while discarding stderr, so a failure
+# printed "Tests failed" with no indication of which test or why.
+echo "  → Running backend tests..."
 cd "$ROOT_DIR/backend"
-CHANGED=$(git diff --cached --name-only -- '*.go' | sed 's/backend\///' | xargs -I{} dirname {} | sort -u | tr '\n' ' ')
-if [[ -n "$CHANGED" ]]; then
-  if ! go test -count=1 -short ./... 2>/dev/null; then
+if git diff --cached --name-only -- '*.go' | grep -q .; then
+  if ! go test -count=1 -short ./...; then
     echo "❌ Tests failed — fix before committing"
     exit 1
   fi
+  echo "  ✓ Tests passed"
+else
+  echo "  · No Go files staged, skipping tests"
 fi
-echo "  ✓ Tests passed"
 
 echo "=== ✓ Pre-commit checks passed ==="

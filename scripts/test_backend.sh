@@ -51,11 +51,7 @@ if $SHORT; then
   ARGS+=("-short")
 fi
 
-# Run with progress dots for CI
-if [[ -t 1 ]]; then
-  # Interactive terminal — use -v
-  ARGS+=("-count=1")
-fi
-
-echo "Running: go test ${ARGS[*]} ${PACKAGES[*]}"
+# -count=1 disables the test result cache; it is passed unconditionally below.
+# An interactive branch used to append it a second time, which did nothing.
+echo "Running: go test -count=1 ${ARGS[*]} ${PACKAGES[*]}"
 go test -count=1 "${ARGS[@]}" "${PACKAGES[@]}"
