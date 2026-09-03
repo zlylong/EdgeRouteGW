@@ -102,7 +102,7 @@ PrivateTmp=yes
 ProtectKernelTunables=yes
 ProtectControlGroups=yes
 RestrictSUIDSGID=yes
-ReadWritePaths=-/root/proxygw -/usr/local/bin -/etc/frr -/etc/nftables.conf -/etc/nftables.conf.proxygw.new -/etc/nftables.conf.proxygw.bak -/etc/
+ReadWritePaths=-/root/proxygw -/usr/local/bin -/etc/frr -/etc/nftables.conf -/etc/nftables.conf.proxygw.new -/etc/nftables.conf.proxygw.bak
 
 [Install]
 WantedBy=multi-user.target
@@ -140,8 +140,13 @@ WorkingDirectory=/root/proxygw/core/xray
 Environment=XRAY_LOCATION_ASSET=/root/proxygw/core/xray
 ExecStart=/root/proxygw/core/xray/xray run -confdir /root/proxygw/core/xray
 Restart=on-failure
+# Xray exits 23 when it rejects its own configuration. Without this, a bad
+# config turns Restart=on-failure into an endless restart loop that floods the
+# journal instead of stopping with a diagnosable failure.
+RestartPreventExitStatus=23
 RestartSec=5
 LimitNOFILE=1048576
+LimitNPROC=10000
 
 [Install]
 WantedBy=multi-user.target

@@ -68,8 +68,23 @@ func syncXrayOutboundsDynamically(extraRemoveTags ...string) error {
 	if err != nil {
 		return fmt.Errorf("marshal outbounds payload failed: %w", err)
 	}
-	tmpPath := "/tmp/proxygw_xray_outbounds.json"
-	if err := os.WriteFile(tmpPath, b, 0644); err != nil {
+	// This payload carries every outbound's credentials (VLESS UUIDs, Trojan and
+	// Shadowsocks passwords). A fixed world-readable path exposed them to any
+	// local reader whenever the backend runs outside its systemd unit, and let
+	// an unprivileged user pre-create the path as a symlink. Use an
+	// unpredictable name, keep it owner-only, and remove it once xray has read
+	// it back.
+	tmpFile, err := os.CreateTemp("", "proxygw_xray_outbounds_*.json")
+	if err != nil {
+		return fmt.Errorf("create outbounds payload failed: %w", err)
+	}
+	tmpPath := tmpFile.Name()
+	defer os.Remove(tmpPath)
+	if _, err := tmpFile.Write(b); err != nil {
+		tmpFile.Close()
+		return fmt.Errorf("write outbounds payload failed: %w", err)
+	}
+	if err := tmpFile.Close(); err != nil {
 		return fmt.Errorf("write outbounds payload failed: %w", err)
 	}
 	if res := sysCmd.runCombinedOutput(getPath("core", "xray", "xray"), "api", "ado", "-s", "127.0.0.1:10085", tmpPath); res.Err != nil {

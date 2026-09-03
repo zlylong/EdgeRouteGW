@@ -471,7 +471,10 @@ func applyXrayConfigInternal(restart bool) error {
 		return fmt.Errorf("xray config validation failed, check node parameters")
 	}
 
-	if err := os.WriteFile(getPath("core", "xray", "config.json"), configData, 0644); err != nil {
+	// config.json holds every node's credentials (VLESS UUIDs, Trojan and
+	// Shadowsocks passwords). Only root reads it -- xray and this backend both
+	// run as root -- so there is no reason for it to be world-readable.
+	if err := os.WriteFile(getPath("core", "xray", "config.json"), configData, 0600); err != nil {
 		return fmt.Errorf("failed to write xray config.json: %v", err)
 	}
 	if !restart {

@@ -158,8 +158,20 @@ func syncXrayRoutingRulesDynamically() error {
 	if err != nil {
 		return fmt.Errorf("marshal routing payload failed: %w", err)
 	}
-	tmp := "/tmp/proxygw_xray_routing_rules.json"
-	if err := os.WriteFile(tmp, payload, 0644); err != nil {
+	// A fixed path under /tmp can be pre-created as a symlink by any local user,
+	// which would redirect this root-owned write. Use an unpredictable name and
+	// clean it up once xray has read it back.
+	tmpFile, err := os.CreateTemp("", "proxygw_xray_routing_rules_*.json")
+	if err != nil {
+		return fmt.Errorf("create routing payload failed: %w", err)
+	}
+	tmp := tmpFile.Name()
+	defer os.Remove(tmp)
+	if _, err := tmpFile.Write(payload); err != nil {
+		tmpFile.Close()
+		return fmt.Errorf("write routing payload failed: %w", err)
+	}
+	if err := tmpFile.Close(); err != nil {
 		return fmt.Errorf("write routing payload failed: %w", err)
 	}
 	if res := sysCmd.runCombinedOutput(getPath("core", "xray", "xray"), "api", "adrules", "-s", "127.0.0.1:10085", tmp); res.Err != nil {

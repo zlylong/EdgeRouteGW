@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -57,7 +58,13 @@ func TestSyncXrayRoutingRulesDynamicallySupportsDomainWildcard(t *testing.T) {
 	if err := os.MkdirAll(xrayDir, 0755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.Symlink("/bin/true", filepath.Join(xrayDir, "xray")); err != nil {
+	// The payload now goes to an unpredictable temp path that the caller removes
+	// once xray has read it, so assert on what xray was actually handed rather
+	// than on a fixed filename. This stub stands in for the binary and copies
+	// its last argument -- the payload path -- somewhere the test can read.
+	capturePath := filepath.Join(tempRoot, "routing_payload.json")
+	stub := fmt.Sprintf("#!/bin/sh\nfor last in \"$@\"; do :; done\ncp \"$last\" %q\n", capturePath)
+	if err := os.WriteFile(filepath.Join(xrayDir, "xray"), []byte(stub), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	oldHome := os.Getenv("PROXYGW_HOME")
@@ -72,7 +79,7 @@ func TestSyncXrayRoutingRulesDynamicallySupportsDomainWildcard(t *testing.T) {
 		t.Fatalf("syncXrayRoutingRulesDynamically error: %v", err)
 	}
 
-	payload, err := os.ReadFile("/tmp/proxygw_xray_routing_rules.json")
+	payload, err := os.ReadFile(capturePath)
 	if err != nil {
 		t.Fatal(err)
 	}
