@@ -27,6 +27,15 @@ func NewAppController() *AppController {
 
 func (c *AppController) BuildRouter() *gin.Engine {
 	r := gin.Default()
+	// gin trusts every peer as a proxy by default (trustedCIDRs = 0.0.0.0/0 and
+	// ::/0) and reads the client address out of X-Forwarded-For / X-Real-IP.
+	// On a gateway that listens directly on the LAN that makes c.ClientIP()
+	// fully caller-controlled: it forged the source IP recorded in security
+	// events and handed anyone a fresh login rate-limit bucket per request.
+	// Nothing fronts this server, so trust no proxy and read the peer address.
+	if err := r.SetTrustedProxies(nil); err != nil {
+		log.Printf("[SECURITY] failed to clear trusted proxies: %v", err)
+	}
 	registerAPIRoutes(r)
 	r.Use(func(c *gin.Context) {
 		if strings.HasPrefix(c.Request.URL.Path, "/ui") {
@@ -51,13 +60,6 @@ func (c *AppController) Run(r *gin.Engine) {
 	r.Run(addr)
 }
 
-func getLogWriter() gin.HandlerFunc {
-	return func(c *gin.Context) {
-		c.Writer.Header().Set("Access-Control-Allow-Origin", "*")
-		c.Writer.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type")
-		c.Next()
-	}
-}
 
 func init() {
 	os.Setenv("TZ", "Asia/Shanghai")

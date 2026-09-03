@@ -103,6 +103,11 @@ func (ctl *UpdateController) UpdateComponent(c *gin.Context) {
 			c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "invalid version"})
 			return
 		}
+		mosdnsHash, err := getMosdnsHash(req.Version)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": "failed to fetch hash"})
+			return
+		}
 
 		if err := sysCmd.run("cp", getPath("core", "mosdns", "mosdns"), getPath("core", "mosdns", "mosdns.bak")); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": "backup failed"})
@@ -117,7 +122,7 @@ func (ctl *UpdateController) UpdateComponent(c *gin.Context) {
 		defer os.RemoveAll(tmpDir)
 		mosdnsZip := filepath.Join(tmpDir, "mosdns.zip")
 
-		if err := downloadWithVerification(downloadURL, mosdnsZip, ""); err != nil {
+		if err := downloadWithVerification(downloadURL, mosdnsZip, mosdnsHash); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": fmt.Sprintf("mosdns download failed: %v", err)})
 			return
 		}

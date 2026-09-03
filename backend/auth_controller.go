@@ -13,17 +13,40 @@ type AuthController struct{}
 
 func NewAuthController() *AuthController { return &AuthController{} }
 
+// loginAttemptWindow is how long a failed-attempt counter survives without
+// further attempts from the same address.
+const loginAttemptWindow = 30 * time.Minute
+
+// pruneLoginAttemptsLocked drops counters that have aged out of the window.
+// Entries were previously removed only on a successful login, so every distinct
+// source address left one behind permanently. Callers must hold
+// loginAttemptsMu.
+func pruneLoginAttemptsLocked(now time.Time) {
+	for addr, data := range loginAttempts {
+		if now.Sub(data.LastSeen) > loginAttemptWindow {
+			delete(loginAttempts, addr)
+		}
+	}
+}
+
 func (ctl *AuthController) Login(c *gin.Context) {
-	ip := c.ClientIP()
+	// Deliberately RemoteIP(), not ClientIP(): the brute-force counter must key
+	// on the address the packets actually came from. ClientIP() consults
+	// X-Forwarded-For, so a caller could hand itself an unused bucket on every
+	// request and never reach the delay or the lockout below. SetTrustedProxies
+	// in BuildRouter already makes the two equivalent today; this keeps the
+	// limiter correct even if a proxy is configured later.
+	ip := c.RemoteIP()
 	now := time.Now()
 
 	loginAttemptsMu.Lock()
+	pruneLoginAttemptsLocked(now)
 	attemptData, ok := loginAttempts[ip]
 	if !ok {
 		attemptData = &LoginAttempt{Count: 0, LastSeen: now}
 		loginAttempts[ip] = attemptData
 	}
-	if now.Sub(attemptData.LastSeen) > 30*time.Minute {
+	if now.Sub(attemptData.LastSeen) > loginAttemptWindow {
 		attemptData.Count = 0
 	}
 
