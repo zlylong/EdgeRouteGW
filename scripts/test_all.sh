@@ -60,7 +60,10 @@ fi
 # [5/6] Build verification
 # ──────────────────────────────────────────────
 header "Build Verification"
-if go build -o /dev/null ./backend/... 2>/dev/null; then
+# backend is its own module (module proxygw) and the repo root has no go.mod, so
+# building ./backend/... from here always failed -- and the redirect hid the
+# reason, leaving the whole suite permanently reporting failure.
+if (cd "$ROOT_DIR/backend" && go build -o /dev/null ./...); then
   green "✓ Backend builds successfully"
 else
   red "✗ Build FAILED"

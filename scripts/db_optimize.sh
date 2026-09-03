@@ -2,29 +2,66 @@
 set -euo pipefail
 
 DB_PATH="${1:-/root/proxygw/config/proxygw.db}"
-MODE="${2:---full}" # --index-only | --full
+# Default to the safe mode. --full takes a VACUUM, which holds a write lock for
+# the whole run; on a live gateway that stalls every DNS resolve and OSPF push
+# behind it. Taking the disruptive path must be an explicit request.
+MODE="${2:---index-only}" # --index-only | --full
+
+case "$MODE" in
+  --index-only|--full) ;;
+  *)
+    echo "[ERROR] Unknown mode: $MODE (expected --index-only or --full)" >&2
+    exit 1
+    ;;
+esac
 
 if [[ ! -f "$DB_PATH" ]]; then
   echo "[ERROR] DB not found: $DB_PATH" >&2
   exit 1
 fi
 
+if ! command -v sqlite3 >/dev/null 2>&1; then
+  echo "[ERROR] sqlite3 not found in PATH" >&2
+  exit 1
+fi
+
+# How many timestamped backups to keep. install.sh and update.sh run this on
+# every deploy, so an unpruned backup per run left a full copy of the database
+# behind each time -- on a long-lived gateway proxygw.db reaches hundreds of MB
+# and the copies were never reclaimed.
+BACKUP_KEEP="${DB_OPTIMIZE_BACKUP_KEEP:-3}"
+
 TS="$(date +%Y%m%d_%H%M%S)"
 BACKUP="${DB_PATH}.bak.${TS}"
+
+prune_old_backups() {
+  local keep="$1"
+  local victims
+  # Newest first; everything past the keep count goes.
+  victims=$(ls -1t "${DB_PATH}".bak.* 2>/dev/null | tail -n +"$((keep + 1))" || true)
+  if [[ -n "$victims" ]]; then
+    while IFS= read -r old; do
+      [[ -n "$old" ]] || continue
+      echo "[INFO] Removing old backup: $old"
+      rm -f "$old"
+    done <<< "$victims"
+  fi
+}
 
 echo "[INFO] DB: $DB_PATH"
 echo "[INFO] Mode: $MODE"
 
-echo "\n[STEP] Before snapshot"
+printf '\n[STEP] Before snapshot\n'
 stat -c '%n %s bytes' "$DB_PATH"
 sqlite3 "$DB_PATH" "PRAGMA page_size; PRAGMA page_count; PRAGMA freelist_count; PRAGMA journal_mode; PRAGMA synchronous; PRAGMA auto_vacuum;" \
   | awk 'NR==1{print "page_size=" $1} NR==2{print "page_count=" $1} NR==3{print "freelist_count=" $1} NR==4{print "journal_mode=" $1} NR==5{print "synchronous=" $1} NR==6{print "auto_vacuum=" $1}'
 
-echo "\n[STEP] Backup"
+printf '\n[STEP] Backup\n'
 cp -a "$DB_PATH" "$BACKUP"
 stat -c '%n %s bytes' "$BACKUP"
+prune_old_backups "$BACKUP_KEEP"
 
-echo "\n[STEP] Create/refresh indexes"
+printf '\n[STEP] Create/refresh indexes\n'
 sqlite3 "$DB_PATH" <<'SQL'
 CREATE INDEX IF NOT EXISTS idx_dgl_domain_resolver_ver
 ON domain_geoip_lock(domain, resolver_group, geodata_ver);
@@ -37,18 +74,18 @@ PRAGMA optimize;
 SQL
 
 if [[ "$MODE" == "--full" ]]; then
-  echo "\n[STEP] VACUUM (may take time and hold write lock)"
+  printf '\n[STEP] VACUUM (may take time and hold write lock)\n'
   sqlite3 "$DB_PATH" "VACUUM;"
   sqlite3 "$DB_PATH" "ANALYZE; PRAGMA optimize;"
 fi
 
-echo "\n[STEP] After snapshot"
+printf '\n[STEP] After snapshot\n'
 stat -c '%n %s bytes' "$DB_PATH"
 sqlite3 "$DB_PATH" "PRAGMA page_size; PRAGMA page_count; PRAGMA freelist_count; PRAGMA journal_mode; PRAGMA synchronous; PRAGMA auto_vacuum;" \
   | awk 'NR==1{print "page_size=" $1} NR==2{print "page_count=" $1} NR==3{print "freelist_count=" $1} NR==4{print "journal_mode=" $1} NR==5{print "synchronous=" $1} NR==6{print "auto_vacuum=" $1}'
 
-echo "\n[STEP] Query plan check"
+printf '\n[STEP] Query plan check\n'
 sqlite3 "$DB_PATH" "EXPLAIN QUERY PLAN SELECT geoip_tag FROM domain_geoip_lock WHERE domain='example.com' AND resolver_group='direct' AND geodata_ver='v1';"
 sqlite3 "$DB_PATH" "EXPLAIN QUERY PLAN SELECT id,module,level,ts FROM gateway_events WHERE module='ospf' AND level='info' ORDER BY id DESC LIMIT 50;"
 
-echo "\n[DONE] Backup: $BACKUP"
+printf '\n[DONE] Backup: %s\n' "$BACKUP"

@@ -22,10 +22,16 @@ if [[ ! -d node_modules ]]; then
   npm ci --no-fund --no-audit
 fi
 
-# Install Playwright browsers if missing
-if ! npx playwright install --with-deps --dry-run 2>/dev/null | grep -q "already installed"; then
-  echo "Installing Playwright browsers..."
+# Install Playwright browsers if missing.
+# The previous check grepped --dry-run output for "already installed", a string
+# it makes no promise of emitting, so chromium was re-downloaded on nearly every
+# run. Ask Playwright to resolve the browser instead: it exits non-zero when the
+# executable is absent, and installing is a no-op when it is already present.
+if ! npx playwright install chromium --dry-run >/dev/null 2>&1; then
+  echo "Installing Playwright browsers (with system dependencies)..."
   npx playwright install --with-deps chromium
+else
+  npx playwright install chromium >/dev/null 2>&1 || true
 fi
 
 echo "=== Running Frontend Button E2E Tests ==="
