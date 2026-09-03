@@ -603,6 +603,30 @@ Example-2,wg,2.2.2.2,22,root,password,MySecret,JP"></textarea>
                                             </div>
                                         </div>
                                     </div>
+                                    <div v-if="remoteNodeForm.type === 'vless'" class="border-t pt-4">
+                                        <h4 class="font-medium text-gray-700 mb-2">REALITY 伪装参数</h4>
+                                        <div class="grid grid-cols-4 gap-4">
+                                            <div>
+                                                <label class="block text-sm font-medium text-gray-700 mb-1">监听端口</label>
+                                                <input v-model.number="remoteNodeForm.port" type="number" min="1" max="65535" class="w-full border p-2 rounded font-mono">
+                                            </div>
+                                            <div>
+                                                <label class="block text-sm font-medium text-gray-700 mb-1">SNI / serverName</label>
+                                                <input v-model="remoteNodeForm.server_name" type="text" class="w-full border p-2 rounded font-mono" placeholder="www.microsoft.com">
+                                            </div>
+                                            <div class="col-span-2">
+                                                <label class="block text-sm font-medium text-gray-700 mb-1">dest (回落目标 host:port)</label>
+                                                <input v-model="remoteNodeForm.dest" type="text" class="w-full border p-2 rounded font-mono" placeholder="www.microsoft.com:443">
+                                            </div>
+                                        </div>
+                                        <p class="text-xs text-gray-500 mt-2">
+                                            <i class="fa-solid fa-triangle-exclamation text-amber-500 mr-1"></i>
+                                            端口建议保持 <strong>443</strong>。REALITY 的伪装前提是这台机器看起来像一台普通的 TLS 反向代理，而真实世界不存在在高位随机端口上反代大站的服务器 —— 端口本身就是比 SNI 更强的特征。仅在 443 确实被占用时才改，并知晓伪装强度会下降。
+                                        </p>
+                                        <p class="text-xs text-gray-500 mt-1">
+                                            dest 必须真的为 serverName 提供证书，两者不匹配时主动探测一次握手即可识别。两项留空则使用默认值。
+                                        </p>
+                                    </div>
                                 </div>
                                 <div class="px-6 py-4 border-t bg-gray-50 flex justify-end space-x-3 rounded-b-lg">
                                     <button @click="showRemoteNodeModal = false" class="px-4 py-2 border rounded text-gray-600 hover:bg-gray-100 transition">取消</button>
@@ -1982,7 +2006,8 @@ window.onerror = function(msg, url, line, col, error) { alert("JS Error: " + msg
                 const selectedRemoteNode = ref(null);
                 const remoteNodeForm = ref({
                     name: '', type: 'vless', ssh_host: '', ssh_port: 22, ssh_user: 'root',
-                    ssh_auth_type: 'password', ssh_credential: '', region: '', remark: ''
+                    ssh_auth_type: 'password', ssh_credential: '', region: '', remark: '',
+                    port: 443, server_name: '', dest: ''
                 });
 
                 
@@ -2071,7 +2096,8 @@ window.onerror = function(msg, url, line, col, error) { alert("JS Error: " + msg
                 const openAddRemoteNode = () => {
                     remoteNodeForm.value = {
                         name: '', type: 'vless', ssh_host: '', ssh_port: 22, ssh_user: 'root',
-                        ssh_auth_type: 'password', ssh_credential: '', region: '', remark: ''
+                        ssh_auth_type: 'password', ssh_credential: '', region: '', remark: '',
+                        port: 443, server_name: '', dest: ''
                     };
                     showRemoteNodeModal.value = true;
                 };
@@ -2082,7 +2108,10 @@ window.onerror = function(msg, url, line, col, error) { alert("JS Error: " + msg
                         const res = await apiFetch('/api/remote_nodes', {
                             method: 'POST',
                             headers: {'Content-Type': 'application/json'},
-                            body: JSON.stringify(remoteNodeForm.value)
+                            body: JSON.stringify({
+                                ...remoteNodeForm.value,
+                                port: Number(remoteNodeForm.value.port) || 0
+                            })
                         });
                         const data = await res.json();
                         if (data.success) {

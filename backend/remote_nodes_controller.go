@@ -25,6 +25,14 @@ type RemoteNodeReq struct {
 	SSHCredential string `json:"ssh_credential"`
 	Region        string `json:"region"`
 	Remark        string `json:"remark"`
+
+	// Optional REALITY overrides, honoured only on a fresh deploy. Left unset,
+	// each falls back to the package default in remote_deploy. Port is an
+	// advanced knob: anything other than 443 weakens the camouflage, because a
+	// real reverse proxy for ServerName would not be reachable there.
+	Port       int    `json:"port"`
+	ServerName string `json:"server_name"`
+	Dest       string `json:"dest"`
 }
 
 type remoteSSHClient interface {
@@ -334,12 +342,26 @@ func doDeployRoutine(id int64, req RemoteNodeReq, isUpdate bool, params map[stri
 		var port int
 
 		if params == nil {
-			port, _ = remote_deploy.GenerateUniquePort(db, 10000, 60000)
+			// REALITY only stays hidden while the node is indistinguishable
+			// from an ordinary TLS reverse proxy for serverName. Nobody
+			// reverse-proxies a major site on a random high port, so the port
+			// is a stronger fingerprint than anything at the SNI layer:
+			// default to 443 and treat any other value as a deliberate choice.
+			port = req.Port
+			if port == 0 {
+				port = remote_deploy.DefaultRealityPort
+			}
 			rPriv, rPub, _ = remote_deploy.GenerateXrayRealityKeys()
 			uuid = remote_deploy.GenerateUUID()
 			shortId, _ = remote_deploy.GenerateShortId()
-			dest = "www.microsoft.com:443"
-			serverName = "www.microsoft.com"
+			serverName = strings.TrimSpace(req.ServerName)
+			if serverName == "" {
+				serverName = remote_deploy.DefaultRealityServerName
+			}
+			dest = strings.TrimSpace(req.Dest)
+			if dest == "" {
+				dest = remote_deploy.DefaultRealityDest
+			}
 		} else {
 			if p, ok := params["port"].(float64); ok {
 				port = int(p)
@@ -364,8 +386,20 @@ func doDeployRoutine(id int64, req RemoteNodeReq, isUpdate bool, params map[stri
 			}
 		}
 
+		// Validate before these values are baked into a script that runs as root
+		// on the remote host. A malformed serverName or dest does not fail
+		// loudly at runtime: REALITY simply forwards every connection to dest,
+		// so the node reports a successful deploy while being either dead (no
+		// SNI can ever match) or trivially fingerprintable (dest does not serve
+		// serverName).
+		if err := remote_deploy.ValidateRealityParams(port, serverName, dest); err != nil {
+			NewRemoteNodesRepository().SetRemoteNodeStatus(id, "Failed")
+			logAction(id, "deploy", "failed", fmt.Sprintf("Invalid REALITY parameters: %v", err))
+			return
+		}
+
 		shareLink = fmt.Sprintf("vless://%s@%s:%d?security=reality&sni=%s&fp=chrome&pbk=%s&sid=%s&type=tcp&flow=xtls-rprx-vision&encryption=none#%s",
-			uuid, req.SSHHost, port, serverName, rPub, shortId, url.QueryEscape(req.Name))
+			uuid, req.SSHHost, port, url.QueryEscape(serverName), url.QueryEscape(rPub), url.QueryEscape(shortId), url.QueryEscape(req.Name))
 
 		if err := NewRemoteNodesRepository().UpsertRemoteNodeVLESSParams(id, uuid, rPriv, rPub, shortId, serverName, dest, port, shareLink); err != nil {
 			NewRemoteNodesRepository().SetRemoteNodeStatus(id, "Failed")
