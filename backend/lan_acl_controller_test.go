@@ -18,6 +18,15 @@ func TestLanACLCreateValidatesInput(t *testing.T) {
 		{"template injection", `{"type":"ip","value":"1.1.1.1 }; table inet evil {}","policy":"direct"}`},
 		{"bad type", `{"type":"host","value":"1.1.1.1","policy":"proxy"}`},
 		{"bad policy", `{"type":"ip","value":"1.1.1.1","policy":"evil"}`},
+		// Widening the validator to accept IPv6 and private supernets must not
+		// also let a default route through: /0 matches every address, so an ACL
+		// entry carrying it would silently capture the whole internet.
+		{"ipv4 default route", `{"type":"ip","value":"0.0.0.0/0","policy":"proxy"}`},
+		{"ipv6 default route", `{"type":"ip","value":"::/0","policy":"proxy"}`},
+		{"cidr with trailing nft", `{"type":"ip","value":"192.168.0.0/16 }; table inet evil {}","policy":"direct"}`},
+		{"ipv6 template injection", `{"type":"ip","value":"fd00::1 }; table inet evil {}","policy":"direct"}`},
+		{"empty value", `{"type":"ip","value":"","policy":"direct"}`},
+		{"cidr without prefix", `{"type":"ip","value":"192.168.0.0/","policy":"direct"}`},
 	}
 	for _, tc := range reject {
 		w := httptest.NewRecorder()
