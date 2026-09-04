@@ -1,4 +1,11 @@
 ## [Unreleased]
+
+## [1.7.23] - 2026-09-05
+### 🐛 部署与运行时修复 (Deployment & Runtime Fixes)
+- **REALITY 隧道部署自检**: 远程节点部署完成后会实际发起一次 REALITY 握手并经隧道取一次 `https://<serverName>/`，失败则部署置为 `Failed` 并直接指出应更换的 `dest`。此前只要安装脚本退出码为 0 就标记 `Online`，`check` 也仅执行 `systemctl is-active xray`，导致隧道完全不通的节点被报告为健康，只有抓包才能发现。
+- **nftables 规则集终于可被后端更新**: `applyNftablesConfig` 曾把校验用暂存文件写入 `/etc/nftables.conf.proxygw.new`，而 unit 的 `ProtectSystem=strict` 使 `/etc` 只读，且 `ReadWritePaths` 的 `-` 前缀会跳过尚不存在的路径，因此**每次 apply（含开机）都失败**。影响远超防火墙本身：`mac_proxy`/`ip_proxy`/`protected_ips` 等 7 个 nft set 从未被创建，**LAN ACL、按设备分流、保护 IP 列表在任何安装上都是静默失效的**。暂存文件改写入 `PrivateTmp` 下的 TempDir。
+- **开机时 Xray 配置被误判为非法**: `Bootstrap` 在 `applyXrayConfig` 之后才创建 `/run/proxygw`，而生成的配置把 access log 指向该目录，Xray 因此以退出码 23 拒绝启动；`xray.service` 的 `RestartPreventExitStatus=23` 又阻止重试，服务保持停止。`/run` 位于 tmpfs，每次重启都会复现。目录创建已移至 `Bootstrap` 开头，四处硬编码路径统一由 `runtimeDir` 派生。
+- **测试套件在 arm64 上恢复通过**: `helpers_test.go` 中 3 个用例硬编码了 amd64 的 `Xray-linux-64.zip`，在项目同样发布的 arm64 上必然失败（CI 仅跑 amd64 故长期未暴露）。改为与实现同源推导，并新增用例钉住各架构的 asset 名。
 - **测试体系**: 修复 2 个因 DNS 重构（硬编码 127.0.0.1）导致的后端测试失败，新增 5 个测试脚本（`test_backend.sh`, `test_coverage.sh`, `test_benchmark.sh`, `test_frontend.sh`, `pre-commit.sh`），重写 `test_all.sh` 为主编排器（6 阶段），添加 Git pre-commit hook。
 - **更新脚本 Git 直连修复**: `scripts/update.sh` 现在仅对 GitHub API/Release 资产下载使用本地 10809/10808 代理，`git fetch/reset` 阶段强制清空代理环境，避免 Debian Git/GnuTLS 经本地 HTTP 入站时出现 `TLS connection was non-properly terminated`。
 
