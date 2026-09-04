@@ -60,8 +60,41 @@ func (s *AppService) Bootstrap() {
 	}
 
 	StartConnectionTracker()
+	disableSendRedirects()
 	s.initTPROXYRules()
 	goSafe(s.reconcileTPROXYRulesLoop)
+}
+
+// ipv4ConfDir is the sysctl tree for per-interface IPv4 settings. It is a
+// variable so tests can point it at a fixture.
+var ipv4ConfDir = "/proc/sys/net/ipv4/conf"
+
+// disableSendRedirects turns ICMP redirects off on every interface that exists
+// right now, not just on "all" and "default".
+//
+// 99-proxygw.conf sets conf.all and conf.default, but neither covers an
+// interface that already existed when the file was applied: "default" only
+// seeds interfaces created afterwards, and for send_redirects the kernel takes
+// the logical OR of conf.all and conf.<iface>, so a pre-existing interface
+// keeps its default of 1 and redirects are still emitted.
+//
+// That is fatal to Mode A. The gateway routes for LAN clients whose next hop
+// sits on the same subnet, so it answers with an ICMP redirect, the client
+// caches it and then talks to the main router directly. Traffic stops entering
+// the TPROXY chain at all — the gateway is bypassed, silently, for exactly the
+// destinations a user is most likely to test.
+func disableSendRedirects() {
+	entries, err := os.ReadDir(ipv4ConfDir)
+	if err != nil {
+		log.Printf("[WARN] cannot enumerate %s to disable ICMP redirects: %v", ipv4ConfDir, err)
+		return
+	}
+	for _, e := range entries {
+		p := filepath.Join(ipv4ConfDir, e.Name(), "send_redirects")
+		if err := os.WriteFile(p, []byte("0\n"), 0644); err != nil && !os.IsNotExist(err) {
+			log.Printf("[WARN] failed to disable send_redirects on %s: %v", e.Name(), err)
+		}
+	}
 }
 
 func (s *AppService) initTPROXYRules() {

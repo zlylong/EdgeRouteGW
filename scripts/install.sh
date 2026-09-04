@@ -119,6 +119,15 @@ net.ipv4.tcp_fastopen = 3
 SYSCTL_EOF
 sysctl --system || true
 
+# conf.default only seeds interfaces created after it is applied, and for
+# send_redirects the kernel ORs conf.all with conf.<iface>, so every interface
+# that already existed keeps the default of 1 and the gateway still emits ICMP
+# redirects. A redirected client then talks to the main router directly and
+# never enters the TPROXY chain, which silently defeats Mode A.
+for _redir in /proc/sys/net/ipv4/conf/*/send_redirects; do
+    [ -w "$_redir" ] && echo 0 > "$_redir" || true
+done
+
 
 echo "[3/6] Setting up directory structure..."
 mkdir -p "$REPO_DIR/config"
