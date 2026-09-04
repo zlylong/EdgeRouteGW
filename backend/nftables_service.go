@@ -92,6 +92,28 @@ table inet proxygw {
 }
 `
 
+// nftablesActivePath is the persisted ruleset systemd loads at boot. It already
+// exists on any installed host, so ReadWritePaths can bind-mount it read-write
+// even though ProtectSystem=strict keeps the rest of /etc read-only.
+const nftablesActivePath = "/etc/nftables.conf"
+
+// nftablesStagingPath returns the scratch file "nft -c -f" validates before the
+// ruleset is committed. It deliberately does not live in /etc: the unit runs
+// under ProtectSystem=strict, and a ReadWritePaths entry cannot rescue a file
+// that does not exist yet, because the "-" prefix makes systemd skip it. That
+// left every apply failing with "read-only file system" and the gateway unable
+// to update its own firewall. TempDir is private to the unit (PrivateTmp) and
+// is where the runtime backup already lives.
+func nftablesStagingPath() string {
+	return filepath.Join(os.TempDir(), "proxygw-nftables-staging.nft")
+}
+
+// nftablesRuntimeBackupPath returns the dump of the live ruleset kept for
+// rollback if committing the new one fails.
+func nftablesRuntimeBackupPath() string {
+	return filepath.Join(os.TempDir(), "proxygw-nftables-runtime-backup.nft")
+}
+
 func applyNftablesConfig() error {
 	var defaultPolicy string
 	if err := getDB().QueryRow("SELECT value FROM settings WHERE key='lan_default_policy'").Scan(&defaultPolicy); err != nil {
@@ -210,9 +232,9 @@ func applyNftablesConfig() error {
 	}
 
 	newConfig := buf.Bytes()
-	stagingPath := "/etc/nftables.conf.proxygw.new"
-	activePath := "/etc/nftables.conf"
-	runtimeBackupPath := filepath.Join(os.TempDir(), "proxygw-nftables-runtime-backup.nft")
+	activePath := nftablesActivePath
+	stagingPath := nftablesStagingPath()
+	runtimeBackupPath := nftablesRuntimeBackupPath()
 
 	if err := os.WriteFile(stagingPath, newConfig, 0644); err != nil {
 		return fmt.Errorf("failed to stage nftables config: %v", err)
