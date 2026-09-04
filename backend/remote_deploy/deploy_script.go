@@ -7,6 +7,12 @@ import (
 	"strings"
 )
 
+// realityProbeSocksPort is the loopback SOCKS port the post-install REALITY
+// smoke test binds. It only has to be free for the few seconds the probe runs
+// and is never exposed off the host; if it is occupied the probe fails closed
+// and the deploy reports why rather than silently skipping the check.
+const realityProbeSocksPort = 45789
+
 func GenerateWGInstallScript(port int, serverPriv, clientPub, tunnelAddr string) string {
 	clientIP := strings.Replace(tunnelAddr, ".1/24", ".2/32", 1)
 	wgConfig := fmt.Sprintf(`[Interface]
@@ -67,7 +73,7 @@ systemctl restart wg-quick@wg0
 	return fmt.Sprintf(script, wgConfigBase64)
 }
 
-func GenerateVlessRealityInstallScript(port int, uuid, privateKey, shortId, serverName, dest string) string {
+func GenerateVlessRealityInstallScript(port int, uuid, privateKey, publicKey, shortId, serverName, dest string) string {
 	config := map[string]interface{}{
 		"log": map[string]interface{}{"loglevel": "warning"},
 		"inbounds": []map[string]interface{}{
@@ -107,6 +113,50 @@ func GenerateVlessRealityInstallScript(port int, uuid, privateKey, shortId, serv
 
 	configBytes, _ := json.Marshal(config)
 	configBase64 := base64.StdEncoding.EncodeToString(configBytes)
+
+	// probeConfig drives the post-install smoke test below. It is the smallest
+	// client that exercises the exact path a real gateway takes: a REALITY
+	// handshake against the inbound we just wrote, then a VLESS tunnel out.
+	probeConfig := map[string]interface{}{
+		"log": map[string]interface{}{"loglevel": "warning"},
+		"inbounds": []map[string]interface{}{
+			{
+				"listen":   "127.0.0.1",
+				"port":     realityProbeSocksPort,
+				"protocol": "socks",
+				"settings": map[string]interface{}{"udp": false},
+			},
+		},
+		"outbounds": []map[string]interface{}{
+			{
+				"protocol": "vless",
+				"settings": map[string]interface{}{
+					"vnext": []map[string]interface{}{
+						{
+							"address": "127.0.0.1",
+							"port":    port,
+							"users": []map[string]interface{}{
+								{"id": uuid, "encryption": "none", "flow": "xtls-rprx-vision"},
+							},
+						},
+					},
+				},
+				"streamSettings": map[string]interface{}{
+					"network":  "tcp",
+					"security": "reality",
+					"realitySettings": map[string]interface{}{
+						"serverName":  serverName,
+						"fingerprint": "chrome",
+						"publicKey":   publicKey,
+						"shortId":     shortId,
+						"spiderX":     "/",
+					},
+				},
+			},
+		},
+	}
+	probeBytes, _ := json.Marshal(probeConfig)
+	probeBase64 := base64.StdEncoding.EncodeToString(probeBytes)
 
 	script := `#!/bin/bash
 set -e
@@ -178,6 +228,48 @@ XSRV
 systemctl daemon-reload
 systemctl enable xray
 systemctl restart xray
+
+# --- REALITY smoke test ---------------------------------------------------
+# A clean install is not evidence that the node works. REALITY only completes a
+# handshake when dest behaves like a TLS reverse proxy for serverName under the
+# client's ClientHello, and a dest can serve a valid certificate over TLS 1.3
+# while still failing that. Without this probe the deploy reports Online, every
+# client silently falls through to dest, and the node is indistinguishable from
+# a healthy one until someone inspects traffic.
+SMOKE_DIR=$(mktemp -d)
+SMOKE_LOG=$SMOKE_DIR/probe.log
+SMOKE_PID=""
+cleanup_smoke() {
+  if [ -n "$SMOKE_PID" ]; then kill "$SMOKE_PID" 2>/dev/null || true; fi
+  rm -rf "$SMOKE_DIR"
+}
+trap cleanup_smoke EXIT
+
+echo "%s" | base64 -d > "$SMOKE_DIR/probe.json"
+/usr/local/bin/xray run -c "$SMOKE_DIR/probe.json" > "$SMOKE_LOG" 2>&1 &
+SMOKE_PID=$!
+
+smoke_ready=0
+for _ in $(seq 1 30); do
+  if grep -q started "$SMOKE_LOG" 2>/dev/null; then smoke_ready=1; break; fi
+  if ! kill -0 "$SMOKE_PID" 2>/dev/null; then break; fi
+  sleep 0.5
+done
+if [ "$smoke_ready" -ne 1 ]; then
+  echo "REALITY smoke test could not start its probe client (port %d may be in use)." >&2
+  cat "$SMOKE_LOG" >&2
+  exit 1
+fi
+
+if ! curl -sS --max-time 20 -o /dev/null --socks5-hostname 127.0.0.1:%d "https://%s/"; then
+  echo "REALITY smoke test failed: xray is running, but no client can complete a REALITY handshake against it." >&2
+  echo "The usual cause is that dest %s does not work as a REALITY camouflage target from this host." >&2
+  echo "Note that a dest can pass certificate and TLS 1.3 checks and still fail here; pick another dest/serverName pair." >&2
+  echo "Probe client log:" >&2
+  cat "$SMOKE_LOG" >&2
+  exit 1
+fi
+echo "REALITY smoke test passed."
 `
-	return fmt.Sprintf(script, configBase64)
+	return fmt.Sprintf(script, configBase64, probeBase64, realityProbeSocksPort, realityProbeSocksPort, serverName, dest)
 }

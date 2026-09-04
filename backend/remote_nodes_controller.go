@@ -407,7 +407,7 @@ func doDeployRoutine(id int64, req RemoteNodeReq, isUpdate bool, params map[stri
 			return
 		}
 
-		script = remote_deploy.GenerateVlessRealityInstallScript(port, uuid, rPriv, shortId, serverName, dest)
+		script = remote_deploy.GenerateVlessRealityInstallScript(port, uuid, rPriv, rPub, shortId, serverName, dest)
 	}
 
 	logAction(id, "deploy", "running", "Executing installation script on remote host...")
