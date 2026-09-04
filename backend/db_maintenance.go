@@ -24,8 +24,8 @@ func runDatabaseMaintenance() {
 func rotateLogs() {
 	logPaths := []string{
 		getPath("core", "mosdns", "mosdns.log"),
-		"/run/proxygw/xray_access.log",
-		"/run/proxygw/xray_error.log",
+		xrayAccessLogPath,
+		xrayErrorLogPath,
 	}
 
 	const maxLogSize = 50 * 1024 * 1024 // 50MB

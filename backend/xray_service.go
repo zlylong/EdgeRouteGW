@@ -11,7 +11,7 @@ import (
 
 func buildBaseXrayConfig(mode string) map[string]interface{} {
 	config := map[string]interface{}{
-		"log":   map[string]string{"loglevel": "warning", "access": "/run/proxygw/xray_access.log"},
+		"log":   map[string]string{"loglevel": "warning", "access": xrayAccessLogPath},
 		"api":   map[string]interface{}{"services": []string{"StatsService", "RoutingService", "HandlerService"}, "tag": "api"},
 		"stats": map[string]interface{}{},
 		"policy": map[string]interface{}{
