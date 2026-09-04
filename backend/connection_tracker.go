@@ -74,7 +74,7 @@ func GetRecentConnections() []ConnectionRecord {
 }
 
 func StartConnectionTracker() {
-	logPath := "/run/proxygw/xray_access.log"
+	logPath := xrayAccessLogPath
 
 	go func() {
 		defer func() {

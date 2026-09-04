@@ -3,8 +3,23 @@ package main
 import (
 	"log"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
+)
+
+// runtimeDir holds the Xray access/error logs the connection tracker tails. It
+// lives on tmpfs, so it is gone after every reboot and has to be recreated
+// before anything that references it runs.
+const runtimeDir = "/run/proxygw"
+
+// xrayAccessLogPath / xrayErrorLogPath are what the generated Xray config points
+// at and what the connection tracker tails. Keeping them derived from runtimeDir
+// stops the two from drifting: Xray exits 23 if it cannot open the access log,
+// and xray.service refuses to restart on that status.
+var (
+	xrayAccessLogPath = filepath.Join(runtimeDir, "xray_access.log")
+	xrayErrorLogPath  = filepath.Join(runtimeDir, "xray_error.log")
 )
 
 // AppService orchestrates subsystem startup.
@@ -18,6 +33,18 @@ func NewAppService(repo *AppRepository) *AppService {
 
 func (s *AppService) Bootstrap() {
 	s.repo.InitDB()
+
+	// Must precede applyXrayConfig: the generated Xray config points its access
+	// log at /run/proxygw/xray_access.log, and Xray refuses to start — exit 23,
+	// "failed to initialize access logger" — if the directory is missing. That
+	// makes the config validation reject a perfectly good config on the first
+	// boot after install, and xray.service sets RestartPreventExitStatus=23, so
+	// the unit stays down instead of retrying. The connection tracker and the
+	// database maintenance job read the same directory.
+	if err := os.MkdirAll(runtimeDir, 0755); err != nil {
+		log.Printf("[WARN] failed to create runtime dir %s: %v", runtimeDir, err)
+	}
+
 	ensureGeodataHealthy()
 	goSafe(startTrafficMonitor)
 	goSafe(startNftablesMonitor)
@@ -32,7 +59,6 @@ func (s *AppService) Bootstrap() {
 		log.Printf("[WARN] applyNftablesConfig on startup failed: %v", err)
 	}
 
-	os.MkdirAll("/run/proxygw", 0755)
 	StartConnectionTracker()
 	s.initTPROXYRules()
 	goSafe(s.reconcileTPROXYRulesLoop)
