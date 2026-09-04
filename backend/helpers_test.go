@@ -3,6 +3,7 @@ package main
 import (
 	"net/http"
 	"net/http/httptest"
+	"runtime"
 	"testing"
 	"time"
 
@@ -49,36 +50,70 @@ func TestFormatUpstreamsFallbackRemote(t *testing.T) {
 	}
 }
 
+// The project ships arm64 releases and install.sh handles aarch64, so these
+// must not assume the host that runs the tests is amd64. Deriving the asset the
+// same way the implementation does keeps them honest on both architectures
+// while still pinning the URL shape, which is the part that actually matters.
 func TestBuildXrayDownloadURLLatest(t *testing.T) {
+	asset, err := xrayAssetName()
+	if err != nil {
+		t.Skipf("no Xray asset for %s", runtime.GOARCH)
+	}
 	got, err := buildXrayDownloadURL("latest")
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := "https://github.com/XTLS/Xray-core/releases/latest/download/Xray-linux-64.zip"
+	want := "https://github.com/XTLS/Xray-core/releases/latest/download/" + asset
 	if got != want {
 		t.Fatalf("want %s, got %s", want, got)
 	}
 }
 
 func TestBuildXrayDownloadURLEmpty(t *testing.T) {
+	asset, err := xrayAssetName()
+	if err != nil {
+		t.Skipf("no Xray asset for %s", runtime.GOARCH)
+	}
 	got, err := buildXrayDownloadURL("")
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := "https://github.com/XTLS/Xray-core/releases/latest/download/Xray-linux-64.zip"
+	want := "https://github.com/XTLS/Xray-core/releases/latest/download/" + asset
 	if got != want {
 		t.Fatalf("want %s, got %s", want, got)
 	}
 }
 
 func TestBuildXrayDownloadURLSpecific(t *testing.T) {
+	asset, err := xrayAssetName()
+	if err != nil {
+		t.Skipf("no Xray asset for %s", runtime.GOARCH)
+	}
 	got, err := buildXrayDownloadURL("v26.3.27")
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := "https://github.com/XTLS/Xray-core/releases/download/v26.3.27/Xray-linux-64.zip"
+	want := "https://github.com/XTLS/Xray-core/releases/download/v26.3.27/" + asset
 	if got != want {
 		t.Fatalf("want %s, got %s", want, got)
+	}
+}
+
+// The mapping itself is what the URL tests can no longer catch, so pin it here.
+func TestXrayAssetNamePerArch(t *testing.T) {
+	switch runtime.GOARCH {
+	case "amd64":
+		if a, _ := xrayAssetName(); a != "Xray-linux-64.zip" {
+			t.Fatalf("amd64 asset is %q", a)
+		}
+	case "arm64":
+		if a, _ := xrayAssetName(); a != "Xray-linux-arm64-v8a.zip" {
+			t.Fatalf("arm64 asset is %q", a)
+		}
+	default:
+		if _, err := xrayAssetName(); err == nil {
+			t.Fatalf("unsupported arch %s should not yield an asset", runtime.GOARCH)
+		}
 	}
 }
 
