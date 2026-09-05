@@ -1,5 +1,9 @@
 ## [Unreleased]
 
+## [1.7.29] - 2026-09-05
+### 🔒 远程节点部署加固 (Remote Deploy Hardening)
+- **远程节点 Xray 下载现在校验且按架构选择**: VLESS 部署脚本此前从 `latest` 拉取写死的 `Xray-linux-64.zip`，不做任何完整性校验就以 root 解包进 `/usr/local/bin`。这有两个隐患：(1) 部署到 arm64 节点会装上跑不了的二进制（自 #26 起至少会被自检拦成 Failed，但本就该直接可用）；(2) root 二进制无校验，传输损坏或中间人替换都照装。现按 `uname -m` 选择 amd64/arm64 资产，并下载 XTLS 官方随发布提供的 `.dgst` 校验 `SHA2-256`，不匹配即中止部署。`install.sh` 里网关自身的 Xray 下载同样加了校验（离线/被墙路径允许无校验文件时告警放行，但校验文件存在且不匹配则致命）。在 VM105 上以真实 XTLS 发布验证：正确哈希通过、篡改一字节即失败。
+
 ## [1.7.28] - 2026-09-05
 ### 🐛 升级路径修复 (Upgrade Path)
 - **重启/升级后路由发布不再干等 5 分钟**: #35 让"切换模式"立即发布，但"服务重启"仍未覆盖。重启时 `applyXrayConfig` 触发的首次同步跑在 Xray/Mosdns 尚未就绪的瞬间，`dig` 无应答（exit 9）后再无重试，只能等 `domainIPUpdater` 的 5 分钟 ticker；而 `update.sh` 与 `flush_cache.sh` 都会先 `DELETE FROM routes_table` 再重启，于是 **Mode B/C 每次升级后主路由都有最长 5 分钟没有路由**（v1.7.27 升级实测：05:34:33 清空，05:39:40 才由 ticker 回填，期间对账逻辑还把 FRR 侧 8 条路由当作孤儿剪掉）。现在启动后按 15s / 45s / 2min 做一轮短重试，约一分钟内收敛；ticker 本身不变，Mode A 不受影响。
