@@ -1,5 +1,10 @@
 ## [Unreleased]
 
+## [1.7.28] - 2026-09-05
+### 🐛 升级路径修复 (Upgrade Path)
+- **重启/升级后路由发布不再干等 5 分钟**: #35 让"切换模式"立即发布，但"服务重启"仍未覆盖。重启时 `applyXrayConfig` 触发的首次同步跑在 Xray/Mosdns 尚未就绪的瞬间，`dig` 无应答（exit 9）后再无重试，只能等 `domainIPUpdater` 的 5 分钟 ticker；而 `update.sh` 与 `flush_cache.sh` 都会先 `DELETE FROM routes_table` 再重启，于是 **Mode B/C 每次升级后主路由都有最长 5 分钟没有路由**（v1.7.27 升级实测：05:34:33 清空，05:39:40 才由 ticker 回填，期间对账逻辑还把 FRR 侧 8 条路由当作孤儿剪掉）。现在启动后按 15s / 45s / 2min 做一轮短重试，约一分钟内收敛；ticker 本身不变，Mode A 不受影响。
+- **`db_optimize.sh` 不再在每次升级时打印 Parse error**: `domain_geoip_lock` 表由后端在 Mode C 首次锁定 GeoIP 时按需创建，从未触发过的主机上不存在，索引语句报 `no such table`。sqlite3 不会中止，其余索引照常建立，但升级输出里总有一条刺眼的错误。现按表是否存在有条件执行并打印 `[SKIP]`。
+
 ## [1.7.27] - 2026-09-05
 ### 🔒 安全审计 (Security Audit)
 - **⚠️ `update.sh` 此前每次运行都会清空全部远程节点的 SSH 凭证**: `config/aes.key` 被仓库跟踪，内容是源码里的公开占位常量；首次启动 `init()` 识别出常量后轮换为随机密钥并写回同一路径，而 `update.sh` 的 `git reset --hard origin/main` 会把它**覆盖回常量**——下次启动再轮换一把新密钥，用 legacy 常量解不开上一把密钥加密的行，于是按"外来行保留原样"跳过，凭证从此永久不可解密，部署/巡检全部认证失败且没有任何提示。现已解除跟踪并加入 `.gitignore`；`update.sh` 在 reset 前后备份/恢复该文件；迁移逻辑对解不开的行改为输出 `[CRITICAL]` 告警（含原因与处置）。**存量主机注意**：首次升级到本版仍由旧脚本执行 reset，无法从仓库侧挽救——升级前请先 `cp -p /root/proxygw/config/aes.key /root/aes.key.bak`，升级后若日志出现该 CRITICAL，将其复制回去并重启 proxygw 即可恢复。
