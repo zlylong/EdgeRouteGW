@@ -1,5 +1,9 @@
 ## [Unreleased]
 
+## [1.7.26] - 2026-09-05
+### 🐛 沙箱权限修复 (Sandbox)
+- **`disableSendRedirects` 此前被沙箱挡住、完全无效**: unit 的 `ProtectKernelTunables=yes` 会把 `/proc/sys` 挂成只读，v1.7.24 引入的关闭 ICMP 重定向逻辑因此每次写入都失败（`open /proc/sys/net/ipv4/conf/eth0/send_redirects: read-only file system`）——与 1.7.23 修的 nftables 暂存文件是同一类错误。全新安装看起来正常，是因为同批加入的 install.sh 循环在沙箱外以 root 执行、确实生效；但它只覆盖安装时已存在的网卡，而网卡每次开机都会重建，`conf.default` 又不会追溯覆盖 `systemd-sysctl` 执行时已存在的接口。于是**重启后网关重新开始发送 ICMP 重定向，Mode A 再次可被绕过**，而本该兜底的组件写不进去。现于三处 unit 定义中授予 `ReadWritePaths=/proc/sys/net/ipv4/conf`；实测只读告警归零、`eth0` 重启后保持 0。测试将 unit 的授权与代码实际写入的路径常量绑定，避免任一侧改名后再次静默失效。
+
 ## [1.7.25] - 2026-09-05
 ### 🐛 模式切换与路由发布修复 (Mode Switch & Route Publishing)
 - **切换模式后立即同步路由**: 路由发布此前**只**由 `domainIPUpdater` 的 5 分钟 ticker 驱动，切入 Mode B/C 后主路由会一直持有上个模式的路由（或空），直到下一次 tick 偶然触发——最坏要等满 5 分钟。期间没有任何迹象：`POST /api/mode` 返回成功、服务全部健康、OSPF 邻居正常，而流量因主路由无路由可指静默绕过网关（实测：切到 C 后客户端立刻拉取 86KB，网关计数仅动约 1KB）。现由 finalize 步骤直接触发 `scheduleStaticRouteSync`（异步且自带合并，不会让切换阻塞在全量 DNS 解析上）。实测 C→A→C：切回后 **1 秒**内 8 条路由重新发布并被主路由学习。Mode C 仍保留既有已发布路由而不降级——那是其规则的解析结果，切换并不使其失效，降级只会让主路由先撤销再重新学习。
