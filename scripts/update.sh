@@ -15,6 +15,9 @@ cd "$REPO_DIR"
 
 apt-get update >/dev/null 2>&1 || true
 apt-get install -y jq sqlite3 wget >/dev/null 2>&1 || true
+# Installs from before dig became a hard dependency have no resolver at all;
+# without it the OSPF engine silently resolves nothing.
+command -v dig >/dev/null 2>&1 || apt-get install -y bind9-dnsutils >/dev/null 2>&1 || apt-get install -y dnsutils >/dev/null 2>&1 || true
 
 echo "=== EdgeRouteGW Update ==="
 

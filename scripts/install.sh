@@ -46,6 +46,11 @@ cd "$REPO_DIR"
 echo "[1/6] Installing system dependencies..."
 apt-get update
 apt-get install -y nftables frr curl wget unzip iproute2 jq
+# The OSPF engine resolves every domain and geosite rule by shelling out to dig
+# (ospf_dns_cache.go is the only resolution path since the Go resolver was
+# dropped in 1.7.20). Without it Mode C publishes nothing at all and Mode B
+# cannot resolve protected hosts. dnsutils is the pre-bookworm name.
+apt-get install -y bind9-dnsutils || apt-get install -y dnsutils
 
 echo "[2/6] Setting up routing rules and system settings..."
 
