@@ -1,5 +1,15 @@
 ## [Unreleased]
 
+## [1.7.27] - 2026-09-05
+### 🔒 安全审计 (Security Audit)
+- **⚠️ `update.sh` 此前每次运行都会清空全部远程节点的 SSH 凭证**: `config/aes.key` 被仓库跟踪，内容是源码里的公开占位常量；首次启动 `init()` 识别出常量后轮换为随机密钥并写回同一路径，而 `update.sh` 的 `git reset --hard origin/main` 会把它**覆盖回常量**——下次启动再轮换一把新密钥，用 legacy 常量解不开上一把密钥加密的行，于是按"外来行保留原样"跳过，凭证从此永久不可解密，部署/巡检全部认证失败且没有任何提示。现已解除跟踪并加入 `.gitignore`；`update.sh` 在 reset 前后备份/恢复该文件；迁移逻辑对解不开的行改为输出 `[CRITICAL]` 告警（含原因与处置）。**存量主机注意**：首次升级到本版仍由旧脚本执行 reset，无法从仓库侧挽救——升级前请先 `cp -p /root/proxygw/config/aes.key /root/aes.key.bak`，升级后若日志出现该 CRITICAL，将其复制回去并重启 proxygw 即可恢复。
+本版由一次覆盖全部后端代码的审计产出：staticcheck / gosec / govulncheck 三套工具扫描，加上对认证、凭证加密、命令执行、输入校验、并发与发布链的人工审查。所有修复均在测试环境实测验证。
+- **依赖漏洞清零**: `golang.org/x/crypto/ssh`（远程节点部署与巡检所用的 SSH 客户端库）存在 5 个可达漏洞，`x/net`、`quic-go` 各 1 个。升级至 `x/crypto v0.56.0`、`x/net v0.57.0`、`quic-go v0.59.1`。其中两个 SSH 死锁 DoS 仅在需要 Go 1.26 的版本中修复，故工具链升至 **Go 1.26**（`go.mod` 钉 `toolchain go1.26.8`，release workflow 同步）。此前 `go.mod` 钉在 go1.25.0，CI 与本地构建实际使用带 30 余个 stdlib 漏洞的工具链，正式版则因 workflow 写 `'1.25'` 而恰好拿到已修复的补丁版本。现在 `govulncheck ./...` 为零。
+- **SSH 凭证改用 AES-256-GCM 认证加密**: 此前为 AES-256-CFB——IV 随机、密钥按安装生成，保密性没有问题，但 CFB **无认证**：篡改密文会解出被篡改的明文且不报错，而解密结果会直接交给 `ssh.ParsePrivateKey` 或 `sudo -S`。新格式 `ENC2:` 为 GCM（nonce‖密文‖tag），任何改动都会认证失败。旧 `ENC:` 行保持可读，**启动时自动重写为 GCM**（此前该步骤只在密钥轮换后运行，现每次启动执行）。树中不再有 CFB 写入代码。
+- **发布产物校验和**: release 现随二进制发布 `SHA256SUMS`；`install.sh`/`update.sh` 下载以 root 运行的后端二进制后先校验再安装，**不匹配即中止并删除文件**。没有 `SHA256SUMS` 的旧 tag（含离线回退 tag）仅告警放行，保证现有安装路径不断。`check-release-chain.sh` 会在 workflow 不再发布该文件时失败。
+- **四处加固**: (1) `dig` 无 `--` 终止符，以 `-`/`+`/`@` 开头的名字会被当作选项——上游校验已拒绝，现在唯一把字符串交给 root 子进程的位置也自行拒绝；(2) CSPRNG 失败时 `init()` 曾回退到源码里的公开常量密钥并持久化，现改为拒绝启动；(3) `POST /remote_nodes/:id/hostkey` 重新钉定 SSH host key 是唯一能静默把已存凭证导向另一台机器的操作，现与 deploy/mode/apply 一样要求确认令牌（前端从不调用此接口，无 UI 影响）；(4) 高风险互斥锁改为按组：`apply_config`、`mode_switch`、`network_config` 都重写同一批 Xray/Mosdns/nftables 配置，而后两者的 apply 函数内部无锁，此前 `/api/apply` 与 `/api/mode` 可并发交错写入。
+- **清理死代码**: 移除 8 个无引用符号，其中 3 个是 1.7.20 被 `dig` 取代的 `host` 解析器残留——留在树里会让人误以为存在回退路径（#32 正是被这种误读掩盖了很久）。
+
 ## [1.7.26] - 2026-09-05
 ### 🐛 沙箱权限修复 (Sandbox)
 - **`disableSendRedirects` 此前被沙箱挡住、完全无效**: unit 的 `ProtectKernelTunables=yes` 会把 `/proc/sys` 挂成只读，v1.7.24 引入的关闭 ICMP 重定向逻辑因此每次写入都失败（`open /proc/sys/net/ipv4/conf/eth0/send_redirects: read-only file system`）——与 1.7.23 修的 nftables 暂存文件是同一类错误。全新安装看起来正常，是因为同批加入的 install.sh 循环在沙箱外以 root 执行、确实生效；但它只覆盖安装时已存在的网卡，而网卡每次开机都会重建，`conf.default` 又不会追溯覆盖 `systemd-sysctl` 执行时已存在的接口。于是**重启后网关重新开始发送 ICMP 重定向，Mode A 再次可被绕过**，而本该兜底的组件写不进去。现于三处 unit 定义中授予 `ReadWritePaths=/proc/sys/net/ipv4/conf`；实测只读告警归零、`eth0` 重启后保持 0。测试将 unit 的授权与代码实际写入的路径常量绑定，避免任一侧改名后再次静默失效。
