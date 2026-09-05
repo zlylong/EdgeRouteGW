@@ -49,11 +49,28 @@ var modeSwitchApplyNftables = func() error { return applyNftablesConfig() }
 var modeSwitchApplyMosdns = func() error { return applyMosdnsConfig() }
 var modeSwitchApplyXray = func() error { return applyXrayConfig() }
 var modeSwitchFinalizeRoutes = func(mode string) error {
-	if mode == "C" {
-		return nil
+	// Mode C keeps whatever is already published: its routes are the resolved
+	// addresses of the rules, which the switch does not invalidate, and
+	// demoting them would withdraw working routes from the main router only to
+	// re-add them moments later. Every other mode starts from a clean slate.
+	if mode != "C" {
+		if _, err := getDB().Exec("UPDATE routes_table SET status='candidate' WHERE status='published'"); err != nil {
+			return err
+		}
 	}
-	_, err := getDB().Exec("UPDATE routes_table SET status='candidate' WHERE status='published'")
-	return err
+
+	// Publishing is otherwise driven solely by domainIPUpdater's five-minute
+	// ticker, so switching into B or C left the main router holding the
+	// previous mode's routes — or none at all — until the next tick happened to
+	// fire. For that window the new mode does not work and nothing says so:
+	// the API reports success, every service is healthy, and traffic quietly
+	// bypasses the gateway because the router has no reason to send it there.
+	//
+	// scheduleStaticRouteSync is asynchronous and coalesces concurrent
+	// requests, so this starts convergence without making the mode switch wait
+	// on DNS resolution of every rule. It is a no-op for Mode A.
+	scheduleStaticRouteSync(mode)
+	return nil
 }
 
 func currentMode() string {
