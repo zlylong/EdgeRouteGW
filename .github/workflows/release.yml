@@ -32,6 +32,12 @@ jobs:
           CGO_ENABLED=1 GOOS=linux GOARCH=amd64 go build -o proxygw-backend-linux-amd64 .
           CGO_ENABLED=1 GOOS=linux GOARCH=arm64 CC=aarch64-linux-gnu-gcc go build -o proxygw-backend-linux-arm64 .
 
+      - name: Generate checksums
+        run: |
+          cd backend
+          sha256sum proxygw-backend-linux-amd64 proxygw-backend-linux-arm64 > SHA256SUMS
+          cat SHA256SUMS
+
       - name: Extract release notes from changelog
         shell: bash
         run: |
@@ -54,3 +60,4 @@ jobs:
           files: |
             backend/proxygw-backend-linux-amd64
             backend/proxygw-backend-linux-arm64
+            backend/SHA256SUMS

@@ -160,11 +160,41 @@ if [ -z "$PROXYGW_LATEST" ]; then
     echo "Warning: API blocked. Using fallback version v1.7.26..."
     PROXYGW_LATEST="v1.7.26"
 fi
+
+# verify_backend_checksum FILE ASSET_NAME TAG
+# Releases publish SHA256SUMS next to the binaries. A mismatch is fatal: the
+# file is a root-executed binary and a bad byte is worse than no update. A
+# missing SHA256SUMS is only a warning, because tags older than the one that
+# introduced it (and the hardcoded offline fallback tag) never had one.
+verify_backend_checksum() {
+    local file="$1" asset="$2" tag="$3"
+    local sums; sums=$(mktemp)
+    if ! ${DOWNLOAD_CMD:-wget -q -4 -O} "$sums" "https://github.com/zlylong/EdgeRouteGW/releases/download/${tag}/SHA256SUMS" 2>/dev/null || [ ! -s "$sums" ]; then
+        echo "Warning: no SHA256SUMS published for ${tag}; skipping verification"
+        rm -f "$sums"; return 0
+    fi
+    local want; want=$(awk -v a="$asset" '$2==a {print $1}' "$sums")
+    rm -f "$sums"
+    if [ -z "$want" ]; then
+        echo "Error: SHA256SUMS for ${tag} has no entry for ${asset}"; return 1
+    fi
+    local got; got=$(sha256sum "$file" | awk '{print $1}')
+    if [ "$want" != "$got" ]; then
+        echo "Error: checksum mismatch for ${asset} (${tag})"
+        echo "  expected ${want}"
+        echo "  got      ${got}"
+        rm -f "$file"; return 1
+    fi
+    echo "Checksum verified for ${asset} (${tag})"
+}
+
 if [ "$ARCH" = "x86_64" ]; then
-    wget -q -4 -O "$REPO_DIR/backend/proxygw-backend" "https://github.com/zlylong/EdgeRouteGW/releases/download/${PROXYGW_LATEST}/proxygw-backend-linux-amd64"
+    BACKEND_ASSET="proxygw-backend-linux-amd64"
 elif [ "$ARCH" = "aarch64" ]; then
-    wget -q -4 -O "$REPO_DIR/backend/proxygw-backend" "https://github.com/zlylong/EdgeRouteGW/releases/download/${PROXYGW_LATEST}/proxygw-backend-linux-arm64"
+    BACKEND_ASSET="proxygw-backend-linux-arm64"
 fi
+wget -q -4 -O "$REPO_DIR/backend/proxygw-backend" "https://github.com/zlylong/EdgeRouteGW/releases/download/${PROXYGW_LATEST}/${BACKEND_ASSET}"
+verify_backend_checksum "$REPO_DIR/backend/proxygw-backend" "$BACKEND_ASSET" "$PROXYGW_LATEST" || exit 1
 chmod +x "$REPO_DIR/backend/proxygw-backend"
 
 

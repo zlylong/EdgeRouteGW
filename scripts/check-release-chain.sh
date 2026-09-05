@@ -36,6 +36,11 @@ if ! grep -q 'name: EdgeRouteGW \${{ github.ref_name }} Stable' "$RELEASE_YML" \
   exit 1
 fi
 
+grep -q 'backend/SHA256SUMS' "$RELEASE_YML" || {
+  echo "failed: release workflow does not publish SHA256SUMS; install.sh/update.sh verify against it"
+  exit 1
+}
+
 grep -q 'body_path: /tmp/release_notes.md' "$RELEASE_YML" || {
   echo "failed: release workflow missing changelog-driven notes"
   exit 1
