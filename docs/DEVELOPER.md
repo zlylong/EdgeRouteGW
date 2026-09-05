@@ -150,7 +150,6 @@ EdgeRouteGW 是一个高度整合的网络系统。开发者坚信 **原生至�
 
 安装脚本已在 `/etc/sysctl.d/99-proxygw.conf` 自动完成了适用于透明代理网关的内核调优：
 - 开启 BBR 拥塞控制与 fq 队列调度 (`net.ipv4.tcp_congestion_control = bbr`)。
-- 放开 `nf_conntrack` 连接跟踪数上限至 104 万，防止大量并发请求导致内核丢包。
 - 开启 TCP Fast Open 及 TCP Tw Reuse 优化短连接性能。
 
 ## 📊 `geoip:!cn` OSPF 展开性能测试（v1.5.14）
