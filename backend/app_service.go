@@ -3,6 +3,7 @@ package main
 import (
 	"log"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
@@ -59,6 +60,7 @@ func (s *AppService) Bootstrap() {
 		log.Printf("[WARN] applyNftablesConfig on startup failed: %v", err)
 	}
 
+	warnIfResolverMissing()
 	StartConnectionTracker()
 	disableSendRedirects()
 	s.initTPROXYRules()
@@ -94,6 +96,27 @@ func disableSendRedirects() {
 		if err := os.WriteFile(p, []byte("0\n"), 0644); err != nil && !os.IsNotExist(err) {
 			log.Printf("[WARN] failed to disable send_redirects on %s: %v", e.Name(), err)
 		}
+	}
+}
+
+// resolverBinary is the only DNS path the OSPF engine has: ospf_dns_cache.go
+// shells out to it, and the Go resolver was removed in 1.7.20 so there is no
+// fallback. lookPath is a variable so tests can drive both outcomes.
+const resolverBinary = "dig"
+
+var lookPath = exec.LookPath
+
+// warnIfResolverMissing reports a missing dig once, at startup, instead of
+// letting every rule fail on its own.
+//
+// Without it Mode C publishes nothing at all — every domain and geosite rule
+// fails to resolve — and Mode B cannot resolve protected hosts. The only
+// evidence is one "executable file not found in $PATH" line per rule per
+// sync, which reads like a per-rule DNS problem rather than a missing
+// dependency.
+func warnIfResolverMissing() {
+	if _, err := lookPath(resolverBinary); err != nil {
+		log.Printf("[ERROR] %q is not installed; the OSPF engine cannot resolve any domain or geosite rule, so Mode C will publish no routes and Mode B cannot resolve protected hosts. Install it with: apt-get install -y bind9-dnsutils", resolverBinary)
 	}
 }
 
