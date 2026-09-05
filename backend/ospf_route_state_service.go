@@ -34,6 +34,21 @@ func isDirtyRouteIPv4(ip4 net.IP, prefix int) bool {
 	if v4[0] >= 224 {
 		return true // multicast/reserved/broadcast
 	}
+	// 198.18.0.0/15 is the RFC 2544 benchmarking range, and Mode B carves its
+	// FakeDNS pool (198.18.0.0/16) out of it. A FakeIP only means anything
+	// inside the gateway that minted it: the mapping back to a domain lives in
+	// Xray's FakeDNS, which Modes A and C do not run. Publishing one over OSPF
+	// points the main router at an address nothing can resolve.
+	//
+	// This is reachable in practice. Switching Mode B -> C tears down FakeDNS
+	// and rewrites the Mosdns config, but a domain resolution already in flight
+	// can still return a pool address; it is then persisted and published, and
+	// the stale route outlives the mode it came from. Mode B publishes the pool
+	// as one static 198.18.0.0/16 route from frr.conf and never needs a /32
+	// from here, so rejecting the whole range costs nothing.
+	if v4[0] == 198 && (v4[1] == 18 || v4[1] == 19) {
+		return true // FakeIP pool / RFC 2544 benchmarking range
+	}
 	return false
 }
 
