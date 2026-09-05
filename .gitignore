@@ -42,3 +42,7 @@ config/*.db*
 # Coverage output
 coverage/
 backend/coverage.out
+
+# Per-install secrets: generated on first boot, must never be committed or reset by git
+/config/aes.key
+/config/aes.rotation_pending

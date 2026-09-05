@@ -45,9 +45,24 @@ echo "[1/4] Pulling latest changes..."
 # Keep git transport direct/SSH and isolated from local HTTP/SOCKS proxy variables.
 # This avoids GnuTLS handshake failures when the update script runs on the proxy gateway itself.
 # Force tag sync to tolerate locally stale tags when stable tag is re-pointed (e.g. v1.6.1)
+# config/aes.key is generated on first boot and is the only copy of the key
+# every stored SSH credential is encrypted with. It used to be a tracked file,
+# so "git reset --hard" below replaced it with the committed placeholder and
+# every credential became undecryptable on the next start. Carry it across
+# the reset regardless of what the tree says about it.
+AES_KEY_BACKUP=""
+if [ -f "$REPO_DIR/config/aes.key" ]; then
+    AES_KEY_BACKUP=$(mktemp)
+    cp -p "$REPO_DIR/config/aes.key" "$AES_KEY_BACKUP"
+fi
 env -u http_proxy -u https_proxy -u HTTP_PROXY -u HTTPS_PROXY git fetch --force origin --tags
 env -u http_proxy -u https_proxy -u HTTP_PROXY -u HTTPS_PROXY git reset --hard origin/main
 git clean -fd
+if [ -n "$AES_KEY_BACKUP" ]; then
+    mkdir -p "$REPO_DIR/config"
+    cp -p "$AES_KEY_BACKUP" "$REPO_DIR/config/aes.key"
+    rm -f "$AES_KEY_BACKUP"
+fi
 # Hard sync + clean to tolerate local generated/dirty files (geodata, binaries, etc.)
 
 echo "[2/4] Downloading backend from GitHub Releases..."
