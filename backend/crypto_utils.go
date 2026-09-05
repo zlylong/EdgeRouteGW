@@ -90,6 +90,7 @@ func migrateLegacyCredentialsIfNeeded() {
 		enc string
 	}
 	var updates []update
+	undecryptable := 0
 	for rows.Next() {
 		var id int64
 		var cred string
@@ -110,8 +111,10 @@ func migrateLegacyCredentialsIfNeeded() {
 			plain, ok = decryptAESCore(cred, legacyAESKey)
 		}
 		if !ok {
-			// Not decryptable with either key (e.g. foreign/malformed):
-			// preserve the value verbatim instead of corrupting it.
+			// Not decryptable with either key: preserve the value verbatim
+			// instead of corrupting it, but count it — a whole table of these
+			// means the per-install key was replaced out from under the data.
+			undecryptable++
 			continue
 		}
 		if enc := encryptAESWithKey(plain, aesKey); enc != cred {
@@ -150,6 +153,15 @@ func migrateLegacyCredentialsIfNeeded() {
 		// an interrupted migration is retried on the next boot.
 		_ = os.Remove(rotationPendingPath())
 		log.Printf("[SECURITY] key rotation completed")
+	}
+
+	if undecryptable > 0 {
+		// Silent preservation is right for the data; it is wrong for the
+		// operator, who would otherwise first learn of this when a deploy
+		// fails to authenticate. The usual cause is config/aes.key being
+		// replaced — historically by "git reset --hard" in update.sh, back
+		// when the file was tracked.
+		log.Printf("[CRITICAL] %d stored SSH credential(s) cannot be decrypted with the current or legacy key and were left untouched; the per-install key in config/aes.key was most likely replaced (an older update.sh ran git reset --hard over it). Those nodes need their SSH credentials re-entered.", undecryptable)
 	}
 }
 
