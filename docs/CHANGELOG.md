@@ -1,5 +1,18 @@
 ## [Unreleased]
 
+## [1.8.0] - 2026-09-05
+### 🏁 稳定里程碑 (Stable Milestone)
+1.8.0 作为稳定版发布，汇总自 1.7.25 起经**完整代码审计、升级路径加固、远程部署校验与压力测试**验证的全部修复。
+
+**自 1.7.29 的增量：**
+- **清理无效的 conntrack 调优**: `99-proxygw.conf` 中的 5 条 `net.netfilter.nf_conntrack.*` 从未生效——网关数据面走 TPROXY（nft 规则无 `ct state`），`nf_conntrack` 模块从不加载，这些键在 `systemd-sysctl` 运行时不存在，每次开机只产生 `cannot stat ... No such file` 报错（被 `|| true` 吞掉）。NAT 及其连接跟踪在远程节点/主路由侧，不在网关。已删除该块并修正 README/DEVELOPER 中"百万级连接跟踪"的失实描述（历史 CHANGELOG 作为记录保留）。压力测试已证 2700+ 并发隧道连接无需 conntrack 即可工作。
+
+**累计修复回顾（详见 1.7.25–1.7.29 各条目）：**
+- 安全审计（1.7.27）：SSH 凭证改 AES-256-GCM 认证加密；`x/crypto/ssh` 等依赖漏洞清零并升级至 Go 1.26（`govulncheck` 为 0）；发布产物 `SHA256SUMS` 校验；dig 参数、CSPRNG 失败、host-key 重钉定、高风险互斥锁四处加固；**修复 `aes.key` 被 git 跟踪导致每次升级清空全部远程节点 SSH 凭证的严重问题**。
+- 三模式（1.7.24–1.7.26）：Mode A 不再被 ICMP 重定向绕过；Mode C 依赖的 `dig` 纳入安装；切换模式即时同步路由；FakeIP 不再被误发布为 OSPF 路由；重启/升级后路由短时重发。
+- 远程部署（1.7.29）：节点 Xray 下载校验 XTLS 官方 `.dgst` 并按架构选择。
+- 压力测试验证：单机 ~500 Mbps 隧道吞吐、2700+ 并发连接、内存有界（峰值 <700MB）、OOM/panic 0、控制面并发安全。
+
 ## [1.7.29] - 2026-09-05
 ### 🔒 远程节点部署加固 (Remote Deploy Hardening)
 - **远程节点 Xray 下载现在校验且按架构选择**: VLESS 部署脚本此前从 `latest` 拉取写死的 `Xray-linux-64.zip`，不做任何完整性校验就以 root 解包进 `/usr/local/bin`。这有两个隐患：(1) 部署到 arm64 节点会装上跑不了的二进制（自 #26 起至少会被自检拦成 Failed，但本就该直接可用）；(2) root 二进制无校验，传输损坏或中间人替换都照装。现按 `uname -m` 选择 amd64/arm64 资产，并下载 XTLS 官方随发布提供的 `.dgst` 校验 `SHA2-256`，不匹配即中止部署。`install.sh` 里网关自身的 Xray 下载同样加了校验（离线/被墙路径允许无校验文件时告警放行，但校验文件存在且不匹配则致命）。在 VM105 上以真实 XTLS 发布验证：正确哈希通过、篡改一字节即失败。
