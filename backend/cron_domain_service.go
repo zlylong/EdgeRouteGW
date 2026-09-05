@@ -185,7 +185,32 @@ func scheduleApplyWithMosdns(needMosdns bool) {
 	})
 }
 
+// startupRouteSyncBackoff is how long domainIPUpdater waits before each of
+// its early syncs after the process starts. The first sync after a restart
+// is kicked by applyXrayConfig, and it runs while Xray and Mosdns are still
+// coming up: dig gets no answer (exit 9), nothing is published, and nothing
+// retried until the five-minute ticker. update.sh and flush_cache.sh both
+// wipe routes_table before restarting, so every upgrade in Mode B or C left
+// the main router without routes for up to five minutes. A short burst of
+// retries converges within about a minute instead. Package-level so tests
+// can shrink it.
+var startupRouteSyncBackoff = []time.Duration{15 * time.Second, 45 * time.Second, 2 * time.Minute}
+
+// startupRouteSyncBurst schedules a sync after each backoff step while the
+// gateway is in a publishing mode. scheduleStaticRouteSync coalesces, so a
+// burst that overlaps the ticker or a mode switch costs nothing extra.
+func startupRouteSyncBurst() {
+	for _, d := range startupRouteSyncBackoff {
+		time.Sleep(d)
+		if mode := currentMode(); mode == "B" || mode == "C" {
+			scheduleStaticRouteSync(mode)
+		}
+	}
+}
+
 func domainIPUpdater() {
+	startupRouteSyncBurst()
+
 	ticker := time.NewTicker(5 * time.Minute)
 	for range ticker.C {
 		var mode string
