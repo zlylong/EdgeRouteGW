@@ -13,7 +13,7 @@ EdgeRouteGW is a high-performance, user-friendly transparent proxy gateway syste
 - **Seamless Takeover**: Supports full gateway takeover (Mode A), pure Fake-IP bypass (Mode B), or pure OSPF dynamic routing (Mode C). LAN devices can freely access the internet without any manual configuration.
 - **Remote Node Deployment**: Features a unique one-click remote node deployment system. Supports registering multiple overseas Linux hosts, with the gateway controller automatically pushing, configuring, and monitoring WireGuard/VLESS tunnel protocols via SSH.
 - **Ultimate Security**: The system randomly generates high-strength initial passwords, and the frontend includes built-in anti-brute-force delays. SSH credentials stored in SQLite are dynamically encrypted/decrypted in memory using AES-256-GCM (authenticated; tampering is rejected), and Web UI resources are completely localized.
-- **Kernel-Level Optimization**: Includes fully automatic Debian/Linux kernel parameter and firewall tuning. It drastically boosts the Conntrack connection tracking limit to the millions, globally enables BBR congestion control and fq_codel queuing, automatically blocks unshielded IPv6 traffic and kernel routing dead loops, and squeezes every drop of performance out of the device.
+- **Kernel-Level Optimization**: Includes fully automatic Debian/Linux kernel parameter and firewall tuning. It globally enables BBR congestion control and fq_codel queuing, enlarges TCP buffers and the local port range, automatically blocks unshielded IPv6 traffic and kernel routing dead loops, and squeezes every drop of performance out of the device.
 
 ## 🚀 Quick Installation (Zero-Compile Speed Deployment)
 
