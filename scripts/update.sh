@@ -79,8 +79,8 @@ fi
 
 # Ultimate fallback if both API and tags fail
 if [ -z "$PROXYGW_LATEST" ]; then
-    echo "Warning: release tag detect failed. Using fallback version v1.7.29..."
-    PROXYGW_LATEST="v1.7.29"
+    echo "Warning: release tag detect failed. Using fallback version v1.8.0..."
+    PROXYGW_LATEST="v1.8.0"
 fi
 
 echo "Using release tag: $PROXYGW_LATEST"
