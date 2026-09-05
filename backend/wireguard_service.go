@@ -22,9 +22,7 @@ func cleanupTransientWireguardInterfaces() {
 			continue
 		}
 		ifName := fields[1]
-		if strings.HasSuffix(ifName, ":") {
-			ifName = strings.TrimSuffix(ifName, ":")
-		}
+		ifName = strings.TrimSuffix(ifName, ":")
 		cidr := fields[3]
 		if !strings.HasSuffix(cidr, "/32") {
 			continue

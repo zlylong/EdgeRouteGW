@@ -159,10 +159,6 @@ func cronUpdater() {
 	}
 }
 
-func scheduleApply() {
-	scheduleApplyWithMosdns(false)
-}
-
 func scheduleApplyWithMosdns(needMosdns bool) {
 	applyMutex.Lock()
 	defer applyMutex.Unlock()

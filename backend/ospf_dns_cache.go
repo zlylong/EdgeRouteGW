@@ -61,36 +61,6 @@ const (
 	resolverGroupLocal  = "local"
 )
 
-var hostLookupCommand = func(domain string) (string, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), domainResolveTimeout)
-	defer cancel()
-	out, err := exec.CommandContext(ctx, "host", "-t", "A", "-v", domain).CombinedOutput()
-	if ctx.Err() == context.DeadlineExceeded {
-		return string(out), fmt.Errorf("host lookup timeout for %q after %s", domain, domainResolveTimeout)
-	}
-	if err != nil {
-		return string(out), err
-	}
-	return string(out), nil
-}
-
-var hostLookupCommandAtServer = func(domain string, server string) (string, error) {
-	args := []string{"-t", "A", "-v", domain}
-	if normalized, ok := normalizeDNSServerAddr(server); ok {
-		args = append(args, normalized)
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), domainResolveTimeout)
-	defer cancel()
-	out, err := exec.CommandContext(ctx, "host", args...).CombinedOutput()
-	if ctx.Err() == context.DeadlineExceeded {
-		return string(out), fmt.Errorf("host lookup timeout for %q via %q after %s", domain, server, domainResolveTimeout)
-	}
-	if err != nil {
-		return string(out), err
-	}
-	return string(out), nil
-}
-
 var answerSectionARecordPattern = regexp.MustCompile(`^\S+\.\s+(\d+)\s+IN\s+A\s+((?:\d{1,3}\.){3}\d{1,3})\s*$`)
 
 func parseHostLookupOutput(output string) ([]string, int, error) {
@@ -153,17 +123,6 @@ func normalizeDNSServerAddr(server string) (string, bool) {
 		}
 	}
 	return server, true
-}
-
-func parseDNSServerList(raw string) []string {
-	items := strings.Split(raw, ",")
-	servers := make([]string, 0, len(items))
-	for _, item := range items {
-		if normalized, ok := normalizeDNSServerAddr(item); ok {
-			servers = append(servers, normalized)
-		}
-	}
-	return servers
 }
 
 func normalizeResolverGroup(group string) string {
