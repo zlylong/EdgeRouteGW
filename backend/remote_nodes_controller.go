@@ -189,6 +189,13 @@ func isValidSSHHostKeyFingerprint(s string) bool {
 // for a legitimately rotated host key: instead of silently auto-trusting, the
 // operator verifies the new fingerprint out-of-band and submits it here.
 func updateRemoteNodeHostKey(c *gin.Context) {
+	// Re-pinning is the one operation that can silently redirect SSH
+	// credentials to a different machine: after it, deploy and check will
+	// happily authenticate to whatever presents the new key. Deploy, mode
+	// switch and apply all require the confirm token; this must too.
+	if !requireHighRiskMutationGuard(c, "hostkey_repin") {
+		return
+	}
 	id := c.Param("id")
 	var req struct {
 		SSHHostKey string `json:"ssh_host_key"`

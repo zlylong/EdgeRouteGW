@@ -150,6 +150,15 @@ func lookupIPv4WithDNSServer(domain string, server string, _ bool) ([]string, er
 		return nil, fmt.Errorf("invalid dns server %q", server)
 	}
 
+	// dig has no "--" terminator: anything that starts with '-', '+' or '@' is
+	// parsed as an option, a query flag or a server, not as a name. The rule
+	// validators upstream already reject such values, but this is the one
+	// place that hands a string to a root-run subprocess, so refuse here too
+	// rather than trust every caller forever.
+	if domain == "" || strings.ContainsAny(domain[:1], "-+@") {
+		return nil, fmt.Errorf("refusing to pass option-like name %q to dig", domain)
+	}
+
 	ctx, cancel := context.WithTimeout(context.Background(), domainResolveTimeout)
 	defer cancel()
 
