@@ -17,6 +17,15 @@ func TestGenerateVlessRealityInstallScript_UsesRetryablePackageAndDownloadSteps(
 		"net.ipv4.tcp_congestion_control=bbr",
 		"curl -4 --fail --location",
 		"--retry 5",
+		// The Xray binary runs as root on the node: it must be verified
+		// against the digest XTLS publishes, and chosen for the node's own
+		// architecture rather than assumed to be x86-64.
+		`case "$(uname -m)" in`,
+		"Xray-linux-64.zip",
+		"Xray-linux-arm64-v8a.zip",
+		`"$XRAY_BASE/$XRAY_ASSET.dgst"`,
+		"/^SHA2-256=/",
+		"sha256sum xray.zip",
 	}
 	for _, want := range checks {
 		if !strings.Contains(script, want) {

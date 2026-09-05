@@ -194,7 +194,26 @@ else
 fi
 mkdir -p /usr/local/etc/xray
 mkdir -p /usr/local/share/xray
-retry_cmd curl -4 --fail --location --retry 5 --retry-delay 2 --retry-all-errors -H "Cache-Control: no-cache" -o xray.zip https://github.com/XTLS/Xray-core/releases/latest/download/Xray-linux-64.zip
+# Pick the asset for this host. The script used to hardcode the x86-64 build,
+# which on an arm64 node installed a binary the machine cannot execute.
+case "$(uname -m)" in
+  x86_64|amd64)  XRAY_ASSET="Xray-linux-64.zip" ;;
+  aarch64|arm64) XRAY_ASSET="Xray-linux-arm64-v8a.zip" ;;
+  *) echo "unsupported architecture: $(uname -m)" >&2; exit 1 ;;
+esac
+XRAY_BASE="https://github.com/XTLS/Xray-core/releases/latest/download"
+retry_cmd curl -4 --fail --location --retry 5 --retry-delay 2 --retry-all-errors -H "Cache-Control: no-cache" -o xray.zip "$XRAY_BASE/$XRAY_ASSET"
+# XTLS publishes a digest next to every asset. This binary runs as root on the
+# node; verify it before it is unpacked. A mismatch aborts the deploy.
+retry_cmd curl -4 --fail --location --retry 5 --retry-delay 2 --retry-all-errors -H "Cache-Control: no-cache" -o xray.zip.dgst "$XRAY_BASE/$XRAY_ASSET.dgst"
+XRAY_WANT=$(awk '/^SHA2-256=/ {print $2}' xray.zip.dgst)
+XRAY_GOT=$(sha256sum xray.zip | awk '{print $1}')
+if [ -z "$XRAY_WANT" ] || [ "$XRAY_WANT" != "$XRAY_GOT" ]; then
+  echo "Xray download failed verification for $XRAY_ASSET (expected ${XRAY_WANT:-<none>}, got $XRAY_GOT)" >&2
+  rm -f xray.zip xray.zip.dgst
+  exit 1
+fi
+rm -f xray.zip.dgst
 unzip -o xray.zip -d /usr/local/bin/xray-core
 mv /usr/local/bin/xray-core/xray /usr/local/bin/xray
 mv /usr/local/bin/xray-core/geoip.dat /usr/local/share/xray/

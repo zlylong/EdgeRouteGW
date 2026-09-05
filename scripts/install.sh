@@ -278,6 +278,20 @@ if ! "$REPO_DIR/core/xray/xray" version >/dev/null 2>&1; then
     echo "Downloading Xray for $ARCH..."
     XRAY_URL="https://github.com/XTLS/Xray-core/releases/latest/download/Xray-linux-${XRAY_ARCH}.zip"
     wget -q -4 -O /tmp/xray.zip "$XRAY_URL"
+    # XTLS publishes a digest next to every asset; this binary runs as root.
+    wget -q -4 -O /tmp/xray.zip.dgst "${XRAY_URL}.dgst" || true
+    XRAY_WANT=$(awk '/^SHA2-256=/ {print $2}' /tmp/xray.zip.dgst 2>/dev/null)
+    XRAY_GOT=$(sha256sum /tmp/xray.zip | awk '{print $1}')
+    if [ -z "$XRAY_WANT" ]; then
+        echo "Warning: could not fetch Xray digest; skipping verification"
+    elif [ "$XRAY_WANT" != "$XRAY_GOT" ]; then
+        echo "Error: Xray download failed verification (expected $XRAY_WANT, got $XRAY_GOT)" >&2
+        rm -f /tmp/xray.zip /tmp/xray.zip.dgst
+        exit 1
+    else
+        echo "Xray download verified"
+    fi
+    rm -f /tmp/xray.zip.dgst
     unzip -qo /tmp/xray.zip xray -d "$REPO_DIR/core/xray/"
     rm -f /tmp/xray.zip
 fi
