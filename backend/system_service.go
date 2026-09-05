@@ -160,12 +160,27 @@ var (
 	highRiskMutationInFlight = map[string]bool{}
 )
 
+// highRiskLockGroup maps an action to the lock it contends on. Actions that
+// rewrite the same runtime files must exclude each other, not just themselves:
+// apply_config and mode_switch both regenerate the Xray, Mosdns and nftables
+// configs and neither applyMosdnsConfig nor applyNftablesConfig has any lock
+// of its own, so a per-action lock let an /api/apply and an /api/mode race and
+// interleave their writes. Everything else keeps a lock of its own.
+func highRiskLockGroup(action string) string {
+	switch action {
+	case "apply_config", "mode_switch", "network_config":
+		return "config_writers"
+	}
+	return action
+}
+
 func tryAcquireHighRiskMutationLock(c *gin.Context, action string) (func(), bool) {
 	if gin.Mode() == gin.TestMode {
 		return func() {}, true
 	}
+	group := highRiskLockGroup(action)
 	highRiskMutationLockMu.Lock()
-	if highRiskMutationInFlight[action] {
+	if highRiskMutationInFlight[group] {
 		highRiskMutationLockMu.Unlock()
 		path := c.FullPath()
 		if path == "" {
@@ -185,11 +200,11 @@ func tryAcquireHighRiskMutationLock(c *gin.Context, action string) (func(), bool
 		})
 		return nil, false
 	}
-	highRiskMutationInFlight[action] = true
+	highRiskMutationInFlight[group] = true
 	highRiskMutationLockMu.Unlock()
 	return func() {
 		highRiskMutationLockMu.Lock()
-		delete(highRiskMutationInFlight, action)
+		delete(highRiskMutationInFlight, group)
 		highRiskMutationLockMu.Unlock()
 	}, true
 }

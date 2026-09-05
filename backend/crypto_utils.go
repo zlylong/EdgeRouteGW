@@ -45,8 +45,11 @@ func init() {
 		// decryptable from source.
 		aesKey = make([]byte, 32)
 		if _, err := io.ReadFull(rand.Reader, aesKey); err != nil {
-			log.Printf("[CRITICAL] failed to generate AES key: %v", err)
-			aesKey = append([]byte(nil), legacyAESKey...)
+			// Falling back to the well-known legacy constant would encrypt
+			// every SSH credential written this session with a key that is in
+			// the public source tree, and persist it below. Refusing to start is
+			// the only safe answer to a CSPRNG failure.
+			log.Fatalf("[CRITICAL] failed to generate AES key, refusing to start: %v", err)
 		}
 		if err := os.WriteFile(keyPath, aesKey, 0600); err != nil {
 			log.Printf("[SECURITY] failed to persist AES key: %v", err)
