@@ -631,24 +631,6 @@ func queryGeoIPBestCIDRsByIP(filename, input string) []string {
 	return cidrs
 }
 
-func matchGeoSiteDomain(domain string, entry geoSiteDomainEntry) bool {
-	domain = strings.TrimSuffix(strings.ToLower(strings.TrimSpace(domain)), ".")
-	value := strings.TrimSuffix(strings.ToLower(strings.TrimSpace(entry.Value)), ".")
-	switch entry.Type {
-	case "full":
-		return domain == value
-	case "domain":
-		return domain == value || strings.HasSuffix(domain, "."+value)
-	case "keyword":
-		return strings.Contains(domain, value)
-	case "regex":
-		matched, err := regexp.MatchString(value, domain)
-		return err == nil && matched
-	default:
-		return false
-	}
-}
-
 func scanGeoSiteEntries(filename string, fn func(tag string, entries []geoSiteDomainEntry)) {
 	_ = scanGeoSiteEntriesE(filename, fn)
 }

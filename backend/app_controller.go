@@ -9,15 +9,6 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// respondError logs the real error server-side and returns a generic message to the client.
-// Use this for all "something went wrong" responses where we don't want to leak internals.
-func respondError(c *gin.Context, status int, err error, contextMsg string) {
-	if err != nil {
-		log.Printf("[ERR] %s: %v", contextMsg, err)
-	}
-	c.JSON(status, gin.H{"error": contextMsg})
-}
-
 // AppController encapsulates HTTP route wiring and server lifecycle.
 type AppController struct{}
 
@@ -59,7 +50,6 @@ func (c *AppController) Run(r *gin.Engine) {
 	log.Printf("EdgeRouteGW backend starting on %s", addr)
 	r.Run(addr)
 }
-
 
 func init() {
 	os.Setenv("TZ", "Asia/Shanghai")

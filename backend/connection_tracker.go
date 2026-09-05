@@ -421,34 +421,6 @@ func attachRuleMatchMeta(records []ConnectionRecord) []ConnectionRecord {
 	return records
 }
 
-func serviceNetworkCIDR() *net.IPNet {
-	ensureDefaultNetworkRoleSettings()
-	_, subnet := getPrimaryLANIPAndSubnet()
-	if strings.TrimSpace(subnet) == "" {
-		return nil
-	}
-	_, cidr, err := net.ParseCIDR(strings.TrimSpace(subnet))
-	if err != nil {
-		return nil
-	}
-	return cidr
-}
-
-func clientIPFromConnClient(client string) net.IP {
-	host := strings.TrimSpace(client)
-	if host == "" {
-		return nil
-	}
-	if strings.Contains(host, ":") {
-		if h, _, err := net.SplitHostPort(host); err == nil {
-			host = strings.Trim(h, "[]")
-		} else if idx := strings.LastIndex(host, ":"); idx > 0 {
-			host = strings.Trim(host[:idx], "[]")
-		}
-	}
-	return net.ParseIP(strings.TrimSpace(host))
-}
-
 func registerConnectionRoutes(r *gin.RouterGroup) {
 	r.GET("/connections", func(c *gin.Context) {
 		ip := c.Query("ip")
