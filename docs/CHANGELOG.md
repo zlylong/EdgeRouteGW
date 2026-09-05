@@ -1,5 +1,10 @@
 ## [Unreleased]
 
+## [1.7.24] - 2026-09-05
+### 🐛 三模式验证修复 (Mode Verification Fixes)
+- **Mode A 被 ICMP 重定向静默绕过**: `99-proxygw.conf` 只设了 `conf.all` 与 `conf.default` 的 `send_redirects=0`，二者都覆盖不到安装时已存在的网卡——`default` 仅对之后创建的接口生效，而 `send_redirects` 的有效值是 `conf.all` 与 `conf.<iface>` 的**逻辑或**，因此 `eth0` 保持默认值 1 并继续发送重定向。Mode A 恰好是产生重定向的典型形态（网关为下一跳在同网段的客户端做路由），客户端收到后改为直连主路由，**流量彻底不再进入 TPROXY 链**，且无任何报错。实测：`eth0=1` 时客户端路由为 `via 主路由 ... cache <redirected>`、两个 nft 计数器恒为 0；置 0 并清缓存后路由回到网关，`proxy_default_v4` 立刻计到 55 包，而 Mode A 的 QUIC 阻断规则也首次命中（5/5 探测包）——此前它从未触发过，只因没有包能到达它。修复为在启动与安装时对每一张已存在的网卡显式写 0。
+- **Mode C 因缺少 dig 完全不工作**: `ospf_dns_cache.go` 通过 shell 调用 `dig` 解析每一条 domain/geosite 规则，且自 1.7.20 移除 Go 解析器后这是**唯一**解析路径；而 `install.sh` 从未安装过它。全新安装上每次解析都失败（`exec: "dig": executable file not found in $PATH`），`routes_table` 恒为空，主路由收不到任何路由——**Mode C 的立身之本（解析域名并经 OSPF 播报真实 IP）在任何标准安装上都不成立**。Mode B 因 `198.18.0.0/16` 是 frr.conf 里的静态路由而仍能转发，但其保护主机解析同样失效。修复为在 install.sh 安装、update.sh 补装 dig 提供者，并在启动时给出一次明确告警（此前只有每条规则每轮一行、极易被误读为该规则自身的 DNS 问题）。
+
 ## [1.7.23] - 2026-09-05
 ### 🐛 部署与运行时修复 (Deployment & Runtime Fixes)
 - **REALITY 隧道部署自检**: 远程节点部署完成后会实际发起一次 REALITY 握手并经隧道取一次 `https://<serverName>/`，失败则部署置为 `Failed` 并直接指出应更换的 `dest`。此前只要安装脚本退出码为 0 就标记 `Online`，`check` 也仅执行 `systemctl is-active xray`，导致隧道完全不通的节点被报告为健康，只有抓包才能发现。
