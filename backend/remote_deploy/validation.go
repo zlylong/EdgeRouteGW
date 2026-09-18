@@ -21,9 +21,17 @@ const DefaultRealityPort = 443
 // target. They are a last resort only: every install that accepts the default
 // points at the same dest, which is itself a cross-deployment fingerprint.
 // Callers should prefer an operator-supplied value.
+//
+// The default must be a dest that actually completes a REALITY handshake.
+// www.microsoft.com does not: it passes every TLS 1.3 / H2 / certificate
+// pre-check, yet authenticated clients are dropped with EOF, so every node
+// deployed with the old default came up "healthy" and carried no traffic
+// (reproduced on five independent servers in SG and CN; www.apple.com,
+// www.cloudflare.com and www.mozilla.org all pass). Only a real handshake
+// reveals this, which is what the post-deploy smoke test checks.
 const (
-	DefaultRealityServerName = "www.microsoft.com"
-	DefaultRealityDest       = "www.microsoft.com:443"
+	DefaultRealityServerName = "www.apple.com"
+	DefaultRealityDest       = "www.apple.com:443"
 )
 
 // maxHostnameLen is the maximum length of a DNS name in presentation format.
