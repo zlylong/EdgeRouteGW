@@ -53,11 +53,11 @@ func TestDoDeployRoutine_VlessDefaultsToPort443(t *testing.T) {
 	if port != 443 {
 		t.Errorf("default REALITY port = %d, want 443", port)
 	}
-	if serverName != "www.microsoft.com" {
-		t.Errorf("default serverName = %q, want www.microsoft.com", serverName)
+	if serverName != "www.apple.com" {
+		t.Errorf("default serverName = %q, want www.apple.com", serverName)
 	}
-	if dest != "www.microsoft.com:443" {
-		t.Errorf("default dest = %q, want www.microsoft.com:443", dest)
+	if dest != "www.apple.com:443" {
+		t.Errorf("default dest = %q, want www.apple.com:443", dest)
 	}
 }
 

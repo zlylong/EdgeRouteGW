@@ -1,4 +1,6 @@
 ## [Unreleased]
+### 🐛 修复
+- **REALITY 默认伪装目标由 `www.microsoft.com` 改为 `www.apple.com`**: `www.microsoft.com` 能通过全部 TLS 1.3 / H2 / 证书预检，但真实 REALITY 握手对已认证客户端一律返回 EOF——用默认值部署的节点进程健康、端口可连、却完全不承载流量。在生产网关上 4 台节点（SG ×1、CN ×3）全部因此失效，服务端改为 `www.apple.com` 后每台 3/3 握手通过；1.7.23 起的部署后握手自检对旧默认值也必然判 `Failed`。同步更新 UI 表单占位符。**已部署的节点不受此改动影响**，需在服务端把 `dest`/`serverNames` 改掉并同步网关出站的 SNI。
 
 ## [1.8.0] - 2026-09-05
 ### 🏁 稳定里程碑 (Stable Milestone)
