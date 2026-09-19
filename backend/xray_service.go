@@ -367,6 +367,12 @@ func applyXrayConfigInternal(restart bool) error {
 		}
 
 		customBalancers := make(map[string]map[string]interface{})
+		haOutbounds := map[string]struct{}{}
+		for _, ob := range config["outbounds"].([]map[string]interface{}) {
+			if tag, ok := ob["tag"].(string); ok && tag != "" {
+				haOutbounds[tag] = struct{}{}
+			}
+		}
 		actualDefault := 0
 		if len(activeIds) == 1 {
 			actualDefault = activeIds[0]
@@ -390,14 +396,17 @@ func applyXrayConfigInternal(restart bool) error {
 				}
 			}
 			if bTag, ok := r["balancerTag"].(string); ok && strings.HasPrefix(bTag, "bal-ha-") {
-				parts := strings.Split(strings.TrimPrefix(bTag, "bal-ha-"), "-")
-				if len(parts) == 2 {
-					customBalancers[bTag] = map[string]interface{}{
-						"tag":         bTag,
-						"selector":    []string{"proxy-" + parts[0] + "-out"},
-						"fallbackTag": "proxy-" + parts[1] + "-out",
-					}
+				balancer, directTag := resolveHABalancer(bTag, haOutbounds)
+				switch {
+				case balancer != nil:
+					customBalancers[bTag] = balancer
+				case directTag != "":
+					delete(r, "balancerTag")
+					r["outboundTag"] = directTag
 				}
+				// Neither node exists: leave the rule pointing at a balancer
+				// that is never registered, so the validation below applies the
+				// same direct / strict-failover policy as any other dead target.
 			}
 		}
 

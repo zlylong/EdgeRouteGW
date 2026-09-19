@@ -32,6 +32,13 @@ fi
 BACKUP_KEEP="${DB_OPTIMIZE_BACKUP_KEEP:-3}"
 
 TS="$(date +%Y%m%d_%H%M%S)"
+# update.sh runs this right after restarting the backend, which is then busy
+# re-encrypting credentials, applying configs and writing traffic samples. With
+# sqlite3's default busy timeout of 0 the first CREATE INDEX lost that race and
+# died with "database is locked", so the indexes were silently never built.
+# Wait for the writer instead.
+sq() { sqlite3 -cmd ".timeout 20000" "$DB_PATH" "$@"; }
+
 BACKUP="${DB_PATH}.bak.${TS}"
 
 prune_old_backups() {
@@ -53,11 +60,18 @@ echo "[INFO] Mode: $MODE"
 
 printf '\n[STEP] Before snapshot\n'
 stat -c '%n %s bytes' "$DB_PATH"
-sqlite3 "$DB_PATH" "PRAGMA page_size; PRAGMA page_count; PRAGMA freelist_count; PRAGMA journal_mode; PRAGMA synchronous; PRAGMA auto_vacuum;" \
+sq "PRAGMA page_size; PRAGMA page_count; PRAGMA freelist_count; PRAGMA journal_mode; PRAGMA synchronous; PRAGMA auto_vacuum;" \
   | awk 'NR==1{print "page_size=" $1} NR==2{print "page_count=" $1} NR==3{print "freelist_count=" $1} NR==4{print "journal_mode=" $1} NR==5{print "synchronous=" $1} NR==6{print "auto_vacuum=" $1}'
 
 printf '\n[STEP] Backup\n'
-cp -a "$DB_PATH" "$BACKUP"
+# The database runs in WAL mode and the backend keeps writing to it. A plain
+# cp copies the main file without the -wal contents, i.e. a backup that is
+# missing the most recent transactions and may not even be consistent. Use
+# the online backup API; fall back to cp only if that is unavailable.
+if ! sq ".backup '$BACKUP'" 2>/dev/null || [ ! -s "$BACKUP" ]; then
+  echo "[WARN] sqlite3 .backup failed, falling back to file copy"
+  cp -a "$DB_PATH" "$BACKUP"
+fi
 stat -c '%n %s bytes' "$BACKUP"
 prune_old_backups "$BACKUP_KEEP"
 
@@ -69,31 +83,31 @@ printf '\n[STEP] Create/refresh indexes\n'
 # printed a Parse error for something that is not a problem. Only touch it
 # when it is there.
 table_exists() {
-  [ "$(sqlite3 "$DB_PATH" "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='$1';")" = "1" ]
+  [ "$(sq "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='$1';")" = "1" ]
 }
 if table_exists domain_geoip_lock; then
-  sqlite3 "$DB_PATH" "CREATE INDEX IF NOT EXISTS idx_dgl_domain_resolver_ver ON domain_geoip_lock(domain, resolver_group, geodata_ver);"
+  sq "CREATE INDEX IF NOT EXISTS idx_dgl_domain_resolver_ver ON domain_geoip_lock(domain, resolver_group, geodata_ver);"
 else
   echo "[SKIP] domain_geoip_lock not present yet (created on first Mode C GeoIP lock); its index is deferred"
 fi
-sqlite3 "$DB_PATH" "CREATE INDEX IF NOT EXISTS idx_gateway_events_module_level_id ON gateway_events(module, level, id DESC);"
-sqlite3 "$DB_PATH" "ANALYZE; PRAGMA optimize;"
+sq "CREATE INDEX IF NOT EXISTS idx_gateway_events_module_level_id ON gateway_events(module, level, id DESC);"
+sq "ANALYZE; PRAGMA optimize;"
 
 if [[ "$MODE" == "--full" ]]; then
   printf '\n[STEP] VACUUM (may take time and hold write lock)\n'
-  sqlite3 "$DB_PATH" "VACUUM;"
-  sqlite3 "$DB_PATH" "ANALYZE; PRAGMA optimize;"
+  sq "VACUUM;"
+  sq "ANALYZE; PRAGMA optimize;"
 fi
 
 printf '\n[STEP] After snapshot\n'
 stat -c '%n %s bytes' "$DB_PATH"
-sqlite3 "$DB_PATH" "PRAGMA page_size; PRAGMA page_count; PRAGMA freelist_count; PRAGMA journal_mode; PRAGMA synchronous; PRAGMA auto_vacuum;" \
+sq "PRAGMA page_size; PRAGMA page_count; PRAGMA freelist_count; PRAGMA journal_mode; PRAGMA synchronous; PRAGMA auto_vacuum;" \
   | awk 'NR==1{print "page_size=" $1} NR==2{print "page_count=" $1} NR==3{print "freelist_count=" $1} NR==4{print "journal_mode=" $1} NR==5{print "synchronous=" $1} NR==6{print "auto_vacuum=" $1}'
 
 printf '\n[STEP] Query plan check\n'
 if table_exists domain_geoip_lock; then
-  sqlite3 "$DB_PATH" "EXPLAIN QUERY PLAN SELECT geoip_tag FROM domain_geoip_lock WHERE domain='example.com' AND resolver_group='direct' AND geodata_ver='v1';"
+  sq "EXPLAIN QUERY PLAN SELECT geoip_tag FROM domain_geoip_lock WHERE domain='example.com' AND resolver_group='direct' AND geodata_ver='v1';"
 fi
-sqlite3 "$DB_PATH" "EXPLAIN QUERY PLAN SELECT id,module,level,ts FROM gateway_events WHERE module='ospf' AND level='info' ORDER BY id DESC LIMIT 50;"
+sq "EXPLAIN QUERY PLAN SELECT id,module,level,ts FROM gateway_events WHERE module='ospf' AND level='info' ORDER BY id DESC LIMIT 50;"
 
 printf '\n[DONE] Backup: %s\n' "$BACKUP"

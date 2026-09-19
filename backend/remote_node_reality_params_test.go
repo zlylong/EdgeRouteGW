@@ -3,6 +3,8 @@ package main
 import (
 	"strings"
 	"testing"
+
+	"proxygw/remote_deploy"
 )
 
 func realityDeployReq() RemoteNodeReq {
@@ -53,11 +55,11 @@ func TestDoDeployRoutine_VlessDefaultsToPort443(t *testing.T) {
 	if port != 443 {
 		t.Errorf("default REALITY port = %d, want 443", port)
 	}
-	if serverName != "www.apple.com" {
-		t.Errorf("default serverName = %q, want www.apple.com", serverName)
+	if serverName != remote_deploy.DefaultRealityServerName {
+		t.Errorf("default serverName = %q, want %s", serverName, remote_deploy.DefaultRealityServerName)
 	}
-	if dest != "www.apple.com:443" {
-		t.Errorf("default dest = %q, want www.apple.com:443", dest)
+	if dest != remote_deploy.DefaultRealityDest {
+		t.Errorf("default dest = %q, want %s", dest, remote_deploy.DefaultRealityDest)
 	}
 }
 
@@ -194,7 +196,7 @@ func TestDoDeployRoutine_VlessTreatsBlankOverridesAsUnset(t *testing.T) {
 	}
 	// A form field the operator left blank must fall back to the default rather
 	// than deploy a serverName no SNI can ever match.
-	if serverName != "www.microsoft.com" || dest != "www.microsoft.com:443" {
+	if serverName != remote_deploy.DefaultRealityServerName || dest != remote_deploy.DefaultRealityDest {
 		t.Errorf("blank overrides gave serverName=%q dest=%q, want the defaults", serverName, dest)
 	}
 }

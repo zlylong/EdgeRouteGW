@@ -17,7 +17,16 @@ func NewAppController() *AppController {
 }
 
 func (c *AppController) BuildRouter() *gin.Engine {
-	r := gin.Default()
+	// gin defaults to debug mode, which dumps the whole route table and a
+	// "switch to release mode in production" warning into the journal on every
+	// start. An explicit GIN_MODE still wins.
+	if os.Getenv(gin.EnvGinMode) == "" {
+		gin.SetMode(gin.ReleaseMode)
+	}
+	r := gin.New()
+	// Same middleware as gin.Default(), minus access-log lines for the two
+	// endpoints the dashboard polls every two seconds.
+	r.Use(gin.LoggerWithConfig(gin.LoggerConfig{SkipPaths: []string{"/api/status", "/api/traffic"}}), gin.Recovery())
 	// gin trusts every peer as a proxy by default (trustedCIDRs = 0.0.0.0/0 and
 	// ::/0) and reads the client address out of X-Forwarded-For / X-Real-IP.
 	// On a gateway that listens directly on the LAN that makes c.ClientIP()
