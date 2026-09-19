@@ -108,10 +108,14 @@ func (ctl *SystemController) HandleStatus(c *gin.Context) {
 	}
 
 	frrVer := "Unknown"
-	if out, err := sysCmd.output("vtysh", "-c", "show version"); err == nil {
-		line := strings.TrimSpace(string(out))
-		if line != "" {
-			frrVer = strings.Split(line, "\n")[0]
+	// vtysh cannot answer while frr is stopped (the normal state in Mode A) and
+	// fails with "failed to connect to any daemons" on every status poll.
+	if frr {
+		if out, err := sysCmd.output("vtysh", "-c", "show version"); err == nil {
+			line := strings.TrimSpace(string(out))
+			if line != "" {
+				frrVer = strings.Split(line, "\n")[0]
+			}
 		}
 	}
 

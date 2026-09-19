@@ -202,6 +202,15 @@ SYS_EOF
 
 systemctl daemon-reload
 
+# install.sh no longer writes nf_conntrack.* keys (the TPROXY datapath never
+# loads nf_conntrack, so they only produced "cannot stat" errors at boot), but
+# an upgrade never rewrote the file on existing hosts. Drop the dead block.
+SYSCTL_FILE=/etc/sysctl.d/99-proxygw.conf
+if [ -f "$SYSCTL_FILE" ] && grep -q '^net\.netfilter\.nf_conntrack' "$SYSCTL_FILE"; then
+    sed -i '/^net\.netfilter\.nf_conntrack/d' "$SYSCTL_FILE"
+    echo "Removed dead nf_conntrack keys from $SYSCTL_FILE"
+fi
+
 echo "[4/5] Automatically flushing old DNS and OSPF caches..."
 if [ -f "$REPO_DIR/config/proxygw.db" ]; then
     sqlite3 "$REPO_DIR/config/proxygw.db" "DELETE FROM domain_resolve_cache; DELETE FROM routes_table; DELETE FROM geosite_expand_cache;" 2>/dev/null || true

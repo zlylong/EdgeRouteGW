@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"log"
+	"os"
 	"os/exec"
 	"strings"
 	"sync/atomic"
@@ -41,20 +42,49 @@ func (e *commandExecutor) runCombinedOutput(name string, args ...string) command
 	return e.runCombinedOutputCtx(ctx, name, args...)
 }
 
+// cmdLogVerbose restores the per-command [start]/[ok] lines. They are off by
+// default: the status endpoint alone forks about ten commands per poll, and an
+// open UI tab polls every two seconds, which came to ~140k journal lines a day
+// on a production gateway and pushed everything else out of the journal.
+// Failures and slow commands are always logged, so nothing diagnostic is lost.
+// Set PROXYGW_CMD_LOG=1 in the unit's environment to trace every command.
+var cmdLogVerbose = os.Getenv("PROXYGW_CMD_LOG") == "1"
+
+// slowCommandThreshold is the duration above which a successful command is
+// logged even when cmdLogVerbose is off.
+const slowCommandThreshold = 2 * time.Second
+
+// isExpectedProbeFailure reports whether a non-zero exit is the answer rather
+// than a failure. "systemctl is-active" exits 3 for a stopped unit, which is
+// the normal state of frr outside Mode B/C.
+func isExpectedProbeFailure(name string, args []string) bool {
+	return name == "systemctl" && len(args) > 0 && args[0] == "is-active"
+}
+
 func (e *commandExecutor) runCombinedOutputCtx(ctx context.Context, name string, args ...string) commandResult {
 	release := e.acquire()
 	defer release()
 	id := atomic.AddUint64(&e.seq, 1)
 	start := time.Now()
-	log.Printf("[CMD][%d][start] %s %s", id, name, strings.Join(redactSensitiveCommandArgs(args), " "))
+	if cmdLogVerbose {
+		log.Printf("[CMD][%d][start] %s %s", id, name, strings.Join(redactSensitiveCommandArgs(args), " "))
+	}
 	cmd := exec.CommandContext(ctx, name, args...)
 	out, err := cmd.CombinedOutput()
 	cost := time.Since(start)
 	if err != nil {
-		log.Printf("[CMD][%d][error] cost=%s err=%v out=%s", id, cost, err, strings.TrimSpace(string(out)))
+		if cmdLogVerbose || !isExpectedProbeFailure(name, args) {
+			// The command line is repeated here because the [start] line that
+			// used to carry it is no longer printed by default.
+			log.Printf("[CMD][%d][error] cost=%s err=%v cmd=%s %s out=%s", id, cost, err, name, strings.Join(redactSensitiveCommandArgs(args), " "), strings.TrimSpace(string(out)))
+		}
 		return commandResult{Output: out, Err: err}
 	}
-	log.Printf("[CMD][%d][ok] cost=%s", id, cost)
+	if cmdLogVerbose {
+		log.Printf("[CMD][%d][ok] cost=%s", id, cost)
+	} else if cost >= slowCommandThreshold {
+		log.Printf("[CMD][%d][slow] cost=%s cmd=%s %s", id, cost, name, strings.Join(redactSensitiveCommandArgs(args), " "))
+	}
 	return commandResult{Output: out, Err: nil}
 }
 

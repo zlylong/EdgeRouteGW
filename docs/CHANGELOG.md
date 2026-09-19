@@ -1,6 +1,12 @@
 ## [Unreleased]
 ### 🐛 修复
 - **REALITY 默认伪装目标由 `www.microsoft.com` 改为 `www.apple.com`**: `www.microsoft.com` 能通过全部 TLS 1.3 / H2 / 证书预检，但真实 REALITY 握手对已认证客户端一律返回 EOF——用默认值部署的节点进程健康、端口可连、却完全不承载流量。在生产网关上 4 台节点（SG ×1、CN ×3）全部因此失效，服务端改为 `www.apple.com` 后每台 3/3 握手通过；1.7.23 起的部署后握手自检对旧默认值也必然判 `Failed`。同步更新 UI 表单占位符。**已部署的节点不受此改动影响**，需在服务端把 `dest`/`serverNames` 改掉并同步网关出站的 SNI。
+- **HA 规则的备用/主用出站悬空**: `rules.policy` 以节点 id 记录 HA 对（`ha-6-5`），节点被删除、停用或重新导入（id 变化）后无人更新。此前生成的 balancer 会原样引用不存在的出站——Xray 的 `-test` 通过、服务正常启动、没有任何报错，直到主节点故障、需要备用的那一刻才失效（生产环境 SG01 重新导入后实际发生）。现按实际存在的出站解析：两者都在→正常；仅主用在→不带 `fallbackTag`；仅备用在→规则直连备用出站；都不在→按既有失效策略处理。每种降级都记 `[WARN]`。
+- **`[CMD]` 日志淹没 journal**: 每条外部命令都打 `[start]`/`[ok]` 两行，而状态接口每次轮询 fork 约 10 条命令、UI 每 2 秒轮询一次——生产网关实测每小时 5700+ 行（占后端日志 97%），journal 涨到 2.1G 并把真正有用的记录挤出保留窗口。现默认只记失败与慢命令（≥2s），失败行自带完整命令；`systemctl is-active` 的非零退出属于正常应答不再记为错误；frr 未运行时不再每次轮询调用必然失败的 `vtysh`。需要逐条追踪时设置 `PROXYGW_CMD_LOG=1`。
+- **gin 以 debug 模式运行**: 每次启动向 journal 倾倒整张路由表和 "switch to release mode" 告警。现默认 release 模式（显式 `GIN_MODE` 仍优先），并跳过 `/api/status`、`/api/traffic` 两个高频轮询接口的访问日志。
+- **`db_optimize.sh` 在升级时必然撞锁**: `update.sh` 重启后端后立刻执行它，而 sqlite3 默认 busy timeout 为 0，首条 `CREATE INDEX` 即报 `database is locked`，索引从未真正建成。现统一带 20s busy timeout。同时把备份从 `cp` 改为 sqlite3 在线 `.backup`：数据库是 WAL 模式且后端持续写入，直接复制主文件会丢掉 `-wal` 中的最新事务，得到的备份可能不一致。
+- **升级不清理已废弃的 conntrack sysctl**: 1.8.0 从 `install.sh` 移除了 `nf_conntrack.*`，但 `update.sh` 不重写该文件，存量主机每次开机仍报 `cannot stat`。现升级时删除这些行。
+- **测试**: 默认 dest 的断言改为引用常量。1.8.0 之后改默认值时漏改了 `TestDoDeployRoutine_VlessTreatsBlankOverridesAsUnset` 中硬编码的旧值，main 上该用例是红的。
 
 ## [1.8.0] - 2026-09-05
 ### 🏁 稳定里程碑 (Stable Milestone)
