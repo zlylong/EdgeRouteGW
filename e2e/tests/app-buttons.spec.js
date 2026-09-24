@@ -247,6 +247,9 @@ test.describe('dashboard button e2e', () => {
 
     await page.locator('i[title="查看配置"]').first().click();
     await page.getByText('重新生成参数 (当前分享链接将作废)').click();
+    // Destructive actions confirm through the in-page dialog, not window.confirm.
+    await expect(page.getByText('该操作将重新生成所有证书密钥并更换监听端口')).toBeVisible();
+    await page.getByRole('button', { name: '确认' }).click();
     await expect(page.getByText('重新生成任务已下发')).toBeVisible();
     expect(state.regenerateCalls).toBe(1);
     expect(state.lastRegenerate).toEqual({ path: '/api/remote_nodes/2/regenerate', method: 'POST' });
@@ -261,6 +264,8 @@ test.describe('dashboard button e2e', () => {
     await page.getByText('查看历史回退版本').click();
     await expect(page.getByText('历史参数版本')).toBeVisible();
     await page.getByText('强行恢复此版本并下发').click();
+    await expect(page.getByText('确定将远端服务器强行回退至该历史版本的参数和端口吗？')).toBeVisible();
+    await page.getByRole('button', { name: '确认' }).click();
 
     await expect(page.getByText('回退任务已下发，正在还原远端服务器')).toBeVisible();
     expect(state.rollbackCalls).toBe(1);

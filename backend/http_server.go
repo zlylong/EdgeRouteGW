@@ -69,10 +69,14 @@ func serveWithGracefulShutdown(srv *http.Server) error {
 
 // securityHeadersMiddleware sets the response headers every page and API
 // answer should carry. The UI is a single page served from the same origin
-// with an inline application script, so an enforced CSP would need a
-// hash/nonce scheme; it is published report-only for now.
+// whose templates are compiled in the browser (Vue global build, which
+// needs 'unsafe-eval') and which carries inline style attributes, so the
+// policy is published report-only until those are removed.
 func securityHeadersMiddleware() gin.HandlerFunc {
-	const csp = "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
+	// The app script is external (libs/app.js), so no inline script is
+	// needed; Vue's global build compiles templates with new Function and
+	// therefore needs 'unsafe-eval'. Inline style attributes remain.
+	const csp = "default-src 'self'; script-src 'self' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
 	return func(c *gin.Context) {
 		h := c.Writer.Header()
 		h.Set("X-Content-Type-Options", "nosniff")

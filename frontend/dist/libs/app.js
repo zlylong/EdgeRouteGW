@@ -17,8 +17,19 @@ window.addEventListener('unhandledrejection', function(ev) {
                 const editingNode = ref({ id: null, name: '', type: 'Vmess', address: '', port: 443, uuid: '', params: '{}' });
                 const vlessParams = ref({ type: 'tcp', security: 'none', sni: '', pbk: '', fp: 'chrome', sid: '', flow: '', method: 'aes-256-gcm' });
                 
-                const syslogs = ref({ proxygw: '', xray: '', mosdns: '', alerts: '', nft: '' });
+                const syslogs = ref({ proxygw: '', xray: '', mosdns: '', frr: '', nftables: '', alerts: '', nft: '' });
                 const currentLogTab = ref('proxygw');
+                // Query knobs for /api/logs/:service and /api/events (P5.5): how many
+                // lines and how far back. Empty since means "no time filter".
+                const logLines = ref('200');
+                const logSince = ref('');
+                const logQuery = () => {
+                    const p = new URLSearchParams();
+                    if (logLines.value) p.set('lines', logLines.value);
+                    if (logSince.value) p.set('since', logSince.value);
+                    const q = p.toString();
+                    return q ? '?' + q : '';
+                };
                 const lockScroll = ref(false);
                 const syslogsContainer = ref(null);
                 
@@ -50,7 +61,7 @@ window.addEventListener('unhandledrejection', function(ev) {
                                 }
                             }
                         } else if (service === 'alerts') {
-                            const res = await apiFetch('/api/events?limit=200&level=warn');
+                            const res = await apiFetch('/api/events?limit=' + encodeURIComponent(logLines.value || '200') + '&level=warn' + (logSince.value ? '&since=' + encodeURIComponent(logSince.value) : ''));
                             if (res.ok) {
                                 const data = await res.json();
                                 if (data.success && Array.isArray(data.events)) {
@@ -84,7 +95,7 @@ window.addEventListener('unhandledrejection', function(ev) {
                                 }
                             }
                         } else {
-                            const res = await apiFetch(`/api/logs/${service}`);
+                            const res = await apiFetch(`/api/logs/${service}` + logQuery());
                             if (res.ok) {
                                 const data = await res.json();
                                 if (data.success) {
@@ -123,12 +134,11 @@ window.addEventListener('unhandledrejection', function(ev) {
                     } catch(e) { showToast('网络错误', 'error'); }
                     finally { isSubmitting.value.acl = false; }
                 };
-                const deleteAcl = async (id) => {
-                    if(!confirm('确认删除此设备策略？')) return;
+                const deleteAcl = (id) => customConfirm('确认删除此设备策略？', async () => {
                     const r = await apiJSON('/api/lan_acls/' + id, { method: 'DELETE' });
                     if (!r.ok) { showApiError(r, '删除失败'); if (r.status === 404) loadData(false); return; }
                     showToast('已删除，防火墙已热重载'); loadData(false);
-                };
+                });
                 const updateLanDefault = async () => {
                     const r = await apiJSON('/api/lan_acls/default_policy', { method: 'POST', body: JSON.stringify({ policy: defaultLanPolicy.value }) });
                     if (!r.ok) { showApiError(r, '全局策略切换失败'); loadData(false); return; }
@@ -145,16 +155,12 @@ window.addEventListener('unhandledrejection', function(ev) {
                     showToast('保护IP已添加并热生效');
                     loadData(false);
                 };
-                const deleteProtectedIp = async (id) => {
-                    if(!confirm('确认删除该保护IP？')) return;
-                    const r = await apiFetch('/api/protected_ips/' + id, { method: 'DELETE' });
-                    if(!r.ok) {
-                        let d = await r.json().catch(() => ({}));
-                        return showToast(d.error || '删除失败', 'error');
-                    }
+                const deleteProtectedIp = (id) => customConfirm('确认删除该保护IP？', async () => {
+                    const r = await apiJSON('/api/protected_ips/' + id, { method: 'DELETE' });
+                    if (!r.ok) { showApiError(r, '删除失败'); if (r.status === 404) loadData(false); return; }
                     showToast('保护IP已删除并热生效');
                     loadData(false);
-                };
+                });
 
                 const openAddNode = () => {
 
@@ -363,13 +369,30 @@ window.addEventListener('unhandledrejection', function(ev) {
                     toastTimer = setTimeout(() => { toastMsg.value = ''; toastTimer = null; }, 3000);
                 };
                 reportError = (msg) => showToast(msg, 'error');
-                const confirmData = ref({ show: false, msg: '', onConfirm: null });
+                // Esc closes the topmost open dialog (confirm first, then history, then the rest).
+                window.addEventListener('keydown', (ev) => {
+                    if (ev.key !== 'Escape') return;
+                    if (confirmData.value.show) { if (!confirmData.value.busy) confirmData.value.show = false; return; }
+                    for (const m of [showHistoryModal, showRemoteDetailsModal, showRemoteNodeModal, showBatchModal, showNodeModal, showAclModal, showPwdModal, showRollbackModal, showMosdnsRollbackModal]) {
+                        if (m && m.value) { m.value = false; return; }
+                    }
+                });
+                // customConfirm replaces window.confirm everywhere: the callback is
+                // awaited and the 确认 button stays disabled (busy) until it settles,
+                // so a slow request cannot be double-submitted.
+                const confirmData = ref({ show: false, msg: '', onConfirm: null, busy: false });
                 const customConfirm = (msg, callback) => {
-                    confirmData.value = { show: true, msg, onConfirm: callback };
+                    confirmData.value = { show: true, msg, onConfirm: callback, busy: false };
                 };
-                const doConfirm = () => {
-                    if (confirmData.value.onConfirm) confirmData.value.onConfirm();
-                    confirmData.value.show = false;
+                const doConfirm = async () => {
+                    if (confirmData.value.busy) return;
+                    const cb = confirmData.value.onConfirm;
+                    confirmData.value.busy = true;
+                    try {
+                        if (cb) await cb();
+                    } finally {
+                        confirmData.value = { show: false, msg: '', onConfirm: null, busy: false };
+                    }
                 };
 
 
@@ -522,7 +545,8 @@ window.addEventListener('unhandledrejection', function(ev) {
                 const filteredConnections = computed(() => {
                     if (!connSearch.value) return connections.value;
                     const s = connSearch.value.toLowerCase();
-                    return connections.value.filter(c => c.client.toLowerCase().includes(s));
+                    // The placeholder promises client or target IP; match both.
+                    return connections.value.filter(c => (c.client || '').toLowerCase().includes(s) || (c.target || '').toLowerCase().includes(s) || (c.target_domain || '').toLowerCase().includes(s));
                 });
 
 
@@ -791,14 +815,13 @@ window.addEventListener('unhandledrejection', function(ev) {
                     } finally { isDeploying.value = false; }
                 };
 
-                const regenerateNode = async (id) => {
-                    if(!confirm('该操作将重新生成所有证书密钥并更换监听端口，当前使用的客户端分享链接将立刻断开失效。确认执行？')) return;
+                const regenerateNode = (id) => customConfirm('该操作将重新生成所有证书密钥并更换监听端口，当前使用的客户端分享链接将立刻断开失效。确认执行？', async () => {
                     const r = await apiJSON('/api/remote_nodes/' + id + '/regenerate', { method: 'POST' });
                     if (!r.ok) { showApiError(r, '重新生成任务下发失败'); if (r.status === 404) { showRemoteDetailsModal.value = false; loadRemoteNodes(); } return; }
                     showToast('重新生成任务已下发');
                     showRemoteDetailsModal.value = false;
                     loadRemoteNodes();
-                };
+                });
 
                 const setDefaultNode = async (id) => { const r = await apiJSON(`/api/nodes/${id}/default`, {method: "PUT"}); if (!r.ok) { showApiError(r, '设为默认节点失败'); if (r.status === 404) loadData(); return; } showToast("已设为默认节点"); loadData(); };
                 const saveNodeFailoverMode = async () => {
@@ -820,8 +843,7 @@ window.addEventListener('unhandledrejection', function(ev) {
                     showHistoryModal.value = true;
                 };
 
-                const rollbackNode = async (nodeId, historyId) => {
-                    if(!confirm('确定将远端服务器强行回退至该历史版本的参数和端口吗？')) return;
+                const rollbackNode = (nodeId, historyId) => customConfirm('确定将远端服务器强行回退至该历史版本的参数和端口吗？', async () => {
                     const r = await apiJSON('/api/remote_nodes/' + nodeId + '/rollback', {
                         method: 'POST',
                         headers: {'Content-Type': 'application/json'},
@@ -832,7 +854,7 @@ window.addEventListener('unhandledrejection', function(ev) {
                     showHistoryModal.value = false;
                     showRemoteDetailsModal.value = false;
                     loadRemoteNodes();
-                };
+                });
 
                 const loadRemoteNodes = async () => {
                     const r = await apiJSON('/api/remote_nodes');
@@ -874,11 +896,28 @@ window.addEventListener('unhandledrejection', function(ev) {
                     }
                 };
 
+                // Deploy/check log of the node shown in the details modal
+                // (GET /api/remote_nodes/:id/logs). A failed deploy used to show only
+                // a "Failed" badge with no way to see why.
+                const nodeLogs = ref([]);
+                const nodeLogsLoading = ref(false);
+                const loadNodeLogs = async (id) => {
+                    nodeLogsLoading.value = true;
+                    try {
+                        const r = await apiJSON('/api/remote_nodes/' + id + '/logs?limit=50');
+                        nodeLogs.value = (r.ok && Array.isArray(r.data.logs)) ? r.data.logs : [];
+                    } finally { nodeLogsLoading.value = false; }
+                };
+                const prettyParams = (raw) => {
+                    try { return JSON.stringify(JSON.parse(raw), null, 2); } catch (e) { return raw; }
+                };
                 const viewRemoteNode = async (id) => {
                     const r = await apiJSON('/api/remote_nodes/' + id);
                     if(r.ok && r.data.id) {
                         selectedRemoteNode.value = r.data;
+                        nodeLogs.value = [];
                         showRemoteDetailsModal.value = true;
+                        loadNodeLogs(id);
                     } else {
                         showApiError(r, '无法获取详情');
                         if (r.status === 404) loadRemoteNodes();
@@ -898,14 +937,12 @@ window.addEventListener('unhandledrejection', function(ev) {
                     loadRemoteNodes();
                 };
 
-                const confirmDeleteRemoteNode = async (id) => {
-                    if(confirm('确定要删除此节点的部署记录和相关参数吗？(这不会卸载远端服务器上的程序)')) {
-                        const r = await apiJSON('/api/remote_nodes/' + id, { method: 'DELETE' });
-                        if (!r.ok) { showApiError(r, '删除节点记录失败'); if (r.status === 404) loadRemoteNodes(); return; }
-                        showToast('节点记录已删除');
-                        loadRemoteNodes();
-                    }
-                };
+                const confirmDeleteRemoteNode = (id) => customConfirm('确定要删除此节点的部署记录和相关参数吗？(这不会卸载远端服务器上的程序)', async () => {
+                    const r = await apiJSON('/api/remote_nodes/' + id, { method: 'DELETE' });
+                    if (!r.ok) { showApiError(r, '删除节点记录失败'); if (r.status === 404) loadRemoteNodes(); return; }
+                    showToast('节点记录已删除');
+                    loadRemoteNodes();
+                });
 
                 const copyText = (text) => {
                     if (navigator.clipboard && navigator.clipboard.writeText) {
@@ -1095,50 +1132,24 @@ window.addEventListener('unhandledrejection', function(ev) {
                         'B': 'Mode B: 纯 Fake-IP 模式 (零延迟，免疫环路，OSPF只推送Fake-IP池)',
                         'C': 'Mode C: 纯 OSPF 模式 (需防环路，OSPF推送所有海外IP)'
                     };
-                    if(confirm(`确定切换至 ${descriptions[newMode]}？`)) {
-                        try {
-                            const res = await apiFetch('/api/mode?confirm=APPLY', { method: 'POST', body: JSON.stringify({ Mode: newMode }) });
-                            if (!res.ok) {
-                                let msg = `切换失败: HTTP ${res.status}`;
-                                try {
-                                    const d = await res.json();
-                                    if (d && d.error) msg = `切换失败: ${d.error}`;
-                                } catch (e) {}
-                                showToast(msg, 'error');
-                            } else {
-                                showToast(`已切换到 Mode ${newMode}`);
-                            }
-                        } catch (e) {
-                            showToast('切换失败: 网络请求异常', 'error');
-                        }
+                    const switchMode = async () => {
+                        const r = await apiJSON('/api/mode?confirm=APPLY', { method: 'POST', body: JSON.stringify({ Mode: newMode }) });
+                        if (!r.ok) showApiError(r, `切换失败: HTTP ${r.status}`);
+                        else showToast(`已切换到 Mode ${newMode}`);
                         loadData();
-                    } else {
-                        loadData(); // Reset select UI
-                    }
+                    };
+                    customConfirm(`确定切换至 ${descriptions[newMode]}？`, switchMode);
+                    // The select reflects the confirmed mode only; reset it until then.
+                    loadData();
                 }
                 const toggleMode = async () => {
                     const newMode = sysStatus.value.mode === 'A' ? 'B' : 'A';
-                    if(confirm(`切换到 Mode ${newMode}？
-Mode A: 全局网关 (nftables)
-Mode B: 旁路由纯Fake-IP (OSPF)
-Mode C: 纯OSPF (恢复真实IP宣告)`)) {
-                        try {
-                            const res = await apiFetch('/api/mode?confirm=APPLY', { method: 'POST', body: JSON.stringify({ Mode: newMode }) });
-                            if (!res.ok) {
-                                let msg = `切换失败: HTTP ${res.status}`;
-                                try {
-                                    const d = await res.json();
-                                    if (d && d.error) msg = `切换失败: ${d.error}`;
-                                } catch (e) {}
-                                showToast(msg, 'error');
-                            } else {
-                                showToast(`已切换到 Mode ${newMode}`);
-                            }
-                        } catch (e) {
-                            showToast('切换失败: 网络请求异常', 'error');
-                        }
+                    customConfirm(`切换到 Mode ${newMode}？ Mode A: 全局网关 (nftables) / Mode B: 旁路由纯Fake-IP (OSPF) / Mode C: 纯OSPF (恢复真实IP宣告)`, async () => {
+                        const r = await apiJSON('/api/mode?confirm=APPLY', { method: 'POST', body: JSON.stringify({ Mode: newMode }) });
+                        if (!r.ok) showApiError(r, `切换失败: HTTP ${r.status}`);
+                        else showToast(`已切换到 Mode ${newMode}`);
                         loadData();
-                    }
+                    });
                 }
 
                 const importNodeUrl = async () => {
@@ -1391,7 +1402,7 @@ Mode C: 纯OSPF (恢复真实IP宣告)`)) {
                                 return { lockScroll, scrollToBottom, nextTick, syslogs, currentLogTab, syslogsContainer, fetchSyslogs, traffic, formatBytes,
                     connections, connSearch, filteredConnections, lanAcls, defaultLanPolicy, protectedIps, protectedIpForm, goToRule,
                     showAclModal, aclForm, openAddAcl, saveAcl, deleteAcl, updateLanDefault, addProtectedIp, deleteProtectedIp,
-                    currentConfigTab, backendDown,
+                    currentConfigTab, backendDown, logLines, logSince, nodeLogs, nodeLogsLoading, loadNodeLogs, prettyParams,
                     loadData,
                     isSubmitting, isLoading, vlessParams, cron, saveCron, networkConfigForm, networkConfigSelecting, saveNetworkConfig, showPwdModal, pwdForm, logout, changePwd, toastMsg, toastType, confirmData, doConfirm, isUpdating, token, password, login, categories, geoQuery, showGeoSuggestions, geoSuggestionIndex, filteredGeoSuggestions, handleGeoInput, handleGeoInputBlur, moveGeoSuggestion, confirmGeoSuggestionOrQuery, applyGeoSuggestion, runGeoQuery, xrayConfigStr, mosdnsConfigStr, nftablesConfigStr, frrConfigStr, loadConfigs, newRule, ruleGroups, selectedRuleGroup, ruleSearchId, filteredRules, editingRuleGroup, shortRuleGroup, describeRulePattern, ruleValuePlaceholder, ruleValidationError, handleRuleValueFocus, handleRuleValueBlur, addRule, loadRules, saveRuleGroupName, moveRule, activeTab, tabs, visibleTabs, uiMode, toggleUiMode, currentTabLabel, nodes, rules, dns, dnsLogs, ospf, ospfController, ospfControllerDirty, saveOspfController, resetOspfPending, sysStatus, applyConfig, toggleMode, changeMode, importNodeUrl, pingNodes, openAddNode, editNode, saveNode, showNodeModal, editingNode, deleteNode, toggleNode, deleteRule, deleteRuleGroup, saveDns, resetDns, updateComp, showMosdnsRollbackModal, mosdnsVersions, selectedMosdnsRollbackVersion, openMosdnsRollbackModal, confirmMosdnsRollback, showRollbackModal, xrayVersions, selectedRollbackVersion, openRollbackModal, confirmRollback, remoteNodes, showRemoteNodeModal, showRemoteDetailsModal, selectedRemoteNode, remoteNodeForm, loadRemoteNodes, openAddRemoteNode, submitRemoteNode, viewRemoteNode, checkRemoteNode, confirmDeleteRemoteNode, copyText, importToLocal, isDeploying, showBatchModal, batchText, submitBatchNodes, showHistoryModal, nodeHistory,                    setDefaultNode, nodeFailoverMode, saveNodeFailoverMode, regenerateNode, loadNodeHistory, rollbackNode,
                     traceInput, traceResult, isTracing, runTrace, healthResults, isCheckingHealth, runHealthCheck, healthMode }

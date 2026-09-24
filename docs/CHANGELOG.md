@@ -36,6 +36,12 @@
 - 列表接口支持 `?limit=&offset=` 与 `X-Total-Count`；`/events` 增加 `offset/before_id/after_id/since`；`/logs/:service` 增加 `lines/since/priority/grep` 与 `frr/nftables`；`/connections` 的 `data` 恒为数组并支持 `?limit=`。
 - 新增 `GET /remote_nodes/:id/logs`；远程节点后台每 5 分钟自动探测状态；`/nodes/ping` 返回 `started/completed` 并支持 `?wait=1`；`/geo/query` 展开默认 2000 条并标记 `truncated`。
 
+### 🖥️ 前端
+- **加载体积**: Vue 由 581KB 开发版换成同版本生产版（163KB）；浏览器内 Tailwind JIT（407KB，每次打开页面即时编译）换成预编译的 `libs/app.css`（59KB，`scripts/build_frontend_css.sh` 生成）；脚本改为 `defer` 加载，应用脚本移至 `libs/app.js`。34 个页面/弹窗截图逐像素比对无差异；顺带修复 DNS "恢复默认推荐值" 按钮从未生效的问题。
+- **请求层**: 统一 `apiFetch`/`apiJSON`，14 处此前不检查响应就提示成功的操作改为按 `error` 字段报错，404 自动刷新列表；注销后不再发送 `Bearer null`；同一端点在途请求去重；后端断连时只提示一次并显示常驻横幅，恢复后自动消失；配置面板不再每 2 秒拉取四份全文；toast 支持 `aria-live` 且新消息重置计时；`window.onerror`/未处理的 Promise 拒绝改为 toast 而非 `alert`。
+- **功能**: 远程节点详情新增"部署与检查日志"面板，`Failed`/`Offline` 徽章可点击直达；历史参数以格式化 JSON 展示；日志面板新增行数/时间范围选择与 FRR、nftables 日志；连接追踪同时匹配客户端与目标；所有危险操作统一使用页内确认框（确认按钮带 loading 且禁止重复提交，Esc 关闭弹窗）；图标按钮补齐 `aria-label`，弹窗标记 `role="dialog"`；修正详情弹窗把 SSH 端口标为"监听端口"的文案。
+- **E2E**: mock 与 UI 的两处不一致（`/api/rules` 形状、`total_month`）已修正；新增 `e2e/visual/` 截图比对工具；Playwright 缺少固定版本 Chromium 时回退到预装版本。
+
 ### 🗂️ 仓库
 - 删除误提交的 `backend/cookies.txt` 与 `.omo/` 会话残留；去除 `index.html` 末尾杂散注释。
 
