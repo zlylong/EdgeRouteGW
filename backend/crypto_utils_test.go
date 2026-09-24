@@ -116,7 +116,7 @@ func TestMigrateRewritesCFBRowsUnderTheCurrentKey(t *testing.T) {
 func newTestDB(t *testing.T) (*sql.DB, func()) {
 	t.Helper()
 	dir := t.TempDir()
-	tdb, err := sql.Open("sqlite3", filepath.Join(dir, "t.db"))
+	tdb, err := openSQLite(filepath.Join(dir, "t.db"))
 	if err != nil {
 		t.Fatal(err)
 	}

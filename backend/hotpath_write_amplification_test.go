@@ -402,3 +402,77 @@ func TestServiceLogsAreCachedBetweenPolls(t *testing.T) {
 		t.Fatalf("journalctl forked %d times across 3 polls, want 1", got)
 	}
 }
+
+func TestSQLiteDSNAppliesPragmasPerConnection(t *testing.T) {
+	d, err := openSQLite(t.TempDir() + "/pool.db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer d.Close()
+	d.SetMaxOpenConns(4)
+	ctx := context.Background()
+	var conns []interface{ Close() error }
+	defer func() {
+		for _, c := range conns {
+			_ = c.Close()
+		}
+	}()
+	for i := 0; i < 3; i++ {
+		conn, err := d.Conn(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		conns = append(conns, conn)
+		var timeout int
+		if err := conn.QueryRowContext(ctx, "PRAGMA busy_timeout").Scan(&timeout); err != nil {
+			t.Fatal(err)
+		}
+		if timeout != 5000 {
+			t.Fatalf("conn %d busy_timeout = %d, want 5000 on every pooled connection", i, timeout)
+		}
+		var mode string
+		if err := conn.QueryRowContext(ctx, "PRAGMA journal_mode").Scan(&mode); err != nil {
+			t.Fatal(err)
+		}
+		if mode != "wal" {
+			t.Fatalf("conn %d journal_mode = %q, want wal", i, mode)
+		}
+		var sync int
+		if err := conn.QueryRowContext(ctx, "PRAGMA synchronous").Scan(&sync); err != nil {
+			t.Fatal(err)
+		}
+		if sync != 1 {
+			t.Fatalf("conn %d synchronous = %d, want 1 (NORMAL)", i, sync)
+		}
+		var fk int
+		if err := conn.QueryRowContext(ctx, "PRAGMA foreign_keys").Scan(&fk); err != nil {
+			t.Fatal(err)
+		}
+		if fk != 0 {
+			t.Fatalf("foreign_keys enabled; remote_node_history ON DELETE CASCADE would change delete semantics")
+		}
+	}
+}
+
+func TestApplyOspfBatchesSurviveClosedDatabase(t *testing.T) {
+	setupFeatureSuiteRouter(t)
+	oldRunner := runVtyshConfigBatch
+	runVtyshConfigBatch = func(config string) (string, error) { return "ok", nil }
+	defer func() { runVtyshConfigBatch = oldRunner }()
+
+	closed, err := openSQLite(t.TempDir() + "/closed.db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = closed.Close()
+	live := getDB()
+	setDB(closed)
+	defer setDB(live)
+
+	if applyOspfAddBatch([]string{"1.1.1.1/32"}) {
+		t.Fatal("add batch reported success although the DB write failed")
+	}
+	if applyOspfDeleteBatch([]string{"8.8.8.8/32"}) {
+		t.Fatal("delete batch reported success although the DB write failed")
+	}
+}

@@ -2,7 +2,6 @@ package main
 
 import (
 	"container/ring"
-	"database/sql"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -56,7 +55,7 @@ func setupFeatureSuiteRouter(t *testing.T) *gin.Engine {
 	mustWriteFile(t, filepath.Join(root, "core", "frr", "frr.conf"), "router ospf\n ospf router-id 192.168.20.154\n")
 
 	dbPath := filepath.Join(root, "feature.db")
-	tdb, err := sql.Open("sqlite3", dbPath)
+	tdb, err := openSQLite(dbPath)
 	if err != nil {
 		t.Fatal(err)
 	}
