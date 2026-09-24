@@ -16,9 +16,11 @@
   ```bash
   bash <(curl -s -4 -L https://raw.githubusercontent.com/zlylong/EdgeRouteGW/main/scripts/update.sh)
   ```
-  推荐的日常维护命令。它将自动从 GitHub `main` 分支拉取最新代码，智能检查依赖，自动获取 GitHub Releases 最新版预编译后端二进制，并平滑重启所有相关守护服务。
+  推荐的日常维护命令。它会：`git reset --hard` 到 `main` 最新提交（`config/aes.key` 会被保护）、补装依赖、下载并校验当前架构的最新 Release 后端二进制、重写 proxygw/mosdns/xray 三个 systemd 单元文件（**不**重启 mosdns/xray）、清空 `domain_resolve_cache` / `routes_table` / `geosite_expand_cache` 三张缓存表，最后只重启 `proxygw`。
 
-  > 安全策略：脚本必须拿到发布页的 `SHA256SUMS` 并校验通过才会安装二进制；获取失败即中止（fail-closed）。安装早于校验文件的旧版本可显式设置 `PROXYGW_ALLOW_UNVERIFIED=1`。`update.sh` 会把旧二进制保留为 `proxygw-backend.prev`，新版本在 10 秒内未进入 active 状态时自动回滚并重启。不再内置固定的回退版本号：无法从 GitHub API 或本地 git 标签确定版本时脚本直接报错退出。
+  > 安全策略：脚本必须拿到发布页的 `SHA256SUMS` 并校验通过才会安装二进制；获取失败即中止（fail-closed）。安装早于校验文件的旧版本可显式设置 `PROXYGW_ALLOW_UNVERIFIED=1`（只影响后端二进制的校验）。`update.sh` 会把旧二进制保留为 `proxygw-backend.prev`，新版本在 10 秒内未进入 active 状态时自动回滚并重启；健康判断基于 `systemctl is-active`，`Type=simple` 的单元在进程 fork 后即视为 active，启动数秒后才崩溃的情况需人工处理（`cp backend/proxygw-backend.prev backend/proxygw-backend && systemctl restart proxygw`）。回滚只覆盖二进制，不回退 git 树与前端。不再内置固定的回退版本号：无法从 GitHub API 或本地 git 标签确定版本时脚本直接报错退出。
+  >
+  > 升级后的两个副作用：仓库跟踪的 `core/mosdns/proxy_domains.txt` 会被 `git reset` 还原，因此后端首次启动时会检测到差异并重启一次 mosdns；仓库同样跟踪 amd64 的 `core/xray/xray`，arm64 主机升级后需确认 `install.sh` 逻辑已重新下载对应架构的 Xray（`xray version` 能运行）。浏览器侧 `/ui/libs/*` 缓存 1 小时，升级后请强制刷新页面。
 
   > 自 `v1.6.16+` 起，`install.sh` / `update.sh` 在服务启动后会自动执行一次数据库低风险优化（`scripts/db_optimize.sh --index-only`）：
   > - 幂等创建关键索引（`domain_geoip_lock` / `gateway_events`）
@@ -29,20 +31,46 @@
   ```bash
   bash scripts/uninstall.sh
   ```
-  安全停用相关守护进程，清理所有的二进制文件，剥离 Linux 内核级别的 TProxy 劫持规则和路由表，恢复纯净的宿主机网络环境。卸载过程中会询问是否保留用户配置文件和 SQLite 数据库。
+  停用并禁用 proxygw/mosdns/xray/frr，删除对应的 systemd 单元、`/etc/frr/frr.conf` 与 `/etc/nftables.conf`，剥离内核级别的 TProxy 劫持规则和路由表。脚本只询问一次：是否删除整个 `/root/proxygw`（含配置与 SQLite 数据库）。
 
 ## 🔩 运行时环境变量
 
-在 `/etc/systemd/system/proxygw.service` 的 `[Service]` 段加 `Environment=` 后 `systemctl daemon-reload && systemctl restart proxygw` 生效：
+`install.sh` / `update.sh` 每次都会重写 `/etc/systemd/system/proxygw.service`，直接改它的设置会在下次升级时丢失。请使用 drop-in：
+
+```bash
+systemctl edit proxygw        # 生成 /etc/systemd/system/proxygw.service.d/override.conf
+# 写入：
+# [Service]
+# Environment=PROXYGW_LISTEN_ADDR=192.168.1.2:80
+systemctl daemon-reload && systemctl restart proxygw
+```
+
+后端进程读取的变量：
 
 | 变量 | 作用 |
 | :--- | :--- |
+| `PROXYGW_HOME` | 安装根目录，默认 `/root/proxygw`。脚本与单元文件均硬编码该路径，改动仅适合开发/测试；`go test` 必须设置它以免误写生产文件。 |
 | `PROXYGW_LISTEN_ADDR` | 管理界面监听地址，默认 `:80`。 |
-| `PROXYGW_CMD_LOG=1` | 记录每条外部命令的开始/结束（默认只记失败与 ≥2s 的慢命令）。 |
-| `PROXYGW_FORCE_RESTART_ON_BOOT=1` | 后端启动时无条件重启 Xray/mosdns（默认配置未变化且服务运行中则跳过）。 |
+| `PROXYGW_BOOTSTRAP_PASSWORD` | 首次初始化管理员密码时使用该值而不是随机生成（此时不写 `bootstrap_password.txt`）。 |
+| `PROXYGW_CMD_LOG=1` | 记录每条外部命令的开始/结束（默认只记失败与 ≥2s 的慢命令）。启动时读取一次。 |
+| `PROXYGW_FORCE_RESTART_ON_BOOT=1` | 后端启动时无条件重启 Xray（默认：渲染配置与磁盘一致且服务运行中则跳过）。mosdns 不受此变量影响，只在配置变化、服务未运行或 Mode B 的 FakeIP 刷新（5s 内去重）时重启。 |
+| `PROXYGW_E2E_TOKEN=1` | 让固定 token `e2e-token` 通过鉴权，仅供端到端测试。**生产环境绝对不能设置。** |
 | `GIN_MODE` | 显式指定 gin 模式（默认 release）。 |
 
-脚本相关：`PROXYGW_ALLOW_UNVERIFIED=1`（安装/升级脚本跳过缺失的 `SHA256SUMS` 校验）。
+时区被程序固定为 `Asia/Shanghai`（`TZ` 环境变量会被覆盖）。
+
+脚本与工具读取的变量：
+
+| 变量 | 作用 |
+| :--- | :--- |
+| `PROXYGW_ALLOW_UNVERIFIED=1` | `install.sh` / `update.sh` 在取不到 `SHA256SUMS` 时仍安装后端二进制。 |
+| `PROXYGW_RESTART_AFTER_BUILD=1` | `scripts/build.sh` 构建后重启 proxygw。 |
+| `GOPROXY` | `scripts/build.sh` 使用的 Go 模块代理，默认 `https://goproxy.cn,direct`。 |
+| `DB_OPTIMIZE_BACKUP_KEEP` | `scripts/db_optimize.sh` 保留的备份份数，默认 3。 |
+| `TAILWIND_VERSION` | `scripts/build_frontend_css.sh` 下载的 Tailwind CLI 版本，默认 3.4.17。 |
+| `PW_CHROMIUM_EXECUTABLE` / `PLAYWRIGHT_BROWSERS_PATH` / `PLAYWRIGHT_PORT` / `PLAYWRIGHT_BASE_URL` | e2e 测试使用的浏览器与服务地址。 |
+
+`xray.service` 通过 `Environment=XRAY_LOCATION_ASSET=/root/proxygw/core/xray` 指定 geodata 目录。
 
 ## ⚙️ 系统服务状态管理
 
@@ -86,21 +114,36 @@ journalctl -u xray -n 100 --no-pager -f
 说明：
 - `--index-only`：仅建索引 + `ANALYZE` + `PRAGMA optimize`，不做 `VACUUM`
 - `--full`：包含 `VACUUM`，会持有写锁，建议低峰执行
-- 脚本会自动生成时间戳备份：`proxygw.db.bak.YYYYmmdd_HHMMSS`
+- 脚本用 `sqlite3 .backup` 在线生成时间戳备份 `proxygw.db.bak.YYYYmmdd_HHMMSS`，默认只保留最近 3 份（`DB_OPTIMIZE_BACKUP_KEEP`）
 
 **数据备份**：
-建议在进行重大变更前定期备份 `config/` 目录。
+数据库以 WAL 模式运行且后端持续写入，直接 `cp`/`tar` 主文件可能丢掉 `-wal` 里的最新事务。请用在线备份，或先停服务：
 ```bash
-# 备份数据库与关键核心文件
-tar -czvf proxygw_backup_$(date +%F).tar.gz /root/proxygw/config/ /root/proxygw/core/
+# 在线一致性备份数据库
+sqlite3 /root/proxygw/config/proxygw.db ".backup /root/backup/proxygw_$(date +%F).db"
+# 同时备份密钥与配置（aes.key 是解密所有已存 SSH 凭证的唯一密钥，务必保密保存）
+tar -czvf /root/backup/proxygw_config_$(date +%F).tar.gz -C /root/proxygw config/aes.key config/bootstrap_password.txt 2>/dev/null
 ```
+其它可回退文件：`backend/proxygw-backend.prev`（上一版后端）、`core/xray/xray.bak`、`core/mosdns/mosdns.bak`（应用内更新前的二进制）。
+
+**恢复**：
+```bash
+systemctl stop proxygw
+cp /root/backup/proxygw_YYYY-MM-DD.db /root/proxygw/config/proxygw.db
+rm -f /root/proxygw/config/proxygw.db-wal /root/proxygw/config/proxygw.db-shm
+tar -xzf /root/backup/proxygw_config_YYYY-MM-DD.tar.gz -C /root/proxygw
+systemctl start proxygw
+```
+没有对应的 `aes.key` 时，远程节点的 SSH 凭证无法解密，需要重新录入。
 
 ### 紧急密码重置
-管理员密码经过 Bcrypt 强哈希加密。如果遗忘且无法登入 UI，请使用 `sqlite3` 直接重置数据库中的条目：
+管理员密码以 Bcrypt 哈希保存在 `settings` 表。如果遗忘且无法登入 UI，删除哈希后重启，后端会重新生成一次性初始密码：
 ```bash
-sqlite3 /root/proxygw/config/proxygw.db "UPDATE users SET password_hash = '' WHERE username = 'admin';"
+sqlite3 /root/proxygw/config/proxygw.db "DELETE FROM settings WHERE key IN ('password_hash','password');"
+systemctl restart proxygw
+cat /root/proxygw/config/bootstrap_password.txt
 ```
-*(注意：请根据实际情况或通过初始化生成脚本恢复访问。)*
+也可以在重启前通过 drop-in 设置 `PROXYGW_BOOTSTRAP_PASSWORD=<新密码>`，此时不会写 txt 文件（用完记得移除该变量）。
 
 ## 📦 数据库存储与定期清理规则
 
@@ -111,17 +154,25 @@ EdgeRouteGW 后端自 `v1.7.5+` 起内置了自动化的数据库维护任务（
 | **API 审计日志** | 7 天 | `module='api'` 的事件，包含频繁的配置下发与心跳。 |
 | **系统事件日志** | 30 天 | 除 API 外的其他模块（OSPF, DNS, Nodes）日志。 |
 | **流量统计历史** | 60 天 | 包含总流量与单节点流量的分时历史数据。 |
-| **远程节点日志** | 30 天 | 远程节点的部署、扩容与状态变更日志。 |
+| **远程节点日志** | 30 天 | 远程节点的部署、检查与状态变更日志（UI 详情弹窗“部署与检查日志”读取此表）。 |
+| **远程节点历史参数** | 30 天 | 重新生成参数前归档的旧版本，决定了回退能追溯多久。 |
 | **DNS 解析缓存** | 即时清理 | `expire_at`（Unix 时间戳）已过期的解析条目。此前的比较把整数与文本混比，导致每天清空整表，已修复。 |
 | **其他中间缓存** | 30 天 | 包含 Geosite 展开缓存、GeoIP 自动锁定记录等。 |
 
 **维护操作细节：**
 - **每日维护**：检查并删除过期数据，确保存储压力不随时间无限增长。
-- **每周优化**：每周日凌晨执行 `VACUUM`（重组文件）与 `ANALYZE`（更新索引统计信息）。
+- **每周优化**：日常维护恰好落在周日的那一次会额外执行 `VACUUM`（重组文件）与 `ANALYZE`（更新索引统计信息）；具体时刻取决于后端启动时间 + 5 分钟的周期。
 
 如果您需要手动触发清理，可以通过重启 `proxygw` 服务来实现，维护任务会在启动 5 分钟后执行首次扫描。
 
 ## 🩺 常见故障排查 (Troubleshooting)
+
+### 0. 先看这些日志行的含义
+- `[AUDIT] Mosdns config unchanged, restart skipped` / `Xray config unchanged and unit active, restart skipped`：规则或节点变更没有改变渲染出的配置，后端有意不重启服务，属正常。
+- `[INFO] mosdns restart (fakeip flush) skipped: restarted Ns ago`：Mode B 下 Xray 下发时的 FakeIP 刷新重启与刚发生的 mosdns 重启合并。
+- `[AUDIT] Applying Mosdns Config (config_changed=... domains_changed=...)`：本次确实重写了文件并重启。
+- `login_locked_out`（事件日志）：同一来源 IP 30 分钟内失败超过 10 次，接口返回 429；重启 proxygw 会清空计数。
+- 升级后页面样式或按钮异常：`/ui/libs/*` 在浏览器缓存 1 小时，强制刷新（Ctrl+F5）。
 
 ### 1. 局域网内设备无法上网或无法走代理 (Mode A)
 - **排查 Nftables 劫持**：运行 `nft list ruleset` 检查 `prerouting` 链是否正常工作。
@@ -132,13 +183,13 @@ EdgeRouteGW 后端自 `v1.7.5+` 起内置了自动化的数据库维护任务（
 - **快速诊断**：停止守护进程后，手动在前台运行以暴露错误信息：
   ```bash
   systemctl stop mosdns
-  /usr/local/bin/mosdns start -d /root/proxygw/core/mosdns
+  /root/proxygw/core/mosdns/mosdns start -d /root/proxygw/core/mosdns
   ```
 - **典型错误**：如果看到 IP 集合相关的 Error，请检查你是否不小心放入了二进制格式的 `geoip.dat` 文件。Mosdns v5+ 必须使用纯文本的 CIDR 格式。
 
 ### 3. OSPF 路由不生效 / 无法无感接管 (Mode B / Mode C)
 - **检查 FRR 进程**：先执行 `systemctl is-active frr`。若后端日志反复出现 `vtysh ... failed to connect to any daemons`，说明规则已生成但 FRR 未运行，路由不会真正发布到主路由。
-- **检查发布状态**：执行 `sqlite3 config/proxygw.db "select source,status,count(*) from routes_table group by source,status;"`，若大量规则停在 `candidate`，继续查看 `journalctl -u proxygw -n 200 --no-pager` 中的 FRR/vtysh 错误。
+- **检查发布状态**：执行 `sqlite3 config/proxygw.db "select source,status,count(*) from routes_table group by source,status;"`，若大量规则停在 `candidate`，继续查看 `journalctl -u proxygw -n 200 --no-pager` 中的 FRR/vtysh 错误。正常撤回会打印 `[OSPF] N published route(s) expired, withdrawing`；候选路由按 `push_interval_seconds`（默认 10s）分批推送，且需在表中存在 60s 以上。UI 日志面板也提供 FRR 与 nftables 的 journal 输出。
 - **检查邻居状态**：执行 `vtysh` 进入路由器交互模式，输入 `show ip ospf neighbor`，应看到上游路由器处于 `Full/DR` 或 `Full/Backup`。
 - **诊断要素**：确保主路由（如 MikroTik ROS / OpenWrt）已将此代理服务器的 IP 网段加入相同的 OSPF Area 并且 Interface Network Type 匹配（通常应设为 Broadcast）。
 - **防环路漏配 (Mode C)**：如果在 Mode C 发现代理通缩、网速极慢或完全断网，请检查主路由上是否正确配置了源地址绕过（PBR 策略路由）以防止 OSPF 环路。
@@ -174,7 +225,9 @@ EdgeRouteGW 后端自 `v1.7.5+` 起内置了自动化的数据库维护任务（
 - `0.0.0.0/0`
 - `127.0.0.0/8`
 - `169.254.0.0/16`
+- `198.18.0.0/15`（Fake-IP 网段）
 - `224.0.0.0/4` 及以上（含保留/广播）
+- RFC1918 私网超集（如整段 `192.168.0.0/16`）
 
 #### 运维核查命令
 

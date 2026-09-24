@@ -2,6 +2,8 @@
 
 # EdgeRouteGW - A Modern Transparent Proxy Gateway
 
+English | [简体中文](./README.md)
+
 EdgeRouteGW is a high-performance, user-friendly transparent proxy gateway system. It provides a beautiful web management interface, allowing you to easily take over home or office network traffic and achieve intelligent traffic splitting.
 
 ![EdgeRouteGW Dashboard](docs/assets/dashboard.jpg)
@@ -12,7 +14,7 @@ EdgeRouteGW is a high-performance, user-friendly transparent proxy gateway syste
 - **Intelligent Traffic Splitting**: Built with a powerful domain and IP rule library. Domestic websites connect directly, while specific traffic goes through proxies, completely eliminating lag and DNS pollution.
 - **Seamless Takeover**: Supports full gateway takeover (Mode A), pure Fake-IP bypass (Mode B), or pure OSPF dynamic routing (Mode C). LAN devices can freely access the internet without any manual configuration.
 - **Remote Node Deployment**: Features a unique one-click remote node deployment system. Supports registering multiple overseas Linux hosts, with the gateway controller automatically pushing, configuring, and monitoring WireGuard/VLESS tunnel protocols via SSH.
-- **Ultimate Security**: The system randomly generates high-strength initial passwords, and the frontend includes built-in anti-brute-force delays. SSH credentials stored in SQLite are dynamically encrypted/decrypted in memory using AES-256-GCM (authenticated; tampering is rejected), and Web UI resources are completely localized.
+- **Ultimate Security**: The system randomly generates high-strength initial passwords, and the backend rate-limits logins per source IP (a 2s delay from the 7th failed attempt, HTTP 429 after more than 10, with failures and lockouts recorded in the event log). SSH credentials stored in SQLite are dynamically encrypted/decrypted in memory using AES-256-GCM (authenticated; tampering is rejected), and Web UI resources are completely localized.
 - **Kernel-Level Optimization**: Includes fully automatic Debian/Linux kernel parameter and firewall tuning. It globally enables BBR congestion control and fq_codel queuing, enlarges TCP buffers and the local port range, automatically blocks unshielded IPv6 traffic and kernel routing dead loops, and squeezes every drop of performance out of the device.
 
 ## 🚀 Quick Installation (Zero-Compile Speed Deployment)
@@ -25,7 +27,16 @@ bash <(curl -s -4 -L https://raw.githubusercontent.com/zlylong/EdgeRouteGW/main/
 ```
 *(Note: Due to the underlying mandatory Nftables anti-loopback policies, it is not recommended to run on a host with complex firewall rules. It is recommended to allocate a separate LXC container or lightweight VM.)*
 
-> Note: The installation/upgrade script will automatically execute a low-risk database optimization (`scripts/db_optimize.sh --index-only`) after the service starts, which supplements critical indexes and statistics. A full `VACUUM` is still recommended to be executed manually during maintenance windows.
+For day-to-day upgrades:
+
+```bash
+bash <(curl -s -4 -L https://raw.githubusercontent.com/zlylong/EdgeRouteGW/main/scripts/update.sh)
+```
+
+> Notes:
+> - Both scripts fetch `SHA256SUMS` from the GitHub Release and install the backend binary only after it verifies; if the checksum list cannot be fetched they abort (set `PROXYGW_ALLOW_UNVERIFIED=1` to skip, only for releases that predate checksums). Unsupported CPU architectures fail with an error, and there is no hardcoded fallback version any more.
+> - `update.sh` keeps the previous binary as `proxygw-backend.prev` and rolls back automatically if the new one is not active within 10 seconds.
+> - After the service starts, a low-risk database optimization (`scripts/db_optimize.sh --index-only`) runs to add key indexes and statistics. A full `VACUUM` is still recommended to be executed manually during maintenance windows.
 
 ## 🔑 Initial Login
 
@@ -36,7 +47,7 @@ cat /root/proxygw/config/bootstrap_password.txt
 ```
 
 Enter the gateway server's IP address in your browser (e.g., `http://192.168.x.x/`) and use this initial password to log in.
-**⚠ Strong Recommendation: Please go to system settings immediately after your first login to change your password.** After modification, this txt file will automatically become invalid.
+**⚠ Strong Recommendation: Please go to system settings immediately after your first login to change your password.** After the change the password in that txt file stops working (the file itself is not deleted; remove it yourself).
 
 ## 🕹️ Routing Modes & Usage Guide
 
@@ -87,10 +98,11 @@ In pure OSPF mode, physical router splitting can only rely on **real IPs**. Howe
 - [Operations & Troubleshooting](./docs/OPERATIONS.md) - Service management, upgrade, and system uninstallation
 - [Developer & Architecture Guide](./docs/DEVELOPER.md) - Underlying architecture, source code structure, and API reference
 - [API Interface Documentation](./docs/API.md) - RESTful API documentation
+- [Changelog](./docs/CHANGELOG.md) - Release history
 
 ## 🧪 Test Guide
 
-EdgeRouteGW provides a complete multi-layered test script system, with all test scripts located in the `scripts/` directory:
+EdgeRouteGW provides a complete multi-layered test script system, with all scripts located in the `scripts/` directory:
 
 | Script | Purpose |
 |---|---|
@@ -98,7 +110,13 @@ EdgeRouteGW provides a complete multi-layered test script system, with all test 
 | `test_backend.sh` | Backend Go test runner (supports parameters like `--race`, `--verbose`, `--short`) |
 | `test_coverage.sh` | Backend coverage report generator (outputs text summary + HTML visualization report to `coverage/`) |
 | `test_benchmark.sh` | Benchmark runner (supports `--bench=Pattern` filtering, `--count=N` repetitions) |
-| `test_frontend.sh` | Frontend Playwright E2E button tests |
+| `test_frontend.sh` | Frontend Playwright E2E button tests (mocked API; needs Node.js, python3 and a generated `frontend/dist/libs/app.css`) |
+| `build_frontend_css.sh` | Precompiles the frontend stylesheet to `frontend/dist/libs/app.css` with the Tailwind standalone CLI (re-run after changing class names in `index.html`/`libs/app.js`) |
+| `pre-commit.sh` | Git pre-commit hook script (install manually, see below) |
+| `check-release-chain.sh` | Pre-release check: CHANGELOG version, frontend version tag, installer verification logic and the release workflow agree |
+| `build.sh` / `flush_cache.sh` / `db_optimize.sh` | Local backend build, DNS/OSPF cache flush, SQLite index and vacuum maintenance |
+
+Screenshot regression tooling for the frontend lives in `e2e/visual/` (`npm run visual:snap` / `visual:compare`).
 
 ```bash
 # Run all tests
@@ -107,8 +125,8 @@ EdgeRouteGW provides a complete multi-layered test script system, with all test 
 # Run only backend tests (with race detection)
 ./scripts/test_backend.sh --race
 
-# Run benchmark tests
-./scripts/test_benchmark.sh --bench=GeoQuery
+# Run benchmark tests (example: GeoIP lookup)
+./scripts/test_benchmark.sh --bench=QueryGeoIP
 
 # Generate coverage report
 ./scripts/test_coverage.sh
@@ -116,9 +134,15 @@ EdgeRouteGW provides a complete multi-layered test script system, with all test 
 
 ### Pre-commit Check
 
-The project has a Git pre-commit hook installed, which automatically runs before each `git commit`:
+Git hooks are not distributed with the repository; install it once after cloning:
+
+```bash
+cp scripts/pre-commit.sh .git/hooks/pre-commit && chmod +x .git/hooks/pre-commit
+```
+
+It then runs before each `git commit`:
 1. Backend code compilation check
-2. `-short` mode testing for affected packages
+2. If any `.go` file is staged, the whole backend test suite in `-short` mode
 
 To bypass, use `git commit --no-verify`.
 

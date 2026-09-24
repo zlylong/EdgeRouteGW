@@ -1,3 +1,5 @@
+<!-- 发布流程：打 tag 前把下面的 "## [Unreleased]" 改为 "## [x.y.z] - YYYY-MM-DD"，
+     release.yml 用该标题格式截取发布说明，找不到时发布会失败（`test -s`）。 -->
 ## [Unreleased]
 系统功能优化：覆盖运行时性能与写放大、安全与健壮性、规则/节点变更路径、API 契约与前端体验。
 
@@ -6,12 +8,12 @@
 - **读接口不再写库**: `readIntSettingWithDefault` 每次读取都 `INSERT OR REPLACE`，OSPF 控制循环在所有模式下每 2 秒触发 3 次写事务；`GET /api/cron` 每次写 4 行、`/api/status` 每次写 2 行。现仅在缺行或值变化时写入，OSPF 循环只在 Mode B/C 读取参数，并真正遵守 `push_interval_seconds`；每 2 秒一条的 `[DEBUG] toDel len` 日志已移除。
 - **SQLite 连接级参数**: `busy_timeout`/`synchronous` 是每连接设置，此前只作用于连接池中执行过 PRAGMA 的那一个连接，其余连接 `busy_timeout=0`，并发写入时直接报 `database is locked`。现通过 DSN 对每个连接生效，连接池上限 8。
 - **mosdns 只在配置变化时重启**: 规则重排、direct 策略域名等不影响 `proxy_domains.txt` 的变更此前也会 `systemctl restart mosdns`。现渲染后与磁盘比对，无变化且服务运行中则跳过；Mode B 下 Xray 下发时的二次 mosdns 重启在 5s 内去重。
-- **后端重启不再重启 Xray/mosdns**: 启动时若渲染出的 `config.json` 与磁盘一致且服务运行中则跳过重启，`systemctl restart proxygw` 不再引起流量/DNS 抖动。`PROXYGW_FORCE_RESTART_ON_BOOT=1` 可恢复旧行为。
+- **后端重启不再重启 Xray/mosdns**: 启动时若渲染出的 `config.json` 与磁盘一致且服务运行中则跳过重启，`systemctl restart proxygw` 不再引起流量/DNS 抖动。`PROXYGW_FORCE_RESTART_ON_BOOT=1` 可强制重启 Xray。注意 `update.sh` 的 `git reset` 会还原仓库跟踪的 `proxy_domains.txt`，因此升级后的首次启动仍会重启一次 mosdns。
 - **节点变更只重同步自身出站**: 编辑/停用/删除节点此前对全部出站执行 `rmo` + `ado`，现只处理该节点的 tag。
-- **GeoData 不再重复解析**: `hasGeoSiteTag`/`extractGeoSiteValues`/`extractGeoSiteResolvableDomains` 与 `extractGeoIPs*` 改由按版本缓存的 matcher 提供（此前每条 geosite 规则每次 apply、每次 `POST /rules` 都完整重新解析 `.dat`）；matcher 构建移出读写锁，重建期间查询不阻塞；旧解析器补齐边界检查（截断文件不再 panic）。
+- **GeoData 不再重复解析**: `hasGeoSiteTag`/`extractGeoSiteValues`/`extractGeoSiteResolvableDomains` 与 `extractGeoIPs*` 改由按版本缓存的 matcher 提供（此前每条 geosite 规则每次 apply、每次 `POST /rules` 都完整重新解析 `.dat`）；matcher 构建移出读写锁，重建期间查询不阻塞；无法编译的 geosite 正则条目保留（不匹配）以便展开列表完整，展示时保留原始大小写；旧解析器补齐边界检查（截断文件不再 panic）。
 - **连接追踪批量关联**: `/api/connections` 此前对每条记录执行最多两次查询（其中一次是 `LIKE '%ip%'` 全表扫描），每次轮询多达 400 次；现一次 `IN (...)` 查询加 10s 刷新一次的反向索引，规则值只解析一次。
 - **DNS 解析使用真实 TTL**: `dig +short` 丢弃 TTL 导致所有域名缓存固定 300s、Mode C 每 5 分钟全量重解析；改为 `+noall +answer` 取最小 TTL（仍夹在 300–3600s）。
-- 其它：流量监控分钟数据单事务写入、事件写入移出锁外、Xray 停止时不再每 2 秒刷 `[CMD][error]`；`/api/logs` 2s 结果缓存；正则与 nftables 模板一次编译；会话续期每小时最多一次并在登录时清理过期会话；`commandExecutor` 排队时响应上下文取消。
+- 其它：流量监控分钟数据单事务写入、事件写入移出锁外、解码失败事件按分钟节流、删除与维护任务重复的 180 天清理、Xray 停止时不再每 2 秒刷 `[CMD][error]`；`/api/logs` 2s 结果缓存；正则与 nftables 模板一次编译；会话续期每小时最多一次并在登录时清理过期会话；`commandExecutor` 排队时响应上下文取消；`domain_geoip_lock` 建表 DDL 每个数据库只执行一次；OSPF 批处理与静态路由同步改用预处理语句和集合查找，FRR 对账先读完游标再开写事务；apply 防抖定时器改用独立的 `applyTimerMu`；SQLite `foreign_keys` 有意保持关闭（`remote_node_history` 声明了 `ON DELETE CASCADE`）。
 
 ### 🐛 修复
 - **DNS 解析缓存每天被整表清空**: `db_maintenance` 用 `expire_at < datetime('now')` 比较整数与文本，SQLite 中整数恒小于文本，条件对所有行成立。现两侧均转为整数比较。
@@ -19,31 +21,33 @@
 - **登录限速可被并发绕过**: 延迟期间释放锁且事后计数，突发并发请求全部看到同一计数。现先计数再延迟；失败与锁定记录到事件日志。
 - **arm64 应用内更新 Xray 必然失败**: 摘要 URL 固定为 `Xray-linux-64.zip.dgst`，与实际下载的 arm64 资产不匹配。
 - **`/remote_nodes/:id/history` 泄露私钥**: 响应中的 `params` 不再包含 `server_priv/client_priv/reality_priv`。
-- **后台循环 panic 后永久停止**: 连接追踪、静态路由同步等改用可自动重启的 `goSafeLoop`；解析 worker 内 panic 不再导致 `wg.Wait` 永久挂起。
+- **后台循环 panic 后永久停止**: 连接追踪、静态路由同步等改用可自动重启的 `goSafeLoop`；解析 worker 内 panic 不再导致 `wg.Wait` 永久挂起；OSPF 批处理此前忽略 `Begin` 错误，数据库不可用时会对 nil `*sql.Tx` 解引用 panic，现检查并记录。
 - **apply 失败留下脏数据**: 设备分流、保护 IP、DNS 设置在 nftables/mosdns 下发失败时回滚数据库变更；DNS 仅在上游或模式变化时清空解析缓存。
 - **systemd 沙箱缺少运行目录**: `ProtectSystem=strict` 下 `/run` 只读，unit 现声明 `RuntimeDirectory=proxygw` + `RuntimeDirectoryPreserve=yes`。
 
 ### 🔐 安全与健壮性
-- HTTP Server 增加 `ReadHeaderTimeout`/`IdleTimeout`/`MaxHeaderBytes` 与 SIGTERM 优雅关闭；响应带安全头（`nosniff`、`X-Frame-Options: DENY`、Referrer/Permissions-Policy、CSP report-only）；JSON 与静态资源 gzip；`/ui/libs` 缓存 1 小时。
-- SSH 远程命令带超时（默认 10 分钟，探测 15s）；远程节点创建/批量部署做字段校验，批量上限 20；部署进行中拒绝再次生成/回滚（409）；删除时记录远端清理结果。
+- HTTP Server 增加 `ReadHeaderTimeout`/`IdleTimeout`/`MaxHeaderBytes` 与 SIGTERM 优雅关闭；响应带安全头（`nosniff`、`X-Frame-Options: DENY`、Referrer/Permissions-Policy，以及 report-only 的 CSP：不再允许内联脚本、为 Vue 浏览器内模板编译放行 `'unsafe-eval'`）；JSON 与静态资源 gzip；`index.html` 始终 `no-store`，其余 `/ui/*` 缓存 1 小时。
+- SSH 远程命令带超时（默认 10 分钟，探测 15s）；远程节点创建/批量部署做字段校验，批量上限 20；非数字节点 ID 返回 400，不可解析的历史记录回退返回 422；部署进行中拒绝再次生成/回滚（409）；删除时记录远端清理结果。
 - 组件更新：检查 GitHub API 状态码、版本列表空时返回 `[]`、限制远程文本 4MB、校验 geodata tag、原子替换 geodata 文件、安装前冒烟测试、同一时间只允许一个更新。
 - DNS `log_level`/`mode`、LAN 默认策略白名单校验（`log_level` 此前原样写入 YAML）；`X-Trace-ID` 限制为 64 个安全字符。
 - `install.sh`/`update.sh`：无法获取 `SHA256SUMS` 时拒绝安装（`PROXYGW_ALLOW_UNVERIFIED=1` 覆盖），不再内置固定回退版本号，不支持的架构直接报错；`update.sh` 保留旧二进制并在新版本 10s 内未启动时自动回滚。
 
 ### 🔌 API
-- 错误统一为 `{"success":false,"error","error_code"}`（保留 `error` 键）；5xx 不再回显内部错误文本。
+- 新增/改造的接口以及全部 404、409、403（高危确认）使用统一信封 `{"success":false,"error","error_code"}`（保留 `error` 键）；未改造的旧接口 4xx 仍只返回 `{"error"}`。所有 5xx 不再回显内部错误文本（固定文案，细节写入 journal），并由源码扫描测试守护。
 - 对不存在 ID 的删除/更新/切换返回 404（规则、节点、设备分流、保护 IP、远程节点）。
 - 列表接口支持 `?limit=&offset=` 与 `X-Total-Count`；`/events` 增加 `offset/before_id/after_id/since`；`/logs/:service` 增加 `lines/since/priority/grep` 与 `frr/nftables`；`/connections` 的 `data` 恒为数组并支持 `?limit=`。
-- 新增 `GET /remote_nodes/:id/logs`；远程节点后台每 5 分钟自动探测状态；`/nodes/ping` 返回 `started/completed` 并支持 `?wait=1`；`/geo/query` 展开默认 2000 条并标记 `truncated`。
+- 新增 `GET /remote_nodes/:id/logs`；远程节点后台每 5 分钟自动探测状态；`/nodes/ping` 返回 `started/completed` 并支持 `?wait=1`；`/geo/query` 展开默认 2000 条（`?limit=` 可调，`count` 仍为全量）并标记 `truncated`；`/logs/:service` 的 `lines` 范围 50–2000、`since` 接受 RFC3339 或 `15m/2h/1d`。
 
 ### 🖥️ 前端
 - **加载体积**: Vue 由 581KB 开发版换成同版本生产版（163KB）；浏览器内 Tailwind JIT（407KB，每次打开页面即时编译）换成预编译的 `libs/app.css`（59KB，`scripts/build_frontend_css.sh` 生成）；脚本改为 `defer` 加载，应用脚本移至 `libs/app.js`。34 个页面/弹窗截图逐像素比对无差异；顺带修复 DNS "恢复默认推荐值" 按钮从未生效的问题。
 - **请求层**: 统一 `apiFetch`/`apiJSON`，14 处此前不检查响应就提示成功的操作改为按 `error` 字段报错，404 自动刷新列表；注销后不再发送 `Bearer null`；同一端点在途请求去重；后端断连时只提示一次并显示常驻横幅，恢复后自动消失；配置面板不再每 2 秒拉取四份全文；toast 支持 `aria-live` 且新消息重置计时；`window.onerror`/未处理的 Promise 拒绝改为 toast 而非 `alert`。
-- **功能**: 远程节点详情新增"部署与检查日志"面板，`Failed`/`Offline` 徽章可点击直达；历史参数以格式化 JSON 展示；日志面板新增行数/时间范围选择与 FRR、nftables 日志；连接追踪同时匹配客户端与目标；所有危险操作统一使用页内确认框（确认按钮带 loading 且禁止重复提交，Esc 关闭弹窗）；图标按钮补齐 `aria-label`，弹窗标记 `role="dialog"`；修正详情弹窗把 SSH 端口标为"监听端口"的文案。
+- **功能**: 远程节点详情新增"部署与检查日志"面板，`Failed`/`Offline` 徽章可点击直达；历史参数以格式化 JSON 展示；日志面板新增行数/时间范围选择与 FRR、nftables 日志；连接追踪同时匹配客户端、目标与回填域名；测速提示使用后端返回的 `started` 数；流量卡片在响应缺字段时不再抛错；所有危险操作统一使用页内确认框（确认按钮带 loading 且禁止重复提交，Esc 关闭弹窗）；图标按钮补齐 `aria-label`，弹窗标记 `role="dialog"`；修正详情弹窗把 SSH 端口标为"监听端口"的文案。
 - **E2E**: mock 与 UI 的两处不一致（`/api/rules` 形状、`total_month`）已修正；新增 `e2e/visual/` 截图比对工具；Playwright 缺少固定版本 Chromium 时回退到预装版本。
 
-### 🗂️ 仓库
-- 删除误提交的 `backend/cookies.txt` 与 `.omo/` 会话残留；去除 `index.html` 末尾杂散注释。
+### 🗂️ 仓库与脚本
+- 删除误提交的 `backend/cookies.txt` 与 `.omo/` 会话残留；去除 `index.html` 末尾杂散注释；`.gitignore` 增加 `.claude/worktrees/`、`frontend/.cache/`。
+- `check-release-chain.sh` 不再检查已删除的回退版本字符串（此前必然失败），改为断言安装脚本的 fail-closed 校验；`systemd/xray.service` 与 `install.sh` 写出的单元对齐（`RestartPreventExitStatus=23`、`LimitNPROC`），并由测试守护；`test_frontend.sh` 改为检查 `libs/app.css`；`test_benchmark.sh` 示例改为存在的基准名。
+- 文档全面核对：API.md 按实际字段名与响应重写（`/password` 为 `Old/New`、`/apply` 为 `dynamic_xray`、`wireguard://`、错误信封适用范围等），README/DEVELOPER/OPERATIONS 修正升级流程、备份恢复、密码重置、环境变量与沙箱描述。
 
 ## [1.8.1] - 2026-09-19
 生产环境首次升级到 1.8.0 后的体检修复版。

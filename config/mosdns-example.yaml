@@ -1,3 +1,5 @@
+# 仅为 Mode B 形态的示例。实际 config.yaml 由后端按当前模式生成：
+# Mode A/C 不启用 forward_fakeip；上游、缓存与日志级别来自面板的 DNS 设置。
 log:
   level: info
   file: "/root/proxygw/core/mosdns/mosdns.log"

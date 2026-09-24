@@ -1,4 +1,3 @@
-Warning: Identity file .ssh/id_ed25519 not accessible: No such file or directory.
 # 开发者与架构指南
 
 本文档面向对 EdgeRouteGW 进行二次开发、或希望深入了解其底层网络机制的资深开发者与网络工程师。
@@ -8,7 +7,7 @@ Warning: Identity file .ssh/id_ed25519 not accessible: No such file or directory
 EdgeRouteGW 是一个高度整合的网络系统。开发者坚信 **原生至上 (Native First)**，完全摒弃了 Docker 容器化带来的网络损耗、内核隔离复杂度以及额外开销，采用 Debian 原生裸机部署：
 
 - **后端 (Go 1.26+)**：基于 Gin 框架，处理配置文件的动态生成、节点并发测速、系统服务守护任务与 Web API 支持。HTTP Server 带读头/空闲超时与 SIGTERM 优雅关闭，JSON 与静态资源默认 gzip。
-- **前端 (Vue 3 + TailwindCSS)**：单文件 SPA，`frontend/dist/index.html` 即源码（应用脚本位于 `frontend/dist/libs/app.js`），使用 Vue 生产版构建与**预编译**的 Tailwind CSS（`frontend/dist/libs/app.css`），完全脱机可用。修改了模板中的类名后需运行 `scripts/build_frontend_css.sh` 重新生成 CSS（配置见 `frontend/tailwind.config.js`，动态拼接的类名需列入 `safelist`）。
+- **前端 (Vue 3 + TailwindCSS)**：无打包器的 SPA，源码就是 `frontend/dist/index.html`（模板）与 `frontend/dist/libs/app.js`（应用脚本），使用 Vue 生产版构建与**预编译**的 Tailwind CSS（`frontend/dist/libs/app.css`），完全脱机可用。在这两个文件里新增 Tailwind 类名后需运行 `scripts/build_frontend_css.sh` 重新生成 CSS：脚本把 Tailwind v3.4.17 独立 CLI 下载到 `frontend/.cache/`（需要网络，不需要 Node），配置见 `frontend/tailwind.config.js`，运行时拼接的类名需列入 `safelist`。后端发送的 CSP 为 report-only，并允许 `'unsafe-eval'`（Vue 全局构建在浏览器内编译模板）。
 - **数据持久化**：SQLite 3。通过 DSN 为**每个连接**启用 WAL、`busy_timeout=5000` 与 `synchronous=NORMAL`（PRAGMA 仅作用于单个连接，曾导致其余连接 `busy_timeout=0`），连接池上限 8；多处代码在持有游标时继续执行语句，因此不能把连接池缩到 1。
 
 ## 🚀 核心网络组件与协作
@@ -54,14 +53,14 @@ EdgeRouteGW 是一个高度整合的网络系统。开发者坚信 **原生至�
 
 2. **无同名 geoip 时走 geosite 域名展开缓存**
    - 从 `geosite_expand_cache(tag, geodata_ver)` 读取可解析种子域名（仅 `domain/full`，跳过 `keyword/regex`）。
-   - 缓存 miss 时解析 `geosite.dat` 并回填缓存。
+   - 缓存 miss 时从按版本缓存的内存 geosite matcher 取该 tag 的条目（不再重新解析整个 `geosite.dat`）并回填缓存。
 
 3. **域名解析缓存（按 resolver_group 分组）**
    - `domain_resolve_cache` key：`remote:<domain>` / `local:<domain>`。
    - 通过 `dig +noall +answer @127.0.0.1` 查询本机 Mosdns，取应答中最小的 A 记录 TTL（`+short` 会丢弃 TTL，此前所有域名都落到 300s 下限）。
    - TTL clamp 到 `300~3600s`；刷新失败有旧缓存时走 stale fallback。
 
-4. **domain -> CIDR 提升与锁定**
+4. **domain -> CIDR 提升与锁定**（仅对 geosite 展开出的域名；面板里直接添加的 `domain` 规则解析后按 `/32` 主机路由发布）
    - 对解析出的 IP 并发执行 `queryGeoIPBestCIDRsByIP()`。
    - 匹配策略是**高位优先**：命中更高位前缀后不再继续低位。
    - 同一 domain 先做 `reduceCIDRsPreferBroad()`；有结果则写入 `domain_geoip_lock(...)` 复用。
@@ -71,8 +70,11 @@ EdgeRouteGW 是一个高度整合的网络系统。开发者坚信 **原生至�
    - 被更广网段覆盖的低位前缀会被剔除，再写入 `routes_table` 并增量下发 FRR。
 
 6. **DB/FRR 状态对齐与热路径优化**
-   - `reconcilePublishedRoutesWithFRR()` 周期对齐 `routes_table.status`（默认 45s）。
-   - `ensureRouteCacheTables()` 与 `getGeoDataVersion()` 已做去重与缓存，减少热路径 IO。
+   - `reconcilePublishedRoutesWithFRR()` 周期对齐 `routes_table.status`（默认 45s），先读完游标再开写事务。
+   - `ensureRouteCacheTables()`、`ensureDomainGeoIPLockTable()` 与 `getGeoDataVersion()` 已做去重与缓存（每个 `*sql.DB` 只执行一次 DDL）。
+   - geosite/geoip matcher 按 geodata 版本缓存，重建在锁外进行，`hasGeoSiteTag`/`extractGeoSiteValues`/`extractGeoIPs*` 全部从 matcher 取数。
+   - `readIntSettingWithDefault` 只在缺行或值变化时写库；OSPF 控制循环只在 Mode B/C 读取参数并遵守 `push_interval_seconds`。
+   - `/api/status` 的版本/OS/提交信息缓存 60s；`/api/connections` 用一次 `IN (...)` 查询加 10s 刷新的反向索引做规则关联。
 
 > 说明：OSPF 是三层协议，无法直接广播域名对象；Mode C 的本质是把域名规则稳定映射为 CIDR 集。
 ## 🧹 OSPF 脏路由过滤与清理机制（v1.5.19）
@@ -93,6 +95,7 @@ EdgeRouteGW 是一个高度整合的网络系统。开发者坚信 **原生至�
 - `0.0.0.0/0`（默认路由，不允许通过 OSPF 静态注入链路发布）
 - `127.0.0.0/8`（Loopback）
 - `169.254.0.0/16`（Link-local）
+- `198.18.0.0/15`（Fake-IP 基准测试网段，由 Mode B 自身宣告，不得混入静态路由）
 - `224.0.0.0/4` 及以上（Multicast / Reserved / Broadcast）
 - **RFC1918 私网超集 (Supernets)**：如 `192.168.0.0/16` 等。为了安全，系统禁止将整个私网大网段通过 OSPF 宣告给主路由，必须使用更细粒度的子网或主机路由。违规项将被标记为 `failed_policy` 状态。
 
@@ -134,25 +137,36 @@ EdgeRouteGW 是一个高度整合的网络系统。开发者坚信 **原生至�
 
 ## 🛡️ 系统安全沙箱 (Systemd Hardening)
 
-所有关键组件（EdgeRouteGW Backend, Xray, Mosdns）的守护进程均运行在受限的 Systemd 权限沙箱中，防范 Shell 注入与越权攻击：
+后端守护进程 `proxygw.service` 运行在受限的 Systemd 权限沙箱中（`xray.service` / `mosdns.service` 目前没有沙箱指令，只设置了资源上限与重启策略）：
 - `ProtectSystem=strict`: 锁定整个底层 Linux 文件系统为只读。
-- `ReadWritePaths=-/root/proxygw -/usr/local/bin -/etc/frr`: 基于最小权限原则，仅放开当前服务必要的读写目录。
+- `ReadWritePaths=-/root/proxygw -/usr/local/bin -/etc/frr -/etc/nftables.conf /proc/sys/net/ipv4/conf`: 基于最小权限原则，仅放开当前服务必要的读写路径（最后一项供禁用 ICMP 重定向的 sysctl 写入）。
+- `ProtectKernelTunables=yes` / `ProtectControlGroups=yes` / `RestrictSUIDSGID=yes`: 其余内核可调项、cgroup 树只读，禁止创建 SUID/SGID 文件。
 - `RuntimeDirectory=proxygw` + `RuntimeDirectoryPreserve=yes`: `ProtectSystem=strict` 下 `/run` 只读，Xray 访问日志与连接追踪使用的 `/run/proxygw` 由 systemd 创建并在后端重启时保留。
 - `NoNewPrivileges=yes`: 彻底阻断任何形式的 SUID 提权操作。
 - `PrivateTmp=yes`: 隔离系统临时文件空间。
 
 ## 📦 供应链防投毒 (Hash Validation)
 
-为了防止公共加速节点或镜像站点（如 mirror.ghproxy.com）发起的中间人篡改攻击，后端在执行二进制与规则更新时，实施了严格的安全校验：
-- **Xray 更新**：同步拉取 GitHub Release 中的 `.dgst` 文件，在内存中完成 SHA256/512 比对。若哈希不符，直接丢弃阻断安装。
-- **GeoData 更新**：同步拉取 `.sha256sum` 并执行强校验，全程使用官方直连。
+为了防止传输途中被篡改的二进制进入 root 运行的服务，后端与脚本在更新时实施了以下校验（全部直连 GitHub 官方地址）：
+- **Xray 更新**：拉取与当前架构资产同名的 `.dgst`（`Xray-linux-64.zip.dgst` / `Xray-linux-arm64-v8a.zip.dgst`），比对 SHA2-256；不符即丢弃。
+- **mosdns 更新**：以 GitHub Release API 中该资产的 `digest` 字段校验。
+- **GeoData 更新**：拉取 `rules.zip.sha256sum` 校验；release tag 必须匹配 `^[0-9A-Za-z._-]{1,64}$` 才会拼进 URL；文件先写到 `.tmp` 再 `rename` 覆盖，Xray/mosdns 不会读到半截文件。
+- **安装前冒烟**：解压出的 `xray`/`mosdns` 先执行 `version`，跑不起来的二进制不会替换线上文件；替换失败自动恢复 `.bak`。
+- **GitHub 交互**：所有 API 调用检查 HTTP 状态码（限流的 403 不再被当成空结果），远程文本限制 4MB；同一时间只允许一个 HTTP 更新请求（其余 409）。
+- **后端二进制（脚本）**：`install.sh` / `update.sh` 必须取得发布页 `SHA256SUMS` 并校验通过，否则中止（`PROXYGW_ALLOW_UNVERIFIED=1` 可显式跳过）。
+
+已知边界：`install.sh` 首次安装 Xray 时若取不到 `.dgst` 只告警不中止，且不校验 mosdns 的初始下载；应用内更新路径没有这两个缺口。
 
 ## 🔁 配置下发与重启策略
 
 - **mosdns**：`applyMosdnsConfig()` 先渲染 `config.yaml` 与 `proxy_domains.txt`，仅在内容与磁盘不同时写入，仅在有变化或服务未运行时重启。规则重排、direct 策略域名不会触发重启。Mode B 下 Xray 下发附带的 FakeIP 缓存刷新重启在 5s 内去重。
-- **Xray**：规则/节点变更走动态路径（`xray api adrules/rmo/ado`），配置文件同步落盘；节点编辑只重同步该节点 tag 的出站。启动时若渲染结果与磁盘一致且服务运行中则跳过重启（`PROXYGW_FORCE_RESTART_ON_BOOT=1` 强制重启）；显式 `/api/apply` 与模式切换始终重启。
+- **Xray**：规则/节点变更走动态路径（`xray api adrules/rmo/ado`），配置文件同步落盘；节点编辑/停用/删除只重同步该节点 tag 的出站。启动时若渲染结果与磁盘一致且服务运行中则跳过重启（`PROXYGW_FORCE_RESTART_ON_BOOT=1` 强制重启 Xray）。`/api/apply` 默认 `dynamic_xray=true`，只有热更新失败或显式传 `false` 才 `systemctl restart xray`；模式切换始终重启。GeoData 更新（定时或手动）无条件重启 mosdns 与 xray。
 - **失败补偿**：设备分流、保护 IP、DNS 设置在下发失败时回滚数据库变更；动态路径失败时 3 秒防抖后回退为完整 apply（定时器使用独立的 `applyTimerMu`，不再与跨 `systemctl restart` 持有的 `applyMutex` 争抢）。
 - **测试 seam**：`restartMosdnsFn`、`restartXrayFn`、`unitActiveFn`、`runXrayAPI`、`applyNftablesConfigFn`、`applyMosdnsConfigFn`、`probeVersion`、`probeUnitActive`、`runJournalctl`、`runDig` 等包级函数变量可在测试中替换。
+
+### 关于 `config/` 下的示例文件
+
+`config/xray-example.json` 与 `config/mosdns-example.yaml` 只是 **Mode B** 形态的示意（含 fakedns / `forward_fakeip` 与示例 geosite 规则），实际配置由后端按当前模式与规则表生成：Mode A/C 没有 FakeDNS/FakeIP，新实例默认不注入任何 geosite 规则。
 
 ## 🔧 系统内核级调优
 
@@ -160,7 +174,9 @@ EdgeRouteGW 是一个高度整合的网络系统。开发者坚信 **原生至�
 - 开启 BBR 拥塞控制与 fq 队列调度 (`net.ipv4.tcp_congestion_control = bbr`)。
 - 开启 TCP Fast Open 及 TCP Tw Reuse 优化短连接性能。
 
-## 📊 `geoip:!cn` OSPF 展开性能测试（v1.5.14）
+## 📊 `geoip:!cn` OSPF 展开性能测试（v1.5.14 历史数据）
+
+> 下表数据来自 v1.5.14 的逐字节扫描实现。现在 `extractGeoIPs*` 直接从按版本缓存的 matcher 取数，首次构建 matcher 仍需完整解析一次文件，之后每次展开只剩字符串格式化开销；需要在装有 `core/mosdns/geoip.dat` 的主机上用 `./scripts/test_benchmark.sh --bench=ExtractGeoIPs`（`-benchtime=1x`）重跑才能得到当前数字。
 
 测试环境：`Intel i7-6700T / amd64 / Debian / Go test benchmark`  
 测试命令：
@@ -210,7 +226,7 @@ EdgeRouteGW 提供了完整的多层级自动化测试体系，所有测试脚�
 ./scripts/test_backend.sh --race
 
 # 运行基准测试
-./scripts/test_benchmark.sh --bench=GeoQuery
+./scripts/test_benchmark.sh --bench=QueryGeoIP
 ./scripts/test_benchmark.sh --bench=. --count=3
 
 # 生成覆盖率报告
@@ -221,21 +237,21 @@ EdgeRouteGW 提供了完整的多层级自动化测试体系，所有测试脚�
 ### 后端测试统计（当前）
 
 - **测试总数**: 230+ 个功能测试，覆盖 API/OSPF/Rules/DNS/连接追踪/远程部署等模块
-- **基准测试**: 11 个基准测试（GeoQuery、System、连接关联等）
+- **基准测试**: 11 个（`ExtractGeoIPs*` ×3、`QueryGeoIPTagsByIP`、`BuildBaseXrayConfig*` ×4、`ValidateSession`/`CreateSession`、`AttachRuleMatchMeta`；GeoIP 系列需要真实 `.dat` 文件，缺失时自动跳过）
 - **代码覆盖率**: ~63%（backend 主包）
 - **竞态检测**: 全部通过（`go test -race`）
-- **测试套件**: `setupFeatureSuiteRouter` HTTP 集成测试（含 SQLite 内存数据库与种子数据）
+- **测试套件**: `setupFeatureSuiteRouter` HTTP 集成测试（`t.TempDir()` 下通过 `openSQLite` 打开的文件数据库 + 种子数据，与生产相同的连接池/PRAGMA 配置）
 
 ### 安装 pre-commit hook
 
-pre-commit hook 已作为 Git 钩子安装。如需手动安装：
+Git 钩子不随仓库分发，克隆后需要手动安装：
 
 ```bash
 cp scripts/pre-commit.sh .git/hooks/pre-commit
 chmod +x .git/hooks/pre-commit
 ```
 
-hook 会在每次 `git commit` 前自动执行后端编译验证 + affected package 短测试。如需绕过：
+hook 会在每次 `git commit` 前执行后端编译验证；若暂存了任何 `.go` 文件，再运行整个后端套件的 `-short` 测试。如需绕过：
 
 ```bash
 git commit --no-verify
@@ -244,6 +260,6 @@ git commit --no-verify
 ### 测试约定
 
 1. **函数变量 mock 模式**: 对于外部系统调用（DNS 解析、SSH 执行等），后端使用函数变量模式（`var resolveDomainIPv4WithTTL = func(...)`）以便在测试中进行 mock。所有 mock 完成后需在 `defer` 中恢复。
-2. **`setupFeatureSuiteRouter`**: 集成测试使用此函数创建带 SQLite 内存数据库 + seed 数据的 Gin 路由。每个测试独立运行，互不干扰。
+2. **`setupFeatureSuiteRouter`**: 集成测试使用此函数创建带临时 SQLite 文件数据库 + seed 数据的 Gin 路由，并重置会话、登录计数、事件节流与 apply 定时器等全局状态。每个测试独立运行，互不干扰。
 3. **临时目录隔离**: 每个测试通过 `t.TempDir()` 获得独立工作目录，避免文件系统冲突。
 4. **benchmark 格式**: 基准测试使用 `go test -bench` 标准格式，输出直接对接 `benchstat` 进行回归分析。

@@ -1,5 +1,7 @@
 # EdgeRouteGW - 现代化的透明代理网关
 
+[English](./README.en-US.md) | 简体中文
+
 EdgeRouteGW 是一个高性能、易于使用的透明代理网关系统。它提供了美观的 Web 管理界面，让你能够轻松接管家庭或办公室的网络流量，实现智能分流。
 
 
@@ -11,7 +13,7 @@ EdgeRouteGW 是一个高性能、易于使用的透明代理网关系统。它�
 - **智能分流**：内置强大的域名和 IP 规则库，国内网站直连，特殊流量走代理，彻底告别卡顿与 DNS 污染。
 - **无感接管**：支持全局网关接管 (Mode A)、纯 Fake-IP 旁路 (Mode B) 或 纯 OSPF 动态播报 (Mode C)，局域网设备无需设置即可科学访问网络。
 - **远程节点部署**：独创的一键式远程节点部署系统，支持录入多台海外 Linux 主机，由网关中控自动通过 SSH 下发、配置、并实时监控 WireGuard/VLESS 隧道协议。
-- **极致安全**：系统随机生成高强度初始密码，前端自带防爆破延时；SQLite 落库的 SSH 凭证由内存态 AES-256-GCM 动态加解密（带认证，篡改即拒绝），Web UI 资源完全本地化。
+- **极致安全**：系统随机生成高强度初始密码，后端按来源 IP 防爆破（第 7 次失败起每次延迟 2s，超过 10 次返回 429，失败与锁定记入事件日志）；SQLite 落库的 SSH 凭证由内存态 AES-256-GCM 动态加解密（带认证，篡改即拒绝），Web UI 资源完全本地化。
 - **内核级优化**：内置全自动的 Debian/Linux 内核参数与防火墙调优，全局开启 BBR 拥塞控制与 fq_codel 队列、放大 TCP 缓冲与端口范围，自动封堵 IPv6 流量裸奔与内核路由死循环，榨干设备每一滴性能。
 
 ## 🚀 快速安装 (零编译极速部署)
@@ -24,7 +26,16 @@ bash <(curl -s -4 -L https://raw.githubusercontent.com/zlylong/EdgeRouteGW/main/
 ```
 *(注：由于底层包含强制的 Nftables 防环路策略，不建议在已有复杂防火墙规则的宿主机运行，推荐单独分配一个 LXC 或轻量级 VM)*
 
-> 说明：安装/升级脚本会在服务启动后自动执行数据库低风险优化（`scripts/db_optimize.sh --index-only`），用于补齐关键索引与统计信息；完整 `VACUUM` 仍建议在维护窗口手动执行。
+日常升级使用：
+
+```bash
+bash <(curl -s -4 -L https://raw.githubusercontent.com/zlylong/EdgeRouteGW/main/scripts/update.sh)
+```
+
+> 说明：
+> - 两个脚本都必须从 GitHub Release 取得 `SHA256SUMS` 并校验通过后才会安装后端二进制，取不到即中止（可用 `PROXYGW_ALLOW_UNVERIFIED=1` 显式跳过，仅用于安装早于校验文件的旧版本）；不支持的 CPU 架构直接报错；不再内置固定的回退版本号。
+> - `update.sh` 会保留旧二进制为 `proxygw-backend.prev`，新版本 10 秒内未进入 active 状态则自动回滚。
+> - 服务启动后会自动执行数据库低风险优化（`scripts/db_optimize.sh --index-only`），用于补齐关键索引与统计信息；完整 `VACUUM` 仍建议在维护窗口手动执行。
 
 ## 🔑 初始登录
 
@@ -35,7 +46,7 @@ cat /root/proxygw/config/bootstrap_password.txt
 ```
 
 在浏览器中输入网关服务器的 IP 地址（如 `http://192.168.x.x/`），使用该初始密码登录。
-**⚠ 强烈建议：请在首次登录后立即前往系统设置修改您的密码。** 修改后该 txt 文件将自动作废。
+**⚠ 强烈建议：请在首次登录后立即前往系统设置修改您的密码。** 修改后该 txt 文件中的密码即失效（文件本身不会被删除，可自行清理）。
 
 ## 🕹️ 路由模式与使用指南
 
@@ -86,10 +97,11 @@ EdgeRouteGW 设计了三种物理隔离的网络接管模式，以适应不同�
 - [运维与故障排查](./docs/OPERATIONS.md) - 服务管理、升级与系统卸载
 - [开发者与架构指南](./docs/DEVELOPER.md) - 底层架构、源码结构与 API 参考
 - [API 接口文档](./docs/API.md) - RESTful API 文档
+- [变更日志](./docs/CHANGELOG.md) - 各版本改动记录
 
 ## 🧪 测试指南
 
-EdgeRouteGW 提供了完整的多层级测试脚本体系，所有测试脚本位于 `scripts/` 目录：
+EdgeRouteGW 提供了完整的多层级测试脚本体系，所有脚本位于 `scripts/` 目录：
 
 | 脚本 | 用途 |
 |---|---|
@@ -97,7 +109,13 @@ EdgeRouteGW 提供了完整的多层级测试脚本体系，所有测试脚本�
 | `test_backend.sh` | 后端 Go 测试运行器（支持 `--race`、`--verbose`、`--short` 等参数） |
 | `test_coverage.sh` | 后端覆盖率报告生成器（输出文本摘要 + HTML 可视化报告到 `coverage/`） |
 | `test_benchmark.sh` | 基准测试运行器（支持 `--bench=Pattern` 筛选，`--count=N` 重复） |
-| `test_frontend.sh` | 前端 Playwright E2E 按钮测试 |
+| `test_frontend.sh` | 前端 Playwright E2E 按钮测试（mock API；需要 Node.js、python3 与已生成的 `frontend/dist/libs/app.css`） |
+| `build_frontend_css.sh` | 用 Tailwind 独立 CLI 预编译前端样式到 `frontend/dist/libs/app.css`（改动 `index.html`/`libs/app.js` 中的类名后重跑） |
+| `pre-commit.sh` | Git pre-commit 钩子脚本（需手动安装，见下） |
+| `check-release-chain.sh` | 发布前检查：CHANGELOG 版本、前端版本号、安装脚本校验逻辑与 release 工作流是否一致 |
+| `build.sh` / `flush_cache.sh` / `db_optimize.sh` | 本地构建后端、清空 DNS/OSPF 缓存、SQLite 索引与压缩维护 |
+
+前端截图回归对比工具位于 `e2e/visual/`（`npm run visual:snap` / `visual:compare`）。
 
 ```bash
 # 运行全部测试
@@ -106,8 +124,8 @@ EdgeRouteGW 提供了完整的多层级测试脚本体系，所有测试脚本�
 # 仅运行后端测试（含竞态检测）
 ./scripts/test_backend.sh --race
 
-# 运行基准测试
-./scripts/test_benchmark.sh --bench=GeoQuery
+# 运行基准测试（示例：GeoIP 查询）
+./scripts/test_benchmark.sh --bench=QueryGeoIP
 
 # 生成覆盖率报告
 ./scripts/test_coverage.sh
@@ -115,9 +133,15 @@ EdgeRouteGW 提供了完整的多层级测试脚本体系，所有测试脚本�
 
 ### 预提交检查
 
-项目已安装 Git pre-commit hook，在每次 `git commit` 前自动执行：
+Git 钩子不随仓库分发，克隆后手动安装一次：
+
+```bash
+cp scripts/pre-commit.sh .git/hooks/pre-commit && chmod +x .git/hooks/pre-commit
+```
+
+安装后每次 `git commit` 前自动执行：
 1. 后端代码编译检查
-2. affected package 的 `-short` 模式测试
+2. 若暂存了任何 `.go` 文件，运行整个后端测试套件的 `-short` 模式
 
 如需绕过，使用 `git commit --no-verify`。
 

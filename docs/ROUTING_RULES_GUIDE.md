@@ -21,7 +21,7 @@
 - **`geosite.dat`**：包含了海量域名的分类集合（如 `geosite:google`, `geosite:cn`）。
 - **`geoip.dat`**：包含了 IP 段的分类集合（如 `geoip:telegram`, `geoip:cn`）。
 
-EdgeRouteGW 会定时从 GitHub 自动同步最新的 `v2ray-rules-dat`，你无需手动更新，即可保持分流名单的最新状态。
+EdgeRouteGW 会定时从 GitHub 自动同步最新的 `v2ray-rules-dat`，你无需手动更新，即可保持分流名单的最新状态。每次 GeoData 更新（定时或在面板手动触发）都会重启 mosdns 与 xray 以加载新数据。
 
 ---
 
@@ -41,7 +41,7 @@ EdgeRouteGW 会定时从 GitHub 自动同步最新的 `v2ray-rules-dat`，你无
 
 ### 🛑 广告屏蔽名单
 - `geosite:category-ads-all`：各类广告联盟、数据收集器的域名。
-- **处理方式**：走 **Block (拦截)**，在 Mosdns 层面直接返回 0.0.0.0，减少网络请求，加快网页加载。
+- **处理方式**：走 **Block (拦截)**，由 Xray 的 `blackhole` 出站丢弃连接（Mosdns 仍正常解析域名），减少无效流量。
 
 ---
 
@@ -97,7 +97,7 @@ EdgeRouteGW 的 `domain` 规则语义与 Xray 官方 matcher 对齐：
 
 此外，新增规则时会拦截重复的 `type + value` 组合，避免“同一匹配值对应多个策略”造成歧义。
 
-如需手动调整先后顺序，可调用 `PUT /api/rules/reorder` 传入规则 ID 数组进行重排。
+如需手动调整先后顺序，可在面板用上下箭头，或调用 `PUT /api/rules/reorder`，请求体为 `{"ids": [规则ID, ...]}`。重排只影响 Xray 路由顺序；mosdns 的代理域名集合是排序后的集合，重排本身不会触发 mosdns 重启。
 
 ## 7. 自定义规则建议
 
