@@ -4,6 +4,7 @@
 # Usage: ./install.sh
 
 set -euo pipefail
+export DEBIAN_FRONTEND=noninteractive
 
 # NOTE:
 # Xray/Mosdns 运行时配置由 backend 按模式动态生成并下发。
@@ -16,7 +17,7 @@ echo "=== EdgeRouteGW Deployment Script ==="
 # OS and Architecture Check
 if [ -f /etc/os-release ]; then
     . /etc/os-release
-    if [[ "$ID" != "debian" && "$ID" != "ubuntu" ]]; then
+    if [[ "${ID:-}" != "debian" && "${ID:-}" != "ubuntu" ]]; then
         echo "Error: This script is only designed for Debian/Ubuntu based systems."
         exit 1
     fi
@@ -45,7 +46,8 @@ fi
 cd "$REPO_DIR"
 echo "[1/6] Installing system dependencies..."
 apt-get update
-apt-get install -y nftables frr curl wget unzip iproute2 jq
+# sqlite3: db_optimize.sh (run at the end of this script) and flush_cache.sh.
+apt-get install -y nftables frr curl wget unzip iproute2 jq sqlite3
 # The OSPF engine resolves every domain and geosite rule by shelling out to dig
 # (ospf_dns_cache.go is the only resolution path since the Go resolver was
 # dropped in 1.7.20). Without it Mode C publishes nothing at all and Mode B
@@ -57,6 +59,11 @@ echo "[2/6] Setting up routing rules and system settings..."
 # Fail-safe DNS: Break systemd-resolved symlink and inject static public DNS
 # This prevents the system from losing DNS resolution if installation fails or when port 53 is freed.
 echo "Configuring fail-safe DNS..."
+# Keep a copy of the original so uninstall.sh can put it back instead of
+# guessing whether systemd-resolved is in use on this host.
+if [ -e /etc/resolv.conf ] && [ ! -e /etc/resolv.conf.pre-proxygw ]; then
+    cp -L /etc/resolv.conf /etc/resolv.conf.pre-proxygw 2>/dev/null || true
+fi
 chattr -i /etc/resolv.conf 2>/dev/null || true
 rm -f /etc/resolv.conf
 cat << 'RESOLV_EOF' > /etc/resolv.conf
@@ -67,19 +74,25 @@ RESOLV_EOF
 
 # Free port 53 from systemd-resolved
 if [ -f /etc/systemd/resolved.conf ]; then
-    if grep -q "#DNSStubListener=yes" /etc/systemd/resolved.conf || grep -q "DNSStubListener=yes" /etc/systemd/resolved.conf || ! grep -q "DNSStubListener=no" /etc/systemd/resolved.conf; then
+    # Anchored: a commented "#DNSStubListener=no" must not count as configured.
+    if ! grep -q "^DNSStubListener=no" /etc/systemd/resolved.conf; then
         echo "Configuring systemd-resolved to free port 53..."
         sed -i 's/#DNSStubListener=yes/DNSStubListener=no/' /etc/systemd/resolved.conf
         sed -i 's/DNSStubListener=yes/DNSStubListener=no/' /etc/systemd/resolved.conf
         # Ensure it is set if not found
-        if ! grep -q "DNSStubListener=no" /etc/systemd/resolved.conf; then
+        if ! grep -q "^DNSStubListener=no" /etc/systemd/resolved.conf; then
             echo "DNSStubListener=no" >> /etc/systemd/resolved.conf
         fi
         systemctl restart systemd-resolved || true
     fi
 fi
-if ! grep -q "100 tproxy" /etc/iproute2/rt_tables; then
-    echo "100 tproxy" >> /etc/iproute2/rt_tables
+# The backend adds its policy rules and routes by the table *name* "tproxy".
+# Newer iproute2 (Debian 13) ships its defaults under /usr/share/iproute2 and
+# may have no /etc/iproute2/rt_tables at all, so appending to that file failed
+# and aborted the install; rt_tables.d/ is honoured by every supported release.
+if ! grep -qsw "tproxy" /etc/iproute2/rt_tables /usr/share/iproute2/rt_tables /etc/iproute2/rt_tables.d/*.conf 2>/dev/null; then
+    mkdir -p /etc/iproute2/rt_tables.d
+    echo "100 tproxy" > /etc/iproute2/rt_tables.d/proxygw.conf
 fi
 # Add rule if not exists
 ip rule show | grep -q "fwmark 0x1 lookup tproxy" || ip rule add fwmark 1 table tproxy 2>/dev/null || true
@@ -141,23 +154,22 @@ mkdir -p "$REPO_DIR/core/frr"
 mkdir -p "$REPO_DIR/systemd"
 
 echo "[4/6] Downloading backend from GitHub Releases..."
-# Try to get version from local git first
-if [ -d "$REPO_DIR/.git" ]; then
-    PROXYGW_LATEST=$(cd "$REPO_DIR" && git describe --tags --abbrev=0 2>/dev/null || true)
-else
-    PROXYGW_LATEST=""
-fi
+# Prefer the latest published release (the API excludes pre-releases). This
+# script does not fetch an existing clone, so its local tags can be stale; they
+# are only a fallback.
+PROXYGW_LATEST=$(curl --retry 3 --connect-timeout 5 --fail -s -4 https://api.github.com/repos/zlylong/EdgeRouteGW/releases/latest | jq -r '.tag_name // empty' || true)
 
-# Fallback to GitHub API if git fails
-if [ -z "$PROXYGW_LATEST" ]; then
-    PROXYGW_LATEST=$(curl --retry 3 --connect-timeout 5 --fail -s -4 https://api.github.com/repos/zlylong/EdgeRouteGW/releases/latest | jq -r '.tag_name // empty' || true)
-fi
-
-# Last resort: the newest tag in the clone. There is no hardcoded version
-# any more; an install that cannot determine a release must stop rather than
-# quietly pin an old one.
+# Fallback: the newest stable tag reachable from the checkout. Stable only: a
+# v1.9.0-rc.1 tag must not be picked over the released v1.8.x.
 if [ -z "$PROXYGW_LATEST" ] && [ -d "$REPO_DIR/.git" ]; then
-    PROXYGW_LATEST=$(cd "$REPO_DIR" && git tag --sort=-v:refname | head -n1 || true)
+    PROXYGW_LATEST=$(cd "$REPO_DIR" && git describe --tags --abbrev=0 --exclude '*-*' 2>/dev/null || true)
+fi
+
+# Last resort: the newest stable tag in the clone. There is no hardcoded
+# version any more; an install that cannot determine a release must stop
+# rather than quietly pin an old one.
+if [ -z "$PROXYGW_LATEST" ] && [ -d "$REPO_DIR/.git" ]; then
+    PROXYGW_LATEST=$(cd "$REPO_DIR" && git tag --sort=-v:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -n1 || true)
 fi
 if [ -z "$PROXYGW_LATEST" ]; then
     echo "Error: could not determine the release tag (git tags and GitHub API both unavailable)"; exit 1
@@ -185,7 +197,7 @@ verify_backend_checksum() {
     local want; want=$(awk -v a="$asset" '$2==a {print $1}' "$sums")
     rm -f "$sums"
     if [ -z "$want" ]; then
-        echo "Error: SHA256SUMS for ${tag} has no entry for ${asset}"; return 1
+        echo "Error: SHA256SUMS for ${tag} has no entry for ${asset}"; rm -f "$file"; return 1
     fi
     local got; got=$(sha256sum "$file" | awk '{print $1}')
     if [ "$want" != "$got" ]; then
@@ -204,9 +216,19 @@ elif [ "$ARCH" = "aarch64" ]; then
 else
     echo "Error: unsupported architecture ${ARCH} (need x86_64 or aarch64)"; exit 1
 fi
-wget -q -4 -O "$REPO_DIR/backend/proxygw-backend" "https://github.com/zlylong/EdgeRouteGW/releases/download/${PROXYGW_LATEST}/${BACKEND_ASSET}"
-verify_backend_checksum "$REPO_DIR/backend/proxygw-backend" "$BACKEND_ASSET" "$PROXYGW_LATEST" || exit 1
-chmod +x "$REPO_DIR/backend/proxygw-backend"
+# Download next to the target and swap only after verification. Writing
+# straight to proxygw-backend meant a failed or interrupted download on a
+# re-run (this script doubles as an updater) left an empty file where the
+# running install's binary used to be.
+BACKEND_BIN="$REPO_DIR/backend/proxygw-backend"
+BACKEND_NEW="$BACKEND_BIN.new"
+if ! wget -q -4 -O "$BACKEND_NEW" "https://github.com/zlylong/EdgeRouteGW/releases/download/${PROXYGW_LATEST}/${BACKEND_ASSET}"; then
+    rm -f "$BACKEND_NEW"
+    echo "Error: failed to download ${BACKEND_ASSET} for ${PROXYGW_LATEST}"; exit 1
+fi
+verify_backend_checksum "$BACKEND_NEW" "$BACKEND_ASSET" "$PROXYGW_LATEST" || exit 1
+chmod +x "$BACKEND_NEW"
+mv -f "$BACKEND_NEW" "$BACKEND_BIN"
 
 
 echo "[5/6] Creating Systemd services..."
@@ -273,6 +295,10 @@ Type=simple
 User=root
 WorkingDirectory=/root/proxygw/core/xray
 Environment=XRAY_LOCATION_ASSET=/root/proxygw/core/xray
+# The generated config logs under /run/proxygw, which proxygw.service creates
+# (RuntimeDirectory=). At boot Xray may start first, and a missing log
+# directory is one of the exit-23 cases RestartPreventExitStatus stops retrying.
+ExecStartPre=/bin/mkdir -p /run/proxygw
 ExecStart=/root/proxygw/core/xray/xray run -confdir /root/proxygw/core/xray
 Restart=on-failure
 # Xray exits 23 when it rejects its own configuration. Without this, a bad
@@ -288,49 +314,76 @@ WantedBy=multi-user.target
 SYS_EOF
 
 
+# ensure_core_binaries: (re)download Xray and Mosdns when the binaries under
+# core/ cannot run on this host. The repository tracks amd64 builds of both, so
+# on arm64 they have to be replaced after every clone and after every
+# `git reset --hard` (update.sh), or mosdns/xray die with "exec format error".
+# The check is "does `<bin> version` run", which is what matters for systemd.
+# Downloads honour CORE_DOWNLOAD_CMD (FILE URL) and CORE_API_CMD (URL) so the
+# caller can route them through a proxy.
+ensure_core_binaries() {
+    local tmp; tmp=$(mktemp -d)
+    if ! "$REPO_DIR/core/xray/xray" version >/dev/null 2>&1; then
+        echo "Downloading Xray for $ARCH..."
+        local xray_url="https://github.com/XTLS/Xray-core/releases/latest/download/Xray-linux-${XRAY_ARCH}.zip"
+        if ! ${CORE_DOWNLOAD_CMD:-wget -q -4 -O} "$tmp/xray.zip" "$xray_url"; then
+            echo "Error: failed to download Xray (${xray_url})" >&2
+            rm -rf "$tmp"; return 1
+        fi
+        # XTLS publishes a digest next to every asset; this binary runs as root.
+        ${CORE_DOWNLOAD_CMD:-wget -q -4 -O} "$tmp/xray.zip.dgst" "${xray_url}.dgst" 2>/dev/null || true
+        local want got
+        want=$(awk '/^SHA2-256=/ {print $2}' "$tmp/xray.zip.dgst" 2>/dev/null || true)
+        got=$(sha256sum "$tmp/xray.zip" | awk '{print $1}')
+        if [ -z "$want" ]; then
+            echo "Warning: could not fetch Xray digest; skipping verification"
+        elif [ "$want" != "$got" ]; then
+            echo "Error: Xray download failed verification (expected $want, got $got)" >&2
+            rm -rf "$tmp"; return 1
+        else
+            echo "Xray download verified"
+        fi
+        unzip -qo "$tmp/xray.zip" xray -d "$REPO_DIR/core/xray/"
+    fi
+    chmod +x "$REPO_DIR/core/xray/xray" || true
+
+    if ! "$REPO_DIR/core/mosdns/mosdns" version >/dev/null 2>&1; then
+        echo "Downloading Mosdns for $ARCH..."
+        local mosdns_latest
+        mosdns_latest=$(${CORE_API_CMD:-curl --retry 3 --connect-timeout 5 --fail -s -4} https://api.github.com/repos/IrineSistiana/mosdns/releases/latest | jq -r '.tag_name // empty' || true)
+        if [ -z "$mosdns_latest" ]; then
+            echo "Error: could not determine the latest Mosdns release; the current core/mosdns/mosdns does not run on this host" >&2
+            rm -rf "$tmp"; return 1
+        fi
+        if ! ${CORE_DOWNLOAD_CMD:-wget -q -4 -O} "$tmp/mosdns.zip" "https://github.com/IrineSistiana/mosdns/releases/download/${mosdns_latest}/mosdns-linux-${MOSDNS_ARCH}.zip"; then
+            echo "Error: failed to download Mosdns ${mosdns_latest} for ${MOSDNS_ARCH}" >&2
+            rm -rf "$tmp"; return 1
+        fi
+        unzip -qo "$tmp/mosdns.zip" mosdns -d "$REPO_DIR/core/mosdns/"
+    fi
+    chmod +x "$REPO_DIR/core/mosdns/mosdns" || true
+    rm -rf "$tmp"
+
+    local bin
+    for bin in core/xray/xray core/mosdns/mosdns; do
+        if ! "$REPO_DIR/$bin" version >/dev/null 2>&1; then
+            echo "Error: $bin is not runnable on this host ($ARCH)" >&2
+            return 1
+        fi
+    done
+}
+
 echo "[5.5/6] Verifying and Installing Core Binaries ($ARCH)..."
-# Check and download Xray if it doesn't match the architecture or doesn't exist
-if ! "$REPO_DIR/core/xray/xray" version >/dev/null 2>&1; then
-    echo "Downloading Xray for $ARCH..."
-    XRAY_URL="https://github.com/XTLS/Xray-core/releases/latest/download/Xray-linux-${XRAY_ARCH}.zip"
-    wget -q -4 -O /tmp/xray.zip "$XRAY_URL"
-    # XTLS publishes a digest next to every asset; this binary runs as root.
-    wget -q -4 -O /tmp/xray.zip.dgst "${XRAY_URL}.dgst" || true
-    XRAY_WANT=$(awk '/^SHA2-256=/ {print $2}' /tmp/xray.zip.dgst 2>/dev/null)
-    XRAY_GOT=$(sha256sum /tmp/xray.zip | awk '{print $1}')
-    if [ -z "$XRAY_WANT" ]; then
-        echo "Warning: could not fetch Xray digest; skipping verification"
-    elif [ "$XRAY_WANT" != "$XRAY_GOT" ]; then
-        echo "Error: Xray download failed verification (expected $XRAY_WANT, got $XRAY_GOT)" >&2
-        rm -f /tmp/xray.zip /tmp/xray.zip.dgst
-        exit 1
-    else
-        echo "Xray download verified"
-    fi
-    rm -f /tmp/xray.zip.dgst
-    unzip -qo /tmp/xray.zip xray -d "$REPO_DIR/core/xray/"
-    rm -f /tmp/xray.zip
-fi
-chmod +x "$REPO_DIR/core/xray/xray" || true
-
-# Check and download Mosdns if it doesn't match the architecture or doesn't exist
-if ! "$REPO_DIR/core/mosdns/mosdns" version >/dev/null 2>&1; then
-    echo "Downloading Mosdns for $ARCH..."
-    MOSDNS_LATEST=$(curl --retry 3 --connect-timeout 5 --fail -s -4 https://api.github.com/repos/IrineSistiana/mosdns/releases/latest | jq -r '.tag_name // empty' || true)
-    if [ -n "$MOSDNS_LATEST" ]; then
-        MOSDNS_URL="https://github.com/IrineSistiana/mosdns/releases/download/${MOSDNS_LATEST}/mosdns-linux-${MOSDNS_ARCH}.zip"
-        wget -q -4 -O /tmp/mosdns.zip "$MOSDNS_URL"
-        unzip -qo /tmp/mosdns.zip mosdns -d "$REPO_DIR/core/mosdns/"
-        rm -f /tmp/mosdns.zip
-    else
-        echo "Warning: Failed to fetch Mosdns latest version!"
-    fi
-fi
-chmod +x "$REPO_DIR/core/mosdns/mosdns" || true
-
+ensure_core_binaries || exit 1
 
 
 echo "Applying strict anti-loop Nftables rules..."
+# This ruleset is only a placeholder until the backend renders the real one
+# (nftables_service.go) on its first start. Do not touch a ruleset that is not
+# ours without keeping a copy.
+if [ -f /etc/nftables.conf ] && [ ! -e /etc/nftables.conf.pre-proxygw ] && ! grep -q 'table inet proxygw' /etc/nftables.conf; then
+    cp -p /etc/nftables.conf /etc/nftables.conf.pre-proxygw
+fi
 cat << 'NFT_EOF' > /etc/nftables.conf
 #!/usr/sbin/nft -f
 flush ruleset
@@ -352,8 +405,11 @@ table inet proxygw {
         meta mark 0x02 return
         # Ignore LAN / Multicast / Broadcast traffic
         ip daddr { 127.0.0.0/8, 192.168.0.0/16, 10.0.0.0/8, 172.16.0.0/12, 224.0.0.0/4, 255.255.255.255/32 } return
-        # TProxy tag for localhost proxy
-        meta l4proto { tcp, udp } mark set 1 accept
+        # Host egress stays direct, exactly as in the backend's template. Marking
+        # it here sent the gateway's own DNS, apt and GitHub traffic to
+        # 127.0.0.1:12345 before Xray had any config to listen with, which
+        # blackholed the very downloads the backend needs on its first start.
+        counter return comment "host_egress_direct"
     }
 }
 NFT_EOF
@@ -376,12 +432,20 @@ fi
 # Automatically generate a secure password if it's a fresh install
 # Wait for the database and bootstrap password to be initialized by the backend
 echo "Waiting for EdgeRouteGW to initialize..."
-for i in {1..15}; do
+for _ in {1..15}; do
     if [ -f "$REPO_DIR/config/bootstrap_password.txt" ]; then
         break
     fi
     sleep 1
 done
+
+if ! systemctl is-active --quiet proxygw; then
+    echo "=========================================================="
+    echo "Error: proxygw is not running after install. Inspect it with:"
+    echo "  systemctl status proxygw --no-pager; journalctl -u proxygw -n 50 --no-pager"
+    echo "=========================================================="
+    exit 1
+fi
 
 if [ -f "$REPO_DIR/config/bootstrap_password.txt" ]; then
     echo "=========================================================="

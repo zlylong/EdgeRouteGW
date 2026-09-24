@@ -35,7 +35,7 @@ bash <(curl -s -4 -L https://raw.githubusercontent.com/zlylong/EdgeRouteGW/main/
 
 > Notes:
 > - Both scripts fetch `SHA256SUMS` from the GitHub Release and install the backend binary only after it verifies; if the checksum list cannot be fetched they abort (set `PROXYGW_ALLOW_UNVERIFIED=1` to skip, only for releases that predate checksums). Unsupported CPU architectures fail with an error, and there is no hardcoded fallback version any more.
-> - `update.sh` keeps the previous binary as `proxygw-backend.prev` and rolls back automatically if the new one is not active within 10 seconds.
+> - `update.sh` keeps the previous binary as `proxygw-backend.prev` and rolls back automatically if the new one exits or is auto-restarted by systemd during the 10-second watch after restart.
 > - After the service starts, a low-risk database optimization (`scripts/db_optimize.sh --index-only`) runs to add key indexes and statistics. A full `VACUUM` is still recommended to be executed manually during maintenance windows.
 
 ## 🔑 Initial Login

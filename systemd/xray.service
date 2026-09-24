@@ -8,6 +8,10 @@ Type=simple
 User=root
 WorkingDirectory=/root/proxygw/core/xray
 Environment=XRAY_LOCATION_ASSET=/root/proxygw/core/xray
+# The generated config logs under /run/proxygw, which proxygw.service creates
+# (RuntimeDirectory=). At boot Xray may start first, and a missing log
+# directory is one of the exit-23 cases RestartPreventExitStatus stops retrying.
+ExecStartPre=/bin/mkdir -p /run/proxygw
 ExecStart=/root/proxygw/core/xray/xray run -confdir /root/proxygw/core/xray
 Restart=on-failure
 # Xray exits 23 when it rejects its own configuration. Without this, a bad

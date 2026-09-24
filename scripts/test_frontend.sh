@@ -30,16 +30,24 @@ if [[ ! -d node_modules ]]; then
   npm ci --no-fund --no-audit
 fi
 
-# Install Playwright browsers if missing.
-# The previous check grepped --dry-run output for "already installed", a string
-# it makes no promise of emitting, so chromium was re-downloaded on nearly every
-# run. Ask Playwright to resolve the browser instead: it exits non-zero when the
-# executable is absent, and installing is a no-op when it is already present.
-if ! npx playwright install chromium --dry-run >/dev/null 2>&1; then
-  echo "Installing Playwright browsers (with system dependencies)..."
-  npx playwright install --with-deps chromium
+# Install Playwright's Chromium only when no usable build is present.
+# `playwright install --dry-run` exits 0 whether or not the browser exists (it
+# only prints what it would download), so it cannot be used as the check; the
+# previous form therefore always fell through to a silent download attempt on
+# every run. Ask browser.js instead: it accepts Playwright's own build, a
+# preinstalled build under PLAYWRIGHT_BROWSERS_PATH, or PW_CHROMIUM_EXECUTABLE,
+# exactly as playwright.config.js does when launching.
+if node -e '
+  const fs = require("fs");
+  const { resolveChromiumExecutable } = require("./browser");
+  let own = "";
+  try { own = require("playwright-core").chromium.executablePath(); } catch (_) {}
+  process.exit((own && fs.existsSync(own)) || resolveChromiumExecutable() ? 0 : 1);
+'; then
+  echo "Chromium available, skipping browser install."
 else
-  npx playwright install chromium >/dev/null 2>&1 || true
+  echo "Installing Playwright Chromium (with system dependencies)..."
+  npx playwright install --with-deps chromium
 fi
 
 echo "=== Running Frontend Button E2E Tests ==="

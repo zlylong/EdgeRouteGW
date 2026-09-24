@@ -3,7 +3,10 @@
 # Runs fast verification checks to prevent obvious breakage
 set -euo pipefail
 
-ROOT_DIR="$(cd "$(dirname "$(git rev-parse --git-dir 2>/dev/null)")" && pwd 2>/dev/null || pwd)"
+# --show-toplevel is the working tree root wherever the hook runs from. The
+# previous dirname-of-git-dir form pointed at .git/worktrees/ inside a linked
+# worktree and at the wrong directory when invoked from a subdirectory.
+ROOT_DIR="$(git rev-parse --show-toplevel)"
 cd "$ROOT_DIR"
 
 echo "=== Pre-commit checks ==="
@@ -22,7 +25,17 @@ echo "  ✓ Build OK"
 # printed "Tests failed" with no indication of which test or why.
 echo "  → Running backend tests..."
 cd "$ROOT_DIR/backend"
-if git diff --cached --name-only -- '*.go' | grep -q .; then
+# crypto_utils.go's package init reads config/aes.key under PROXYGW_HOME (default
+# /root/proxygw) and creates it when missing, so every `go test` run touches that
+# directory even though each test sets its own temporary home. Point the run at
+# a throwaway directory instead so tests never write into a real install.
+if [[ -z "${PROXYGW_HOME:-}" ]]; then
+  PROXYGW_HOME="$(mktemp -d)"
+  trap 'rm -rf "$PROXYGW_HOME"' EXIT
+fi
+export PROXYGW_HOME
+mkdir -p "$PROXYGW_HOME/config"
+if [ -n "$(git diff --cached --name-only -- '*.go')" ]; then
   if ! go test -count=1 -short ./...; then
     echo "❌ Tests failed — fix before committing"
     exit 1

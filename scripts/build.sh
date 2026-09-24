@@ -12,9 +12,25 @@ if [ ! -d "$BACKEND_DIR" ]; then
     exit 1
 fi
 
-export GOPROXY="${GOPROXY:-https://goproxy.cn,direct}"
-
 cd "$BACKEND_DIR"
+
+# Default to a mirror reachable from mainland China, but only when nothing else
+# is configured: an environment variable beats `go env -w GOPROXY=...`, so
+# setting it unconditionally silently overrode a developer's own choice.
+if [ -z "${GOPROXY:-}" ] && [ "$(go env GOPROXY)" = "https://proxy.golang.org,direct" ]; then
+    export GOPROXY="https://goproxy.cn,direct"
+fi
+
+# mattn/go-sqlite3 needs cgo. Since Go 1.20 cgo is silently disabled when no C
+# compiler is found, and the resulting binary fails at runtime with
+# "go-sqlite3 requires cgo" -- after this script may already have restarted
+# the service into it. Fail here instead.
+export CGO_ENABLED=1
+if ! command -v "${CC:-gcc}" >/dev/null 2>&1; then
+    echo "Error: a C compiler is required (CGO_ENABLED=1 for go-sqlite3); install gcc or set CC"
+    exit 1
+fi
+
 go build -o proxygw-backend .
 
 echo "Build successful: $BACKEND_DIR/proxygw-backend"

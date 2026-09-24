@@ -30,6 +30,9 @@ backend/proxygw.db-wal
 /backend/proxygw
 /backend/proxygw-backend
 /backend/proxygw-backend-test
+# update.sh keeps the previous binary for rollback; install.sh downloads into .new
+/backend/proxygw-backend.prev
+/backend/proxygw-backend.new
 *.bak
 *.patch
 

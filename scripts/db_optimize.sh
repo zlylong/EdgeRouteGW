@@ -30,6 +30,12 @@ fi
 # behind each time -- on a long-lived gateway proxygw.db reaches hundreds of MB
 # and the copies were never reclaimed.
 BACKUP_KEEP="${DB_OPTIMIZE_BACKUP_KEEP:-3}"
+# 0 or garbage would evaluate to 0 below and delete every backup, including the
+# one this run is about to take.
+if ! [[ "$BACKUP_KEEP" =~ ^[0-9]+$ ]] || [ "$BACKUP_KEEP" -lt 1 ]; then
+  echo "[ERROR] DB_OPTIMIZE_BACKUP_KEEP must be an integer >= 1 (got '$BACKUP_KEEP')" >&2
+  exit 1
+fi
 
 TS="$(date +%Y%m%d_%H%M%S)"
 # update.sh runs this right after restarting the backend, which is then busy
@@ -90,7 +96,13 @@ if table_exists domain_geoip_lock; then
 else
   echo "[SKIP] domain_geoip_lock not present yet (created on first Mode C GeoIP lock); its index is deferred"
 fi
-sq "CREATE INDEX IF NOT EXISTS idx_gateway_events_module_level_id ON gateway_events(module, level, id DESC);"
+# install.sh/update.sh call this right after restarting the backend, which may
+# not have created its tables yet on a brand-new database.
+if table_exists gateway_events; then
+  sq "CREATE INDEX IF NOT EXISTS idx_gateway_events_module_level_id ON gateway_events(module, level, id DESC);"
+else
+  echo "[SKIP] gateway_events not present yet (created on first backend start); its index is deferred"
+fi
 sq "ANALYZE; PRAGMA optimize;"
 
 if [[ "$MODE" == "--full" ]]; then
@@ -108,6 +120,8 @@ printf '\n[STEP] Query plan check\n'
 if table_exists domain_geoip_lock; then
   sq "EXPLAIN QUERY PLAN SELECT geoip_tag FROM domain_geoip_lock WHERE domain='example.com' AND resolver_group='direct' AND geodata_ver='v1';"
 fi
-sq "EXPLAIN QUERY PLAN SELECT id,module,level,ts FROM gateway_events WHERE module='ospf' AND level='info' ORDER BY id DESC LIMIT 50;"
+if table_exists gateway_events; then
+  sq "EXPLAIN QUERY PLAN SELECT id,module,level,ts FROM gateway_events WHERE module='ospf' AND level='info' ORDER BY id DESC LIMIT 50;"
+fi
 
 printf '\n[DONE] Backup: %s\n' "$BACKUP"

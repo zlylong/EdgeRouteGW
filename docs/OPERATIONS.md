@@ -16,11 +16,11 @@
   ```bash
   bash <(curl -s -4 -L https://raw.githubusercontent.com/zlylong/EdgeRouteGW/main/scripts/update.sh)
   ```
-  推荐的日常维护命令。它会：`git reset --hard` 到 `main` 最新提交（`config/aes.key` 会被保护）、补装依赖、下载并校验当前架构的最新 Release 后端二进制、重写 proxygw/mosdns/xray 三个 systemd 单元文件（**不**重启 mosdns/xray）、清空 `domain_resolve_cache` / `routes_table` / `geosite_expand_cache` 三张缓存表，最后只重启 `proxygw`。
+  推荐的日常维护命令。它会：补装依赖、`git fetch`、下载并校验当前架构的最新 Release 后端二进制（下载/校验失败即中止，工作树不动）、`git reset --hard` 到 `main` 最新提交（`config/aes.key` 会被保护）、若仓库跟踪的 amd64 `core/xray/xray`、`core/mosdns/mosdns` 在本机不可运行则重新下载对应架构的版本、重写 proxygw/mosdns/xray 三个 systemd 单元文件（**不**重启 mosdns/xray）、清空 `domain_resolve_cache` / `routes_table` / `geosite_expand_cache` 三张缓存表，最后只重启 `proxygw`。检测到本机 10809/10808 端口的代理时，Release 下载走该代理（git 传输不走）。
 
-  > 安全策略：脚本必须拿到发布页的 `SHA256SUMS` 并校验通过才会安装二进制；获取失败即中止（fail-closed）。安装早于校验文件的旧版本可显式设置 `PROXYGW_ALLOW_UNVERIFIED=1`（只影响后端二进制的校验）。`update.sh` 会把旧二进制保留为 `proxygw-backend.prev`，新版本在 10 秒内未进入 active 状态时自动回滚并重启；健康判断基于 `systemctl is-active`，`Type=simple` 的单元在进程 fork 后即视为 active，启动数秒后才崩溃的情况需人工处理（`cp backend/proxygw-backend.prev backend/proxygw-backend && systemctl restart proxygw`）。回滚只覆盖二进制，不回退 git 树与前端。不再内置固定的回退版本号：无法从 GitHub API 或本地 git 标签确定版本时脚本直接报错退出。
+  > 安全策略：脚本必须拿到发布页的 `SHA256SUMS` 并校验通过才会安装二进制；获取失败即中止（fail-closed）。安装早于校验文件的旧版本可显式设置 `PROXYGW_ALLOW_UNVERIFIED=1`（只影响后端二进制的校验）。`update.sh` 会把旧二进制保留为 `proxygw-backend.prev`，重启后连续观察 10 秒，期间只要 `systemctl is-active` 失败一次或单元发生过自动重启（`NRestarts` 非 0）即判定失败，自动回滚到旧二进制并重启；10 秒之后才崩溃的情况仍需人工处理（`cp backend/proxygw-backend.prev backend/proxygw-backend && systemctl restart proxygw`）。回滚只覆盖二进制，不回退 git 树与前端。不再内置固定的回退版本号：无法从 GitHub API 或本地 git 标签确定版本时脚本直接报错退出。
   >
-  > 升级后的两个副作用：仓库跟踪的 `core/mosdns/proxy_domains.txt` 会被 `git reset` 还原，因此后端首次启动时会检测到差异并重启一次 mosdns；仓库同样跟踪 amd64 的 `core/xray/xray`，arm64 主机升级后需确认 `install.sh` 逻辑已重新下载对应架构的 Xray（`xray version` 能运行）。浏览器侧 `/ui/libs/*` 缓存 1 小时，升级后请强制刷新页面。
+  > 升级后的两个副作用：仓库跟踪的 `core/mosdns/proxy_domains.txt` 会被 `git reset` 还原，因此后端首次启动时会检测到差异并重启一次 mosdns；仓库同样跟踪 amd64 的 `core/xray/xray` 与 `core/mosdns/mosdns`，`git reset` 会把它们还原；脚本随后检查两者能否运行，不能则重新下载本机架构的版本（arm64 主机），amd64 主机上则意味着通过 UI 升级到的 Xray/Mosdns 版本会回到仓库提交的版本。浏览器侧 `/ui/libs/*` 缓存 1 小时，升级后请强制刷新页面。
 
   > 自 `v1.6.16+` 起，`install.sh` / `update.sh` 在服务启动后会自动执行一次数据库低风险优化（`scripts/db_optimize.sh --index-only`）：
   > - 幂等创建关键索引（`domain_geoip_lock` / `gateway_events`）
@@ -31,7 +31,7 @@
   ```bash
   bash scripts/uninstall.sh
   ```
-  停用并禁用 proxygw/mosdns/xray/frr，删除对应的 systemd 单元、`/etc/frr/frr.conf` 与 `/etc/nftables.conf`，剥离内核级别的 TProxy 劫持规则和路由表。脚本只询问一次：是否删除整个 `/root/proxygw`（含配置与 SQLite 数据库）。
+  先停用 proxygw 并清除 TProxy 的 nft 表、策略路由（含 IPv6）与 `rt_tables.d/proxygw.conf`，再停用并禁用 mosdns/xray/frr，删除对应的 systemd 单元、`proxygw.service.d` drop-in 与 `/etc/frr/frr.conf`。`/etc/nftables.conf` 与 `/etc/resolv.conf` 若存在安装时的备份（`*.pre-proxygw`）则原样还原；否则前者被删除并禁用 `nftables.service`，后者在启用了 systemd-resolved 的主机上重新指向 stub 解析器，其它主机保留安装时写入的公共 DNS。`ip_forward`、BBR 等 sysctl 运行时值到重启才恢复。脚本只询问一次：是否删除整个 `/root/proxygw`（含配置与 SQLite 数据库）；非交互执行时默认保留。
 
 ## 🔩 运行时环境变量
 

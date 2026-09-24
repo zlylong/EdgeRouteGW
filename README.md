@@ -34,7 +34,7 @@ bash <(curl -s -4 -L https://raw.githubusercontent.com/zlylong/EdgeRouteGW/main/
 
 > 说明：
 > - 两个脚本都必须从 GitHub Release 取得 `SHA256SUMS` 并校验通过后才会安装后端二进制，取不到即中止（可用 `PROXYGW_ALLOW_UNVERIFIED=1` 显式跳过，仅用于安装早于校验文件的旧版本）；不支持的 CPU 架构直接报错；不再内置固定的回退版本号。
-> - `update.sh` 会保留旧二进制为 `proxygw-backend.prev`，新版本 10 秒内未进入 active 状态则自动回滚。
+> - `update.sh` 会保留旧二进制为 `proxygw-backend.prev`，新版本在重启后的 10 秒观察期内退出或被 systemd 自动重启即回滚。
 > - 服务启动后会自动执行数据库低风险优化（`scripts/db_optimize.sh --index-only`），用于补齐关键索引与统计信息；完整 `VACUUM` 仍建议在维护窗口手动执行。
 
 ## 🔑 初始登录

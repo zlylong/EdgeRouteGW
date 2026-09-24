@@ -29,12 +29,17 @@ func TestAESKeyIsNeitherTrackedNorResettable(t *testing.T) {
 	s := string(up)
 	reset := strings.Index(s, "git reset --hard origin/main")
 	backup := strings.Index(s, `cp -p "$REPO_DIR/config/aes.key" "$AES_KEY_BACKUP"`)
-	restore := strings.Index(s, `cp -p "$AES_KEY_BACKUP" "$REPO_DIR/config/aes.key"`)
-	if reset < 0 || backup < 0 || restore < 0 {
-		t.Fatalf("update.sh must back up config/aes.key before git reset --hard and restore it after (reset=%d backup=%d restore=%d)", reset, backup, restore)
+	restoreBody := strings.Index(s, `cp -p "$AES_KEY_BACKUP" "$REPO_DIR/config/aes.key"`)
+	// The restore is armed as an EXIT trap before the reset, so a reset or
+	// clean that fails half-way still puts the key back, and it is run
+	// explicitly once the tree is in place.
+	armed := strings.Index(s, "trap restore_aes_key EXIT")
+	restored := strings.LastIndex(s, "\nrestore_aes_key\n")
+	if reset < 0 || backup < 0 || restoreBody < 0 || armed < 0 || restored < 0 {
+		t.Fatalf("update.sh must back up config/aes.key before git reset --hard, arm its restore as an EXIT trap and run it after (reset=%d backup=%d restore=%d armed=%d restored=%d)", reset, backup, restoreBody, armed, restored)
 	}
-	if !(backup < reset && reset < restore) {
-		t.Fatalf("update.sh key backup/restore is not wrapped around git reset --hard (backup=%d reset=%d restore=%d)", backup, reset, restore)
+	if !(backup < reset && armed < reset && reset < restored) {
+		t.Fatalf("update.sh key backup/restore is not wrapped around git reset --hard (backup=%d armed=%d reset=%d restored=%d)", backup, armed, reset, restored)
 	}
 }
 

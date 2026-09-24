@@ -54,6 +54,7 @@ func TestRepoXrayUnitMatchesInstallerTemplate(t *testing.T) {
 		"LimitNPROC=10000",
 		"LimitNOFILE=1048576",
 		"Environment=XRAY_LOCATION_ASSET=/root/proxygw/core/xray",
+		"ExecStartPre=/bin/mkdir -p /run/proxygw",
 		"ExecStart=/root/proxygw/core/xray/xray run -confdir /root/proxygw/core/xray",
 	} {
 		if !strings.Contains(string(unit), want) {
