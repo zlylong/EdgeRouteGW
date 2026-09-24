@@ -29,6 +29,10 @@ func pruneLoginAttemptsLocked(now time.Time) {
 	}
 }
 
+// loginSlowdownDelay is the pause applied to attempts 7 through 10 from one
+// peer. It is a variable so tests can zero it.
+var loginSlowdownDelay = 2 * time.Second
+
 func (ctl *AuthController) Login(c *gin.Context) {
 	// Deliberately RemoteIP(), not ClientIP(): the brute-force counter must key
 	// on the address the packets actually came from. ClientIP() consults
@@ -52,17 +56,21 @@ func (ctl *AuthController) Login(c *gin.Context) {
 
 	if attemptData.Count > 10 {
 		loginAttemptsMu.Unlock()
+		logGatewayEventThrottled("login_locked_out:"+ip, 10*time.Second, "warn", "auth", "login_locked_out", "login locked out after repeated failures", map[string]interface{}{"source_ip": ip})
 		c.AbortWithStatusJSON(http.StatusTooManyRequests, gin.H{"error": "too many attempts"})
 		return
 	}
-	if attemptData.Count > 5 {
-		loginAttemptsMu.Unlock()
-		time.Sleep(2 * time.Second)
-		loginAttemptsMu.Lock()
-	}
+	// Count the attempt before releasing the lock. The delay used to run
+	// between the check and the increment with the lock dropped, so a burst
+	// of concurrent requests all saw the same count and none of them was
+	// ever locked out.
 	attemptData.Count++
 	attemptData.LastSeen = now
+	slowDown := attemptData.Count > 6
 	loginAttemptsMu.Unlock()
+	if slowDown && loginSlowdownDelay > 0 {
+		time.Sleep(loginSlowdownDelay)
+	}
 
 	var req struct{ Password string }
 	if c.BindJSON(&req) != nil {
@@ -82,6 +90,9 @@ func (ctl *AuthController) Login(c *gin.Context) {
 	}
 	if !ok {
 		log.Printf("Login failed for IP %s: incorrect password", ip)
+		// /api/login sits outside auditEventMiddleware, so without this the
+		// events view never showed failed logins.
+		logGatewayEventThrottled("login_failed:"+ip, 10*time.Second, "warn", "auth", "login_failed", "login failed: incorrect password", map[string]interface{}{"source_ip": ip, "path": c.FullPath(), "method": http.MethodPost, "status": http.StatusUnauthorized})
 		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "incorrect password"})
 		return
 	}

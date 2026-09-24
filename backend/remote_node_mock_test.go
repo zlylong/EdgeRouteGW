@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 )
 
 type fakeSSHClient struct {
@@ -18,6 +19,27 @@ func (f *fakeSSHClient) RunCommand(cmd string) (string, string, error) {
 		return f.run(cmd)
 	}
 	return "", "", nil
+}
+
+func (f *fakeSSHClient) RunCommandWithTimeout(cmd string, timeout time.Duration) (string, string, error) {
+	if f.run == nil {
+		return "", "", nil
+	}
+	type result struct {
+		out, errOut string
+		err         error
+	}
+	done := make(chan result, 1)
+	go func() {
+		out, errOut, err := f.run(cmd)
+		done <- result{out, errOut, err}
+	}()
+	select {
+	case r := <-done:
+		return r.out, r.errOut, r.err
+	case <-time.After(timeout):
+		return "", "", fmt.Errorf("remote command timed out after %s", timeout)
+	}
 }
 
 func (f *fakeSSHClient) Close() error { return nil }

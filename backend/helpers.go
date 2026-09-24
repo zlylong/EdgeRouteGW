@@ -107,6 +107,11 @@ func normalizeUpstreamCSV(raw string) (string, bool) {
 	return strings.Join(cleaned, ","), true
 }
 
+// remoteTextLimit bounds what getRemoteFileContent will buffer: digests,
+// checksum lists and release metadata are a few KB; anything larger is not
+// what we asked for.
+const remoteTextLimit = 4 << 20
+
 func getRemoteFileContent(urlStr string) (string, error) {
 	resp, err := httpClient.Get(urlStr)
 	if err != nil {
@@ -116,8 +121,75 @@ func getRemoteFileContent(urlStr string) (string, error) {
 	if resp.StatusCode != 200 {
 		return "", fmt.Errorf("status %d", resp.StatusCode)
 	}
-	b, err := io.ReadAll(resp.Body)
-	return string(b), err
+	b, err := io.ReadAll(io.LimitReader(resp.Body, remoteTextLimit+1))
+	if err != nil {
+		return "", err
+	}
+	if len(b) > remoteTextLimit {
+		return "", fmt.Errorf("response from %s exceeds %d bytes", urlStr, remoteTextLimit)
+	}
+	return string(b), nil
+}
+
+// githubAPIBase and githubDownloadBase are variables so tests can point the
+// update paths at an httptest server.
+var (
+	githubAPIBase      = "https://api.github.com"
+	githubDownloadBase = "https://github.com"
+)
+
+// geodataTagRe matches Loyalsoldier/v2ray-rules-dat release tags (date-based,
+// e.g. 202609230413). The tag is interpolated into a download URL, so anything
+// else is rejected before it gets there.
+var geodataTagRe = regexp.MustCompile(`^[0-9A-Za-z._-]{1,64}$`)
+
+// fetchGitHubJSON GETs a GitHub API URL and decodes it, treating any non-200
+// status (rate limiting answers 403) as an error instead of decoding an error
+// document into an empty struct.
+func fetchGitHubJSON(urlStr string, out interface{}) error {
+	resp, err := httpClient.Get(urlStr)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		return fmt.Errorf("github api %s: status %d", urlStr, resp.StatusCode)
+	}
+	return json.NewDecoder(io.LimitReader(resp.Body, remoteTextLimit)).Decode(out)
+}
+
+// fetchReleaseTags lists the release tags of owner/repo, newest first. It
+// always returns a non-nil slice so the JSON response carries [] rather than
+// null when there are none.
+func fetchReleaseTags(repo string) ([]string, error) {
+	var releases []struct {
+		TagName string `json:"tag_name"`
+	}
+	if err := fetchGitHubJSON(githubAPIBase+"/repos/"+repo+"/releases", &releases); err != nil {
+		return nil, err
+	}
+	tags := make([]string, 0, len(releases))
+	for _, r := range releases {
+		if tag := strings.TrimSpace(r.TagName); tag != "" {
+			tags = append(tags, tag)
+		}
+	}
+	return tags, nil
+}
+
+// fetchLatestReleaseTag returns the tag of the latest release of owner/repo.
+func fetchLatestReleaseTag(repo string) (string, error) {
+	var release struct {
+		TagName string `json:"tag_name"`
+	}
+	if err := fetchGitHubJSON(githubAPIBase+"/repos/"+repo+"/releases/latest", &release); err != nil {
+		return "", err
+	}
+	tag := strings.TrimSpace(release.TagName)
+	if tag == "" {
+		return "", fmt.Errorf("github api returned no tag for %s", repo)
+	}
+	return tag, nil
 }
 
 func verifySHA256(filePath, expectedHash string) error {
@@ -138,20 +210,15 @@ func verifySHA256(filePath, expectedHash string) error {
 }
 
 func getGeoDataVersionAndHash() (string, string, error) {
-	resp, err := httpClient.Get("https://api.github.com/repos/Loyalsoldier/v2ray-rules-dat/releases/latest")
+	tag, err := fetchLatestReleaseTag("Loyalsoldier/v2ray-rules-dat")
 	if err != nil {
 		return "", "", err
 	}
-	defer resp.Body.Close()
-	var release struct {
-		TagName string `json:"tag_name"`
+	if !geodataTagRe.MatchString(tag) {
+		return "", "", fmt.Errorf("unexpected geodata release tag %q", tag)
 	}
-	if err := json.NewDecoder(resp.Body).Decode(&release); err != nil {
-		return "", "", err
-	}
-	tag := release.TagName
 
-	urlStr := "https://github.com/Loyalsoldier/v2ray-rules-dat/releases/download/" + tag + "/rules.zip.sha256sum"
+	urlStr := githubDownloadBase + "/Loyalsoldier/v2ray-rules-dat/releases/download/" + tag + "/rules.zip.sha256sum"
 	content, err := getRemoteFileContent(urlStr)
 	if err != nil {
 		return tag, "", err
@@ -163,12 +230,22 @@ func getGeoDataVersionAndHash() (string, string, error) {
 	return tag, "", fmt.Errorf("invalid hash file")
 }
 
+// buildXrayDigestURL returns the .dgst file that belongs to the asset
+// buildXrayDownloadURL downloads. It used to hardcode the amd64 asset, so on
+// arm64 the freshly downloaded arm64 zip was checked against the amd64 digest
+// and every in-app Xray update failed (closed, at least) with a hash mismatch.
+func buildXrayDigestURL(version string) (string, error) {
+	downloadURL, err := buildXrayDownloadURL(version)
+	if err != nil {
+		return "", err
+	}
+	return downloadURL + ".dgst", nil
+}
+
 func getXrayHash(version string) (string, error) {
-	urlStr := ""
-	if version == "" || version == "latest" {
-		urlStr = "https://github.com/XTLS/Xray-core/releases/latest/download/Xray-linux-64.zip.dgst"
-	} else {
-		urlStr = fmt.Sprintf("https://github.com/XTLS/Xray-core/releases/download/%s/Xray-linux-64.zip.dgst", version)
+	urlStr, err := buildXrayDigestURL(version)
+	if err != nil {
+		return "", err
 	}
 	content, err := getRemoteFileContent(urlStr)
 	if err != nil {
@@ -205,7 +282,7 @@ func getMosdnsHash(version string) (string, error) {
 	if !releaseVersionRe.MatchString(ver) {
 		return "", fmt.Errorf("invalid version")
 	}
-	content, err := getRemoteFileContent("https://api.github.com/repos/IrineSistiana/mosdns/releases/tags/" + ver)
+	content, err := getRemoteFileContent(githubAPIBase + "/repos/IrineSistiana/mosdns/releases/tags/" + ver)
 	if err != nil {
 		return "", err
 	}

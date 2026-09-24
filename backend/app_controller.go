@@ -4,7 +4,6 @@ import (
 	"log"
 	"net/http"
 	"os"
-	"strings"
 
 	"github.com/gin-gonic/gin"
 )
@@ -27,6 +26,7 @@ func (c *AppController) BuildRouter() *gin.Engine {
 	// Same middleware as gin.Default(), minus access-log lines for the two
 	// endpoints the dashboard polls every two seconds.
 	r.Use(gin.LoggerWithConfig(gin.LoggerConfig{SkipPaths: []string{"/api/status", "/api/traffic"}}), gin.Recovery())
+	r.Use(securityHeadersMiddleware(), staticCacheMiddleware(), gzipMiddleware())
 	// gin trusts every peer as a proxy by default (trustedCIDRs = 0.0.0.0/0 and
 	// ::/0) and reads the client address out of X-Forwarded-For / X-Real-IP.
 	// On a gateway that listens directly on the LAN that makes c.ClientIP()
@@ -37,14 +37,6 @@ func (c *AppController) BuildRouter() *gin.Engine {
 		log.Printf("[SECURITY] failed to clear trusted proxies: %v", err)
 	}
 	registerAPIRoutes(r)
-	r.Use(func(c *gin.Context) {
-		if strings.HasPrefix(c.Request.URL.Path, "/ui") {
-			c.Header("Cache-Control", "no-cache, no-store, must-revalidate")
-			c.Header("Pragma", "no-cache")
-			c.Header("Expires", "0")
-		}
-		c.Next()
-	})
 	r.StaticFile("/favicon.ico", getPath("frontend", "dist", "favicon.ico"))
 	r.Static("/ui", getPath("frontend", "dist"))
 	r.GET("/", func(c *gin.Context) { c.Redirect(http.StatusFound, "/ui/") })
@@ -57,7 +49,9 @@ func (c *AppController) Run(r *gin.Engine) {
 		addr = ":80"
 	}
 	log.Printf("EdgeRouteGW backend starting on %s", addr)
-	r.Run(addr)
+	if err := serveWithGracefulShutdown(newHTTPServer(addr, r)); err != nil {
+		log.Fatalf("HTTP server: %v", err)
+	}
 }
 
 func init() {

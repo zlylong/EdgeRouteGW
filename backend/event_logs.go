@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -161,9 +162,13 @@ func newTraceID() string {
 	return "t-" + hex.EncodeToString(buf)
 }
 
+// traceIDRe bounds what a client may supply as X-Trace-ID: it is stored in
+// gateway_events and echoed back, so it must stay short and printable.
+var traceIDRe = regexp.MustCompile(`^[A-Za-z0-9._-]{1,64}$`)
+
 func requestTraceMiddleware(c *gin.Context) {
 	traceID := strings.TrimSpace(c.GetHeader("X-Trace-ID"))
-	if traceID == "" {
+	if !traceIDRe.MatchString(traceID) {
 		traceID = newTraceID()
 	}
 	c.Set("trace_id", traceID)

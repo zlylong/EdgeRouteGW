@@ -1,8 +1,29 @@
 package main
 
-import "fmt"
+import (
+	"fmt"
+	"strings"
+)
+
+var mosdnsLogLevels = map[string]struct{}{"debug": {}, "info": {}, "warn": {}, "error": {}}
+
+func isValidMosdnsLogLevel(level string) bool {
+	_, ok := mosdnsLogLevels[strings.ToLower(strings.TrimSpace(level))]
+	return ok
+}
+
+// isValidDNSMode accepts the resolution modes the UI offers. Only "smart"
+// exists today; the whitelist keeps arbitrary strings out of the settings row.
+func isValidDNSMode(mode string) bool {
+	return strings.ToLower(strings.TrimSpace(mode)) == "smart"
+}
 
 func renderMosdnsConfig(local, remote string, lazy bool, mode string, logLevel string, cacheSize int, lazyTTL int) string {
+	// Defensive: the controller validates too, but a value already stored in
+	// settings must not be able to break out of the YAML scalar either.
+	if !isValidMosdnsLogLevel(logLevel) {
+		logLevel = "info"
+	}
 	lazyCache := ""
 	lazyExec := ""
 	if lazy {

@@ -61,9 +61,28 @@ func (ctl *DNSController) SetDNS(c *gin.Context) {
 		return
 	}
 
-	mode := strings.TrimSpace(req.Mode)
+	mode := strings.ToLower(strings.TrimSpace(req.Mode))
 	if mode == "" {
 		mode = "smart"
+	}
+	if !isValidDNSMode(mode) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid dns mode"})
+		return
+	}
+	req.LogLevel = strings.ToLower(strings.TrimSpace(req.LogLevel))
+	if req.LogLevel != "" && !isValidMosdnsLogLevel(req.LogLevel) {
+		// The value is interpolated into mosdns' YAML; a newline in it would
+		// inject arbitrary configuration.
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid log_level (debug|info|warn|error)"})
+		return
+	}
+	if req.CacheSize < 0 || req.CacheSize > 10_000_000 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "cache_size out of range"})
+		return
+	}
+	if req.LazyTTL < 0 || req.LazyTTL > 30*24*3600 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "lazy_ttl out of range (seconds, max 30 days)"})
+		return
 	}
 
 	if err := ctl.repo.UpdateSetting("dns_local", local); err != nil {

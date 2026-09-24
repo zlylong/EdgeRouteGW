@@ -64,8 +64,21 @@ func Connect(host string, port int, user string, authType string, credential str
 	return &SSHClient{client: client}, nil
 }
 
-// RunCommand executes a command and returns stdout, stderr and error
+// DefaultCommandTimeout bounds a remote command that has no explicit
+// deadline. The install script is the longest legitimate command (package
+// installs plus a download); ten minutes is generous for it, and a hung
+// remote host no longer holds a deploy slot forever.
+const DefaultCommandTimeout = 10 * time.Minute
+
+// RunCommand executes a command and returns stdout, stderr and error.
 func (c *SSHClient) RunCommand(cmd string) (string, string, error) {
+	return c.RunCommandWithTimeout(cmd, DefaultCommandTimeout)
+}
+
+// RunCommandWithTimeout executes cmd and gives up after timeout. The SSH
+// dial timeout covers only the handshake; without this a remote command that
+// never exits blocked the caller (and its deploy slot) indefinitely.
+func (c *SSHClient) RunCommandWithTimeout(cmd string, timeout time.Duration) (string, string, error) {
 	session, err := c.client.NewSession()
 	if err != nil {
 		return "", "", fmt.Errorf("failed to create session: %v", err)
@@ -77,8 +90,29 @@ func (c *SSHClient) RunCommand(cmd string) (string, string, error) {
 	session.Stdout = &stdoutBuf
 	session.Stderr = &stderrBuf
 
-	err = session.Run(cmd)
-	return stdoutBuf.String(), stderrBuf.String(), err
+	if timeout <= 0 {
+		timeout = DefaultCommandTimeout
+	}
+	done := make(chan error, 1)
+	go func() { done <- session.Run(cmd) }()
+
+	timer := time.NewTimer(timeout)
+	defer timer.Stop()
+	select {
+	case err := <-done:
+		return stdoutBuf.String(), stderrBuf.String(), err
+	case <-timer.C:
+		_ = session.Signal(ssh.SIGKILL)
+		_ = session.Close()
+		// Run returns once the channel is closed; wait for it so the output
+		// buffers are no longer being written to when we read them.
+		select {
+		case <-done:
+		case <-time.After(5 * time.Second):
+			return "", "", fmt.Errorf("remote command timed out after %s (session did not close)", timeout)
+		}
+		return stdoutBuf.String(), stderrBuf.String(), fmt.Errorf("remote command timed out after %s", timeout)
+	}
 }
 
 // Close closes the SSH connection

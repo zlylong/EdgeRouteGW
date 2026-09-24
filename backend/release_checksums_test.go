@@ -45,5 +45,14 @@ func TestBackendBinaryDownloadsAreChecksumVerified(t *testing.T) {
 		if !strings.Contains(s, "releases/download/${tag}/SHA256SUMS") {
 			t.Errorf("%s does not fetch SHA256SUMS from the release", f)
 		}
+		// A missing checksum list must fail closed: a blocked or tampered
+		// download of SHA256SUMS is not a licence to skip verification. The
+		// only way past it is the explicit PROXYGW_ALLOW_UNVERIFIED=1 override.
+		if !strings.Contains(s, `if [ "${PROXYGW_ALLOW_UNVERIFIED:-0}" = "1" ]; then`) || !strings.Contains(s, "refusing to install an unverified binary") {
+			t.Errorf("%s does not fail closed when SHA256SUMS cannot be fetched", f)
+		}
+		if strings.Contains(s, `PROXYGW_LATEST="v`) {
+			t.Errorf("%s still carries a hardcoded fallback release tag; it silently downgrades once it is stale", f)
+		}
 	}
 }

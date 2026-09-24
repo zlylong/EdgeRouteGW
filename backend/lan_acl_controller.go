@@ -123,6 +123,12 @@ func (ctl *LanACLController) SetDefaultPolicy(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "bad request"})
 		return
 	}
+	req.Policy = strings.ToLower(strings.TrimSpace(req.Policy))
+	if req.Policy != "proxy" && req.Policy != "direct" {
+		// The value is rendered into the nftables template.
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid policy (proxy|direct)"})
+		return
+	}
 	if err := ctl.repo.SetDefaultPolicy(req.Policy); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "db error"})
 		return

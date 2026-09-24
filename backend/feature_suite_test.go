@@ -42,6 +42,13 @@ func setupFeatureSuiteRouter(t *testing.T) *gin.Engine {
 	ospfLogs = nil
 	clearSyncMap(&sessions)
 	clearLoginAttempts()
+	oldLoginDelay := loginSlowdownDelay
+	loginSlowdownDelay = 0
+	// Event throttling is keyed on peer IP and every test uses the same
+	// httptest peer; a previous test must not suppress this one's events.
+	gatewayEventThrottleMu.Lock()
+	clear(gatewayEventLastAt)
+	gatewayEventThrottleMu.Unlock()
 
 	root := t.TempDir()
 	t.Setenv("PROXYGW_HOME", root)
@@ -74,6 +81,7 @@ func setupFeatureSuiteRouter(t *testing.T) *gin.Engine {
 		applyMutex.Unlock()
 		clearSyncMap(&sessions)
 		clearLoginAttempts()
+		loginSlowdownDelay = oldLoginDelay
 		_ = tdb.Close()
 		featureSuiteMu.Unlock()
 	})
