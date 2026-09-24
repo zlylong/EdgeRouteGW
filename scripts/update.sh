@@ -151,6 +151,11 @@ ProtectKernelTunables=yes
 ProtectControlGroups=yes
 RestrictSUIDSGID=yes
 ReadWritePaths=-/root/proxygw -/usr/local/bin -/etc/frr -/etc/nftables.conf /proc/sys/net/ipv4/conf
+# ProtectSystem=strict mounts /run read-only; the backend and the connection
+# tracker write the Xray logs under /run/proxygw. Preserve keeps the directory
+# (and Xray's open log file) across backend restarts.
+RuntimeDirectory=proxygw
+RuntimeDirectoryPreserve=yes
 
 [Install]
 WantedBy=multi-user.target
