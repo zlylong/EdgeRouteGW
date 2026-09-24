@@ -53,3 +53,6 @@ backend/cookies.txt
 
 # Agent worktrees
 /.claude/worktrees/
+
+# Tailwind standalone CLI cache (scripts/build_frontend_css.sh)
+/frontend/.cache/

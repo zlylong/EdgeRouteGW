@@ -1,4 +1,5 @@
 const { defineConfig } = require('@playwright/test');
+const { resolveChromiumExecutable } = require('./browser');
 
 const port = process.env.PLAYWRIGHT_PORT || '4173';
 const baseURL = process.env.PLAYWRIGHT_BASE_URL || `http://127.0.0.1:${port}`;
@@ -10,6 +11,7 @@ module.exports = defineConfig({
   use: {
     baseURL,
     headless: true,
+    launchOptions: { executablePath: resolveChromiumExecutable() },
   },
   webServer: {
     command: `python3 -m http.server ${port} --directory ../frontend/dist`,

@@ -102,7 +102,7 @@ async function mockDashboardApis(page) {
     const json = (body) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(body) });
 
     if (path === '/api/status') return json({ status: 'running', mode: 'B', xray: true, ospf: true, mosdns: true, xrayVersion: '26.3.27', geoVersion: '2026-04-20', mosdnsVersion: 'v5', cpu: '1.0', ram: '10.0', up: '0 MB', down: '0 MB' });
-    if (path === '/api/traffic') return json({ speed: { up: 0, down: 0 }, total_24h: { up: 0, down: 0 } });
+    if (path === '/api/traffic') return json({ speed: { up: 0, down: 0 }, total_month: { up: 0, down: 0 }, node_ranking: [] });
     if (path === '/api/cron') return json({ enabled: false, time: '04:00' });
     if (path === '/api/dns' && method === 'GET') return json(state.dns);
     if (path === '/api/dns' && method === 'POST') {
@@ -141,7 +141,7 @@ async function mockDashboardApis(page) {
       state.nodes = state.nodes.filter(node => node.id !== 1);
       return json({ success: true });
     }
-    if (path === '/api/rules' && method === 'GET') return json(state.rules);
+    if (path === '/api/rules' && method === 'GET') return json({ rules: state.rules, groups: [] });
     if (path === '/api/rules/categories') return json({ geosite: ['cn'], geoip: ['private'] });
     if (path === '/api/rules' && method === 'POST') {
       state.addRuleCalls += 1;
