@@ -6,9 +6,12 @@ import (
 	"time"
 )
 
+// maintenanceInitialDelay keeps the first prune away from the startup burst.
+var maintenanceInitialDelay = 5 * time.Minute
+
 func runDatabaseMaintenance() {
-	// Wait a bit after startup to avoid contention
-	time.Sleep(5 * time.Minute)
+	initial := time.NewTimer(maintenanceInitialDelay)
+	<-initial.C
 
 	maintenanceTicker := time.NewTicker(24 * time.Hour)
 	defer maintenanceTicker.Stop()

@@ -144,45 +144,59 @@ func getResolverDNSServers(resolverGroup string) []string {
 	return []string{"127.0.0.1"}
 }
 
-func lookupIPv4WithDNSServer(domain string, server string, _ bool) ([]string, error) {
-	serverAddr, ok := normalizeDNSServerAddr(server)
-	if !ok {
-		return nil, fmt.Errorf("invalid dns server %q", server)
-	}
-
-	// dig has no "--" terminator: anything that starts with '-', '+' or '@' is
-	// parsed as an option, a query flag or a server, not as a name. The rule
-	// validators upstream already reject such values, but this is the one
-	// place that hands a string to a root-run subprocess, so refuse here too
-	// rather than trust every caller forever.
-	if domain == "" || strings.ContainsAny(domain[:1], "-+@") {
-		return nil, fmt.Errorf("refusing to pass option-like name %q to dig", domain)
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), domainResolveTimeout)
-	defer cancel()
-
-	cmd := exec.CommandContext(ctx, "dig", "+short", "+timeout=2", "+tries=1", "@"+serverAddr, domain)
+// runDig is the seam around the dig subprocess.
+var runDig = func(ctx context.Context, args ...string) ([]byte, error) {
+	cmd := exec.CommandContext(ctx, "dig", args...)
 	var out bytes.Buffer
 	cmd.Stdout = &out
-	if err := cmd.Run(); err != nil {
-		return nil, fmt.Errorf("dig execution failed: %w", err)
-	}
+	err := cmd.Run()
+	return out.Bytes(), err
+}
 
-	lines := strings.Split(strings.TrimSpace(out.String()), "\n")
-	var ips []string
-	for _, line := range lines {
-		line = strings.TrimSpace(line)
-		if net.ParseIP(line) != nil && strings.Contains(line, ".") {
-			ips = append(ips, line)
+// lookupIPv4WithTTLViaDig asks dig for the answer section (not +short, which
+// discards TTLs) and returns the A records with the smallest TTL among them.
+// With +short every cached domain got the 300s floor, so every Mode C sync
+// (each 5 minutes) re-resolved every domain.
+func lookupIPv4WithTTLViaDig(ctx context.Context, domain, serverAddr string) ([]string, int, error) {
+	out, err := runDig(ctx, "+noall", "+answer", "+timeout=2", "+tries=1", "@"+serverAddr, domain, "A")
+	if err != nil {
+		return nil, 0, fmt.Errorf("dig execution failed: %w", err)
+	}
+	ips, ttl, perr := parseDigAnswerLines(string(out))
+	if perr != nil {
+		return nil, 0, perr
+	}
+	return ips, ttl, nil
+}
+
+// parseDigAnswerLines parses "dig +noall +answer" output: one record per
+// line, "<name> <ttl> IN <type> <rdata>". CNAME and other types are skipped.
+func parseDigAnswerLines(output string) ([]string, int, error) {
+	ips := make([]string, 0, 4)
+	minTTL := 0
+	for _, raw := range strings.Split(output, "\n") {
+		line := strings.TrimSpace(raw)
+		if line == "" || strings.HasPrefix(line, ";") {
+			continue
 		}
+		match := answerSectionARecordPattern.FindStringSubmatch(line)
+		if len(match) == 0 {
+			continue
+		}
+		ttl, err := strconv.Atoi(match[1])
+		if err != nil {
+			continue
+		}
+		if minTTL == 0 || ttl < minTTL {
+			minTTL = ttl
+		}
+		ips = append(ips, match[2])
 	}
-
 	ips = normalizeIPList(ips)
 	if len(ips) == 0 {
-		return nil, fmt.Errorf("no A records found via dig")
+		return nil, 0, fmt.Errorf("no A records found via dig")
 	}
-	return ips, nil
+	return ips, minTTL, nil
 }
 
 var resolveDomainIPv4WithTTLViaServers = func(domain string, dnsServers []string, isRemote bool) ([]string, int, error) {
@@ -191,11 +205,10 @@ var resolveDomainIPv4WithTTLViaServers = func(domain string, dnsServers []string
 	}
 	var firstErr error
 	for _, server := range dnsServers {
-		// No more OS 'host' command for OSPF expansion.
 		// We trust our resolver to query 127.0.0.1 (Mosdns).
-		ips, lookupErr := lookupIPv4WithDNSServer(domain, server, isRemote)
+		ips, ttl, lookupErr := lookupIPv4WithTTLFromServer(domain, server)
 		if lookupErr == nil {
-			return ips, minDomainCacheTTLSeconds, nil
+			return ips, ttl, nil
 		}
 		if firstErr == nil {
 			firstErr = lookupErr
@@ -210,11 +223,30 @@ var resolveDomainIPv4WithTTLViaServers = func(domain string, dnsServers []string
 var resolveDomainIPv4WithTTL = func(domain string) ([]string, int, error) {
 	// 100% force use local Mosdns via dig. No more OS 'host' command or direct DNS.
 	// This ensures we always get clean results from our proxied Mosdns.
-	ips, err := lookupIPv4WithDNSServer(domain, "127.0.0.1", false)
+	return lookupIPv4WithTTLFromServer(domain, "127.0.0.1")
+}
+
+// lookupIPv4WithTTLFromServer resolves domain against server and returns the
+// answer's TTL (the caller clamps it into the cache window). A TTL of 0 is
+// reported as the cache floor so an answer without TTL still caches.
+func lookupIPv4WithTTLFromServer(domain, server string) ([]string, int, error) {
+	serverAddr, ok := normalizeDNSServerAddr(server)
+	if !ok {
+		return nil, 0, fmt.Errorf("invalid dns server %q", server)
+	}
+	if domain == "" || strings.ContainsAny(domain[:1], "-+@") {
+		return nil, 0, fmt.Errorf("refusing to pass option-like name %q to dig", domain)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), domainResolveTimeout)
+	defer cancel()
+	ips, ttl, err := lookupIPv4WithTTLViaDig(ctx, domain, serverAddr)
 	if err != nil {
 		return nil, 0, err
 	}
-	return ips, minDomainCacheTTLSeconds, nil
+	if ttl <= 0 {
+		ttl = minDomainCacheTTLSeconds
+	}
+	return ips, ttl, nil
 }
 
 func ensureRouteCacheTables() {
@@ -516,6 +548,8 @@ func getOrRefreshDomainCacheWithResolver(domain string, resolverGroup string) ([
 		resolvedAt := now.Unix()
 		if _, execErr := getDB().Exec("INSERT INTO domain_resolve_cache (domain, ips_json, dns_ttl, resolved_at, expire_at, last_error, fail_count, geodata_ver) VALUES (?, ?, ?, ?, ?, '', 0, ?) ON CONFLICT(domain) DO UPDATE SET ips_json=excluded.ips_json, dns_ttl=excluded.dns_ttl, resolved_at=excluded.resolved_at, expire_at=excluded.expire_at, last_error='', fail_count=0, geodata_ver=excluded.geodata_ver", cacheKey, string(payload), ttl, resolvedAt, expireAt, getGeoDataVersion()); execErr != nil {
 			log.Printf("[WARN] persist domain cache %q failed: %v", domain, execErr)
+		} else {
+			invalidateResolveCacheIndex()
 		}
 		return ips, ttl, false, nil
 	}

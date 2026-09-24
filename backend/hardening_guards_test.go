@@ -95,7 +95,7 @@ func TestLockReleaseFreesTheGroup(t *testing.T) {
 // subprocess, so it must refuse on its own.
 func TestDigRefusesOptionLikeNames(t *testing.T) {
 	for _, name := range []string{"-f/etc/passwd", "+trace", "@127.0.0.1", "-", ""} {
-		_, err := lookupIPv4WithDNSServer(name, "127.0.0.1", false)
+		_, _, err := lookupIPv4WithTTLFromServer(name, "127.0.0.1")
 		if err == nil || !strings.Contains(err.Error(), "option-like") {
 			t.Errorf("%q: got err=%v, want a refusal before dig is invoked", name, err)
 		}

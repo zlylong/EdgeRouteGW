@@ -44,6 +44,38 @@ func goSafe(fn func()) {
 	}()
 }
 
+// goSafeLoop runs fn in a goroutine and restarts it after a recovered panic
+// with exponential backoff (1s..30s). goSafe only recovers: a background loop
+// that panicked once stayed dead until the next backend restart.
+func goSafeLoop(name string, fn func()) {
+	go func() {
+		backoff := time.Second
+		for {
+			exited := func() (panicked bool) {
+				defer func() {
+					if r := recover(); r != nil {
+						panicked = true
+						log.Printf("[PANIC] %s: %v\n%s", name, r, debug.Stack())
+					}
+				}()
+				fn()
+				return false
+			}()
+			if !exited {
+				return
+			}
+			log.Printf("[WARN] restarting %s in %s after panic", name, backoff)
+			time.Sleep(backoff)
+			if backoff < 30*time.Second {
+				backoff *= 2
+				if backoff > 30*time.Second {
+					backoff = 30 * time.Second
+				}
+			}
+		}
+	}()
+}
+
 var ospfLogs []string
 var ospfLogsMu sync.RWMutex
 var syncStaticRoutesToOSPFFunc = syncStaticRoutesToOSPF

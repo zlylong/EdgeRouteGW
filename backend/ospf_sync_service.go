@@ -91,6 +91,11 @@ func scheduleStaticRouteSync(mode string) {
 		defer func() {
 			if r := recover(); r != nil {
 				log.Printf("[PANIC] OSPF sync: %v", r)
+				// Without this the running flag stayed set and no later
+				// scheduleStaticRouteSync ever started another sync.
+				staticRouteSyncMu.Lock()
+				staticRouteSyncRunning = false
+				staticRouteSyncMu.Unlock()
 			}
 		}()
 		for {

@@ -50,3 +50,6 @@ backend/coverage.out
 # Local agent/session state and curl scratch files
 /.omo/
 backend/cookies.txt
+
+# Agent worktrees
+/.claude/worktrees/

@@ -77,23 +77,7 @@ func isDomainMatch(host string, pattern string) bool {
 	if err != nil {
 		return false
 	}
-	switch parsed.Kind {
-	case domainRulePatternFull:
-		return host == parsed.Base
-	case domainRulePatternSuffix:
-		return host == parsed.Base || strings.HasSuffix(host, "."+parsed.Base)
-	case domainRulePatternSingleLevel:
-		if host == parsed.Base {
-			return true
-		}
-		prefix, ok := strings.CutSuffix(host, "."+parsed.Base)
-		if !ok || prefix == "" {
-			return false
-		}
-		return !strings.Contains(prefix, ".")
-	default:
-		return false
-	}
+	return matchDomainPattern(host, parsed)
 }
 
 func buildXrayDomainRuleValues(value string) ([]string, error) {
