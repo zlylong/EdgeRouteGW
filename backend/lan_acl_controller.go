@@ -1,6 +1,7 @@
 package main
 
 import (
+	"log"
 	"net"
 	"net/http"
 	"strings"
@@ -91,11 +92,17 @@ func (ctl *LanACLController) Create(c *gin.Context) {
 		return
 	}
 
-	if err := ctl.repo.Create(req.Type, req.Value, req.Policy, req.Remark); err != nil {
+	newID, err := ctl.repo.CreateReturningID(req.Type, req.Value, req.Policy, req.Remark)
+	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to add acl"})
 		return
 	}
-	if err := applyNftablesConfig(); err != nil {
+	if err := applyNftablesConfigFn(); err != nil {
+		// The ruleset still reflects the old list; leaving the row would show
+		// an ACL in the UI that the firewall does not enforce.
+		if rbErr := ctl.repo.DeleteByID(newID); rbErr != nil {
+			log.Printf("[WARN] rollback of lan_acl %d after failed apply: %v", newID, rbErr)
+		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to apply nftables: " + err.Error()})
 		return
 	}
@@ -104,11 +111,17 @@ func (ctl *LanACLController) Create(c *gin.Context) {
 
 func (ctl *LanACLController) Delete(c *gin.Context) {
 	id := c.Param("id")
+	prev, getErr := ctl.repo.Get(id)
 	if err := ctl.repo.Delete(id); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "delete failed"})
 		return
 	}
-	if err := applyNftablesConfig(); err != nil {
+	if err := applyNftablesConfigFn(); err != nil {
+		if getErr == nil {
+			if rbErr := ctl.repo.Restore(prev); rbErr != nil {
+				log.Printf("[WARN] restore of lan_acl %s after failed apply: %v", id, rbErr)
+			}
+		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to apply nftables: " + err.Error()})
 		return
 	}
@@ -129,11 +142,15 @@ func (ctl *LanACLController) SetDefaultPolicy(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid policy (proxy|direct)"})
 		return
 	}
+	previous := ctl.repo.GetDefaultPolicy()
 	if err := ctl.repo.SetDefaultPolicy(req.Policy); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "db error"})
 		return
 	}
-	if err := applyNftablesConfig(); err != nil {
+	if err := applyNftablesConfigFn(); err != nil {
+		if rbErr := ctl.repo.SetDefaultPolicy(previous); rbErr != nil {
+			log.Printf("[WARN] restore of lan default policy after failed apply: %v", rbErr)
+		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to apply nftables: " + err.Error()})
 		return
 	}

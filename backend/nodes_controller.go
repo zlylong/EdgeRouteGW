@@ -459,7 +459,7 @@ func (ctl *NodesController) RegisterRoutes(api *gin.RouterGroup) {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "db error"})
 			return
 		}
-		if err := applyNodeChangeDynamically(); err != nil {
+		if err := applyNodeChangeDynamicallyFor(nodeIDToTag(c.Param("id"))); err != nil {
 			log.Printf("[WARN] dynamic node update apply failed, fallback to scheduled apply: %v", err)
 			scheduleApplyFallbackIfRuntimeReady(false)
 		}
@@ -472,7 +472,7 @@ func (ctl *NodesController) RegisterRoutes(api *gin.RouterGroup) {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "db error"})
 			return
 		}
-		if err := applyNodeChangeDynamically(removedTag); err != nil {
+		if err := applyNodeChangeDynamicallyFor(removedTag); err != nil {
 			log.Printf("[WARN] dynamic node delete apply failed, fallback to scheduled apply: %v", err)
 			scheduleApplyFallbackIfRuntimeReady(false)
 		}
@@ -484,7 +484,7 @@ func (ctl *NodesController) RegisterRoutes(api *gin.RouterGroup) {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "db error"})
 			return
 		}
-		if err := applyNodeChangeDynamically(); err != nil {
+		if err := applyNodeChangeDynamicallyFor(nodeIDToTag(c.Param("id"))); err != nil {
 			log.Printf("[WARN] dynamic node toggle apply failed, fallback to scheduled apply: %v", err)
 			scheduleApplyFallbackIfRuntimeReady(false)
 		}

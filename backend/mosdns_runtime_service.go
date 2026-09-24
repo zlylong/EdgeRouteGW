@@ -1,12 +1,15 @@
 package main
 
 import (
+	"bytes"
 	"fmt"
 	"log"
 	"os"
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
+	"time"
 )
 
 func formatUpstreams(addrs string, useSocks bool) string {
@@ -122,10 +125,97 @@ func buildMosdnsProxyDomains(mode string) ([]string, error) {
 	return proxyDomains, nil
 }
 
+// Seams for the service-management side of a mosdns apply so tests can count
+// restarts without systemd.
+var (
+	restartMosdnsFn = func() error { return sysCmd.run("systemctl", "restart", "mosdns") }
+	unitActiveFn    = func(unit string) bool {
+		return sysCmd.run("systemctl", "is-active", "--quiet", unit) == nil
+	}
+)
+
+var (
+	lastMosdnsRestartMu sync.Mutex
+	lastMosdnsRestartAt time.Time
+)
+
+// mosdnsRestartDedupWindow is how recently a restart must have happened for
+// a second one to be skipped: /api/apply and a Mode B Xray apply both used to
+// restart mosdns within the same second.
+const mosdnsRestartDedupWindow = 5 * time.Second
+
+func restartMosdnsTracked() error {
+	if err := restartMosdnsFn(); err != nil {
+		return err
+	}
+	lastMosdnsRestartMu.Lock()
+	lastMosdnsRestartAt = time.Now()
+	lastMosdnsRestartMu.Unlock()
+	return nil
+}
+
+// restartMosdnsUnlessJustRestarted restarts mosdns unless applyMosdnsConfig
+// (or a previous call here) did so within mosdnsRestartDedupWindow.
+func restartMosdnsUnlessJustRestarted(reason string) error {
+	lastMosdnsRestartMu.Lock()
+	recent := !lastMosdnsRestartAt.IsZero() && time.Since(lastMosdnsRestartAt) < mosdnsRestartDedupWindow
+	lastMosdnsRestartMu.Unlock()
+	if recent {
+		log.Printf("[INFO] mosdns restart (%s) skipped: restarted %s ago", reason, time.Since(lastMosdnsRestartAt).Round(time.Millisecond))
+		return nil
+	}
+	return restartMosdnsTracked()
+}
+
+type mosdnsArtifacts struct {
+	config       []byte
+	proxyDomains []byte
+}
+
+// writeFileIfChanged writes content to path unless the file already holds
+// exactly that content. It reports whether anything was written.
+func writeFileIfChanged(path string, content []byte, perm os.FileMode) (bool, error) {
+	if existing, err := os.ReadFile(path); err == nil && bytes.Equal(existing, content) {
+		return false, nil
+	}
+	if err := os.WriteFile(path, content, perm); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+// applyMosdnsConfig renders the mosdns config and proxy-domain set, writes
+// them only if they differ from what is on disk, and restarts mosdns only if
+// something changed or the unit is not running. Every rule add, delete and
+// reorder used to restart mosdns unconditionally, which dropped the DNS
+// cache and in-flight queries for changes (reorders, direct-policy rules)
+// that do not touch its input at all.
 func applyMosdnsConfig() error {
 	applyMutex.Lock()
 	defer applyMutex.Unlock()
-	log.Println("[AUDIT] Applying Mosdns Config")
+	art, err := renderMosdnsArtifacts()
+	if err != nil {
+		return err
+	}
+	domainsChanged, err := writeFileIfChanged(getPath("core", "mosdns", "proxy_domains.txt"), art.proxyDomains, 0644)
+	if err != nil {
+		return fmt.Errorf("failed to write proxy_domains.txt: %v", err)
+	}
+	configChanged, err := writeFileIfChanged(getPath("core", "mosdns", "config.yaml"), art.config, 0644)
+	if err != nil {
+		return fmt.Errorf("failed to write mosdns config.yaml: %v", err)
+	}
+	if !domainsChanged && !configChanged && unitActiveFn("mosdns") {
+		log.Println("[AUDIT] Mosdns config unchanged, restart skipped")
+		return nil
+	}
+	log.Printf("[AUDIT] Applying Mosdns Config (config_changed=%v domains_changed=%v)", configChanged, domainsChanged)
+	return restartMosdnsTracked()
+}
+
+// renderMosdnsArtifacts builds the config.yaml and proxy_domains.txt contents
+// from the current settings and rules without touching disk or systemd.
+func renderMosdnsArtifacts() (mosdnsArtifacts, error) {
 	var local, remote, lazyStr, logLevel, cacheSizeStr, lazyTTLStr string
 
 	if err := getDB().QueryRow("SELECT value FROM settings WHERE key='dns_local'").Scan(&local); err != nil {
@@ -154,20 +244,11 @@ func applyMosdnsConfig() error {
 	getDB().QueryRow("SELECT value FROM settings WHERE key='mode'").Scan(&mode)
 	proxyDomains, err := buildMosdnsProxyDomains(mode)
 	if err != nil {
-		return err
+		return mosdnsArtifacts{}, err
 	}
-	if err := os.WriteFile(getPath("core", "mosdns", "proxy_domains.txt"), []byte(strings.Join(proxyDomains, "\n")), 0644); err != nil {
-		return fmt.Errorf("failed to write proxy_domains.txt: %v", err)
-	}
-
 	config := renderMosdnsConfig(local, remote, lazyStr == "true", mode, logLevel, cacheSize, lazyTTL)
-
-	if err := os.WriteFile(getPath("core", "mosdns", "config.yaml"), []byte(config), 0644); err != nil {
-		return fmt.Errorf("failed to write mosdns config.yaml: %v", err)
-	}
-	err = sysCmd.run("systemctl", "restart", "mosdns")
-	if err != nil {
-		return err
-	}
-	return nil
+	return mosdnsArtifacts{
+		config:       []byte(config),
+		proxyDomains: []byte(strings.Join(proxyDomains, "\n")),
+	}, nil
 }

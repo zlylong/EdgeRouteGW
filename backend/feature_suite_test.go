@@ -31,12 +31,12 @@ func setupFeatureSuiteRouter(t *testing.T) *gin.Engine {
 	oldOspfLogs := append([]string(nil), ospfLogs...)
 	oldApplyTimer := applyTimer
 
-	applyMutex.Lock()
+	applyTimerMu.Lock()
 	if applyTimer != nil {
 		applyTimer.Stop()
 		applyTimer = nil
 	}
-	applyMutex.Unlock()
+	applyTimerMu.Unlock()
 	cachedGeosite = nil
 	cachedGeoip = nil
 	ospfLogs = nil
@@ -68,16 +68,18 @@ func setupFeatureSuiteRouter(t *testing.T) *gin.Engine {
 	}
 	setDB(tdb)
 	t.Cleanup(func() {
-		applyMutex.Lock()
+		applyTimerMu.Lock()
 		if applyTimer != nil {
 			applyTimer.Stop()
 			applyTimer = nil
 		}
+		applyTimer = oldApplyTimer
+		applyTimerMu.Unlock()
+		applyMutex.Lock()
 		setDB(oldDB)
 		cachedGeosite = oldCachedGeosite
 		cachedGeoip = oldCachedGeoip
 		ospfLogs = oldOspfLogs
-		applyTimer = oldApplyTimer
 		applyMutex.Unlock()
 		clearSyncMap(&sessions)
 		clearLoginAttempts()

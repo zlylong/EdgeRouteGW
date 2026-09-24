@@ -24,46 +24,83 @@ func applyNodeChangeDynamically(extraRemoveTags ...string) error {
 	return nil
 }
 
-func syncXrayOutboundsDynamically(extraRemoveTags ...string) error {
-	removeTags := map[string]struct{}{}
-	rows, err := getDB().Query("SELECT id FROM nodes")
-	if err != nil {
-		return fmt.Errorf("query node ids failed: %w", err)
-	}
-	for rows.Next() {
-		var id int
-		if rows.Scan(&id) == nil {
-			removeTags[fmt.Sprintf("proxy-%d-out", id)] = struct{}{}
-		}
-	}
-	rows.Close()
-	for _, tag := range extraRemoveTags {
-		t := strings.TrimSpace(tag)
-		if t != "" {
-			removeTags[t] = struct{}{}
-		}
-	}
-	if len(removeTags) > 0 {
-		args := []string{"api", "rmo", "-s", "127.0.0.1:10085"}
-		for tag := range removeTags {
-			args = append(args, tag)
-		}
-		if res := sysCmd.runCombinedOutput(getPath("core", "xray", "xray"), args...); res.Err != nil {
-			msg := strings.ToLower(string(res.Output))
-			if !strings.Contains(msg, "not found") && !strings.Contains(msg, "failed to dial") {
-				return fmt.Errorf("xray api rmo failed: %v, output: %s", res.Err, string(res.Output))
-			}
-		}
-	}
+// runXrayAPI is the seam for "xray api <sub> -s 127.0.0.1:10085 ...".
+var runXrayAPI = func(args ...string) commandResult {
+	full := append([]string{"api"}, args...)
+	return sysCmd.runCombinedOutput(getPath("core", "xray", "xray"), full...)
+}
 
-	proxyOutbounds, err := loadProxyOutboundsFromConfigFile(getPath("core", "xray", "config.json"))
+// applyNodeChangeDynamicallyFor re-syncs only the given outbound tags: it
+// persists the config, removes those outbounds from the running Xray, adds
+// back whichever of them the new config still defines, and refreshes the
+// routing rules. The full path (applyNodeChangeDynamically) tore down and
+// re-added every live outbound on a single node toggle.
+func applyNodeChangeDynamicallyFor(tags ...string) error {
+	if _, err := os.Stat(getPath("core", "xray", "xray")); err != nil {
+		return fmt.Errorf("xray runtime not ready: %w", err)
+	}
+	if err := writeXrayConfigOnly(); err != nil {
+		return fmt.Errorf("write xray config failed: %w", err)
+	}
+	if err := syncXrayOutboundsForTags(tags); err != nil {
+		return err
+	}
+	return syncXrayRoutingRulesDynamically()
+}
+
+func syncXrayOutboundsForTags(tags []string) error {
+	want := make(map[string]struct{}, len(tags))
+	for _, t := range tags {
+		if t = strings.TrimSpace(t); t != "" {
+			want[t] = struct{}{}
+		}
+	}
+	if len(want) == 0 {
+		return nil
+	}
+	if err := xrayRemoveOutbounds(want); err != nil {
+		return err
+	}
+	all, err := loadProxyOutboundsFromConfigFile(getPath("core", "xray", "config.json"))
 	if err != nil {
 		return err
 	}
-	if len(proxyOutbounds) == 0 {
+	selected := make([]map[string]interface{}, 0, len(want))
+	for _, ob := range all {
+		tag, _ := ob["tag"].(string)
+		if _, ok := want[tag]; ok {
+			selected = append(selected, ob)
+		}
+	}
+	return xrayAddOutbounds(selected)
+}
+
+// xrayRemoveOutbounds issues one "rmo" for the given tags. A tag Xray does
+// not know is not an error (a disabled node has no live outbound).
+func xrayRemoveOutbounds(tags map[string]struct{}) error {
+	if len(tags) == 0 {
 		return nil
 	}
-	payload := map[string]interface{}{"outbounds": proxyOutbounds}
+	args := []string{"rmo", "-s", "127.0.0.1:10085"}
+	for tag := range tags {
+		args = append(args, tag)
+	}
+	if res := runXrayAPI(args...); res.Err != nil {
+		msg := strings.ToLower(string(res.Output))
+		if !strings.Contains(msg, "not found") && !strings.Contains(msg, "failed to dial") {
+			return fmt.Errorf("xray api rmo failed: %v, output: %s", res.Err, string(res.Output))
+		}
+	}
+	return nil
+}
+
+// xrayAddOutbounds writes the outbounds to an owner-only temp file and hands
+// it to "ado".
+func xrayAddOutbounds(outbounds []map[string]interface{}) error {
+	if len(outbounds) == 0 {
+		return nil
+	}
+	payload := map[string]interface{}{"outbounds": outbounds}
 	b, err := json.Marshal(payload)
 	if err != nil {
 		return fmt.Errorf("marshal outbounds payload failed: %w", err)
@@ -87,10 +124,40 @@ func syncXrayOutboundsDynamically(extraRemoveTags ...string) error {
 	if err := tmpFile.Close(); err != nil {
 		return fmt.Errorf("write outbounds payload failed: %w", err)
 	}
-	if res := sysCmd.runCombinedOutput(getPath("core", "xray", "xray"), "api", "ado", "-s", "127.0.0.1:10085", tmpPath); res.Err != nil {
+	if res := runXrayAPI("ado", "-s", "127.0.0.1:10085", tmpPath); res.Err != nil {
 		return fmt.Errorf("xray api ado failed: %v, output: %s", res.Err, string(res.Output))
 	}
 	return nil
+}
+
+func syncXrayOutboundsDynamically(extraRemoveTags ...string) error {
+	removeTags := map[string]struct{}{}
+	rows, err := getDB().Query("SELECT id FROM nodes")
+	if err != nil {
+		return fmt.Errorf("query node ids failed: %w", err)
+	}
+	for rows.Next() {
+		var id int
+		if rows.Scan(&id) == nil {
+			removeTags[fmt.Sprintf("proxy-%d-out", id)] = struct{}{}
+		}
+	}
+	rows.Close()
+	for _, tag := range extraRemoveTags {
+		t := strings.TrimSpace(tag)
+		if t != "" {
+			removeTags[t] = struct{}{}
+		}
+	}
+	if err := xrayRemoveOutbounds(removeTags); err != nil {
+		return err
+	}
+
+	proxyOutbounds, err := loadProxyOutboundsFromConfigFile(getPath("core", "xray", "config.json"))
+	if err != nil {
+		return err
+	}
+	return xrayAddOutbounds(proxyOutbounds)
 }
 
 func loadProxyOutboundsFromConfigFile(path string) ([]map[string]interface{}, error) {

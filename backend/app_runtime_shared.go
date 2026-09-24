@@ -261,3 +261,14 @@ var (
 )
 
 var pendingMosdnsApply bool
+
+// Controllers apply runtime config through these seams so tests can make an
+// apply fail and check that the database change is compensated.
+var (
+	applyNftablesConfigFn = func() error { return applyNftablesConfig() }
+	applyMosdnsConfigFn   = func() error { return applyMosdnsConfig() }
+)
+
+// applyTimerMu guards applyTimer and pendingMosdnsApply. It is separate from
+// applyMutex on purpose (see scheduleApplyWithMosdns).
+var applyTimerMu sync.Mutex

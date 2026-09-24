@@ -52,8 +52,8 @@ func renderXrayConfigForFallbackTest(t *testing.T, mode, lanPolicy, failoverMode
 		_ = os.Setenv("PROXYGW_HOME", oldHome)
 	})
 
-	if err := applyXrayConfigInternal(false); err != nil {
-		t.Fatalf("applyXrayConfigInternal(false) error: %v", err)
+	if err := applyXrayConfigInternal(xrayApplyOptions{}); err != nil {
+		t.Fatalf("applyXrayConfigInternal(xrayApplyOptions{}) error: %v", err)
 	}
 
 	payload, err := os.ReadFile(filepath.Join(xrayDir, "config.json"))

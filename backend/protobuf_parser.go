@@ -25,7 +25,32 @@ func parseVarint(data []byte, idx int) (int, int) {
 	return val, idx
 }
 
+// extractGeoIPs returns the IPv4 CIDRs of targetTag. It answers from the
+// version-cached matcher (which already holds every CIDR) and only falls
+// back to a full parse of the file when the matcher cannot be built.
 func extractGeoIPs(filename, targetTag string) []string {
+	if m := loadGeoIPMatcher(filename); m != nil {
+		return m.cidrsForTag(targetTag)
+	}
+	return extractGeoIPsScan(filename, targetTag)
+}
+
+// extractGeoIPsExclude returns the IPv4 CIDRs of every tag except the
+// excluded ones, in file order.
+func extractGeoIPsExclude(filename string, excludeTags ...string) []string {
+	if m := loadGeoIPMatcher(filename); m != nil {
+		return m.cidrsExcluding(excludeTags...)
+	}
+	return extractGeoIPsExcludeScan(filename, excludeTags...)
+}
+
+// sliceWithin reports whether data[idx:idx+n] is in bounds. The legacy
+// parsers indexed without checking and panicked on a truncated file.
+func sliceWithin(data []byte, idx, n int) bool {
+	return idx >= 0 && n >= 0 && idx+n <= len(data)
+}
+
+func extractGeoIPsScan(filename, targetTag string) []string {
 	data, err := os.ReadFile(filename)
 	if err != nil {
 		return nil
@@ -40,6 +65,9 @@ func extractGeoIPs(filename, targetTag string) []string {
 			msgLen, newIdx := parseVarint(data, idx)
 			idx = newIdx
 			endIdx := idx + msgLen
+			if endIdx > len(data) {
+				endIdx = len(data)
+			}
 
 			countryCode := ""
 			var currentIPs []string
@@ -50,12 +78,18 @@ func extractGeoIPs(filename, targetTag string) []string {
 				if field == 0x0A { // Field 1: country_code
 					strLen, newIdx := parseVarint(data, idx)
 					idx = newIdx
+					if !sliceWithin(data, idx, strLen) {
+						return res
+					}
 					countryCode = string(data[idx : idx+strLen])
 					idx += strLen
 				} else if field == 0x12 { // Field 2: cidr
 					cidrLen, newIdx := parseVarint(data, idx)
 					idx = newIdx
 					cidrEnd := idx + cidrLen
+					if cidrEnd > endIdx {
+						cidrEnd = endIdx
+					}
 					var ipBytes []byte
 					prefix := 0
 					for idx < cidrEnd {
@@ -64,6 +98,9 @@ func extractGeoIPs(filename, targetTag string) []string {
 						if f == 0x0A { // Field 1: ip
 							ipLen, nIdx := parseVarint(data, idx)
 							idx = nIdx
+							if !sliceWithin(data, idx, ipLen) {
+								return res
+							}
 							ipBytes = data[idx : idx+ipLen]
 							idx += ipLen
 						} else if f == 0x10 { // Field 2: prefix
@@ -122,7 +159,7 @@ func extractGeoIPs(filename, targetTag string) []string {
 	return res
 }
 
-func extractGeoIPsExclude(filename string, excludeTags ...string) []string {
+func extractGeoIPsExcludeScan(filename string, excludeTags ...string) []string {
 	data, err := os.ReadFile(filename)
 	if err != nil {
 		return nil
@@ -144,6 +181,9 @@ func extractGeoIPsExclude(filename string, excludeTags ...string) []string {
 			msgLen, newIdx := parseVarint(data, idx)
 			idx = newIdx
 			endIdx := idx + msgLen
+			if endIdx > len(data) {
+				endIdx = len(data)
+			}
 
 			countryCode := ""
 			var currentIPs []string
@@ -154,12 +194,18 @@ func extractGeoIPsExclude(filename string, excludeTags ...string) []string {
 				if field == 0x0A { // Field 1: country_code
 					strLen, nIdx := parseVarint(data, idx)
 					idx = nIdx
+					if !sliceWithin(data, idx, strLen) {
+						return res
+					}
 					countryCode = strings.ToUpper(string(data[idx : idx+strLen]))
 					idx += strLen
 				} else if field == 0x12 { // Field 2: cidr
 					cidrLen, nIdx := parseVarint(data, idx)
 					idx = nIdx
 					cidrEnd := idx + cidrLen
+					if cidrEnd > endIdx {
+						cidrEnd = endIdx
+					}
 					var ipBytes []byte
 					prefix := 0
 					for idx < cidrEnd {
@@ -168,6 +214,9 @@ func extractGeoIPsExclude(filename string, excludeTags ...string) []string {
 						if f == 0x0A { // Field 1: ip
 							ipLen, nn := parseVarint(data, idx)
 							idx = nn
+							if !sliceWithin(data, idx, ipLen) {
+								return res
+							}
 							ipBytes = data[idx : idx+ipLen]
 							idx += ipLen
 						} else if f == 0x10 { // Field 2: prefix

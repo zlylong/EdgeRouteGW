@@ -159,9 +159,13 @@ func cronUpdater() {
 	}
 }
 
+// scheduleApplyWithMosdns arms (or re-arms) the debounced full apply. It
+// takes applyTimerMu, not applyMutex: the latter is held across xray -test
+// and systemctl restart, so merely scheduling a fallback used to block a
+// request for the duration of a running apply.
 func scheduleApplyWithMosdns(needMosdns bool) {
-	applyMutex.Lock()
-	defer applyMutex.Unlock()
+	applyTimerMu.Lock()
+	defer applyTimerMu.Unlock()
 	if needMosdns {
 		pendingMosdnsApply = true
 	}
@@ -169,10 +173,10 @@ func scheduleApplyWithMosdns(needMosdns bool) {
 		applyTimer.Stop()
 	}
 	applyTimer = time.AfterFunc(3*time.Second, func() {
-		applyMutex.Lock()
+		applyTimerMu.Lock()
 		runMosdns := pendingMosdnsApply
 		pendingMosdnsApply = false
-		applyMutex.Unlock()
+		applyTimerMu.Unlock()
 
 		if runMosdns {
 			if err := applyMosdnsConfig(); err != nil {

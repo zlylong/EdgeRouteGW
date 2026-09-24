@@ -85,6 +85,35 @@ func (ctl *DNSController) SetDNS(c *gin.Context) {
 		return
 	}
 
+	// Snapshot the current settings so a failed mosdns apply can put them
+	// back instead of leaving the UI showing values mosdns never loaded.
+	prevLocal, _ := ctl.repo.GetSetting("dns_local")
+	prevRemote, _ := ctl.repo.GetSetting("dns_remote")
+	prevLazy, _ := ctl.repo.GetSetting("dns_lazy")
+	prevMode, _ := ctl.repo.GetSetting("dns_mode")
+	prevLogLevel, _ := ctl.repo.GetSetting("dns_log_level")
+	prevCacheSize, _ := ctl.repo.GetSetting("dns_cache_size")
+	prevLazyTTL, _ := ctl.repo.GetSetting("dns_lazy_ttl")
+	restore := func() {
+		_ = ctl.repo.UpsertSetting("dns_local", prevLocal)
+		_ = ctl.repo.UpsertSetting("dns_remote", prevRemote)
+		_ = ctl.repo.UpsertSetting("dns_lazy", prevLazy)
+		_ = ctl.repo.UpsertSetting("dns_mode", prevMode)
+		if prevLogLevel != "" {
+			_ = ctl.repo.UpsertSetting("dns_log_level", prevLogLevel)
+		}
+		if prevCacheSize != "" {
+			_ = ctl.repo.UpsertSetting("dns_cache_size", prevCacheSize)
+		}
+		if prevLazyTTL != "" {
+			_ = ctl.repo.UpsertSetting("dns_lazy_ttl", prevLazyTTL)
+		}
+	}
+	// The OSPF resolve cache only depends on which upstreams answer and on
+	// the mode; a log-level or cache-size change must not throw away every
+	// resolved domain (and re-dig all of them on the next sync).
+	resolverChanged := strings.TrimSpace(prevLocal) != local || strings.TrimSpace(prevRemote) != remote || strings.TrimSpace(prevMode) != mode
+
 	if err := ctl.repo.UpdateSetting("dns_local", local); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "db error"})
 		return
@@ -112,13 +141,16 @@ func (ctl *DNSController) SetDNS(c *gin.Context) {
 		_ = ctl.repo.UpsertSetting("dns_lazy_ttl", strconv.Itoa(req.LazyTTL))
 	}
 
-	if err := applyMosdnsConfig(); err != nil {
+	if err := applyMosdnsConfigFn(); err != nil {
+		restore()
 		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": "Mosdns failed: " + err.Error()})
 		return
 	}
-	// Clear domain resolve cache to ensure new DNS settings take effect for OSPF
-	_, _ = getDB().Exec("DELETE FROM domain_resolve_cache")
-	log.Println("[INFO] Cleared domain_resolve_cache due to DNS settings update")
+	if resolverChanged {
+		// Clear domain resolve cache to ensure new DNS settings take effect for OSPF
+		_, _ = getDB().Exec("DELETE FROM domain_resolve_cache")
+		log.Println("[INFO] Cleared domain_resolve_cache due to DNS upstream/mode update")
+	}
 
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
