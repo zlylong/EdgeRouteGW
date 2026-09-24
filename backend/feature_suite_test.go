@@ -2,7 +2,6 @@ package main
 
 import (
 	"container/ring"
-	"database/sql"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -32,17 +31,24 @@ func setupFeatureSuiteRouter(t *testing.T) *gin.Engine {
 	oldOspfLogs := append([]string(nil), ospfLogs...)
 	oldApplyTimer := applyTimer
 
-	applyMutex.Lock()
+	applyTimerMu.Lock()
 	if applyTimer != nil {
 		applyTimer.Stop()
 		applyTimer = nil
 	}
-	applyMutex.Unlock()
+	applyTimerMu.Unlock()
 	cachedGeosite = nil
 	cachedGeoip = nil
 	ospfLogs = nil
 	clearSyncMap(&sessions)
 	clearLoginAttempts()
+	oldLoginDelay := loginSlowdownDelay
+	loginSlowdownDelay = 0
+	// Event throttling is keyed on peer IP and every test uses the same
+	// httptest peer; a previous test must not suppress this one's events.
+	gatewayEventThrottleMu.Lock()
+	clear(gatewayEventLastAt)
+	gatewayEventThrottleMu.Unlock()
 
 	root := t.TempDir()
 	t.Setenv("PROXYGW_HOME", root)
@@ -56,25 +62,28 @@ func setupFeatureSuiteRouter(t *testing.T) *gin.Engine {
 	mustWriteFile(t, filepath.Join(root, "core", "frr", "frr.conf"), "router ospf\n ospf router-id 192.168.20.154\n")
 
 	dbPath := filepath.Join(root, "feature.db")
-	tdb, err := sql.Open("sqlite3", dbPath)
+	tdb, err := openSQLite(dbPath)
 	if err != nil {
 		t.Fatal(err)
 	}
 	setDB(tdb)
 	t.Cleanup(func() {
-		applyMutex.Lock()
+		applyTimerMu.Lock()
 		if applyTimer != nil {
 			applyTimer.Stop()
 			applyTimer = nil
 		}
+		applyTimer = oldApplyTimer
+		applyTimerMu.Unlock()
+		applyMutex.Lock()
 		setDB(oldDB)
 		cachedGeosite = oldCachedGeosite
 		cachedGeoip = oldCachedGeoip
 		ospfLogs = oldOspfLogs
-		applyTimer = oldApplyTimer
 		applyMutex.Unlock()
 		clearSyncMap(&sessions)
 		clearLoginAttempts()
+		loginSlowdownDelay = oldLoginDelay
 		_ = tdb.Close()
 		featureSuiteMu.Unlock()
 	})

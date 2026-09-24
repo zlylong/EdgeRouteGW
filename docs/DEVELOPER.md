@@ -7,9 +7,9 @@ Warning: Identity file .ssh/id_ed25519 not accessible: No such file or directory
 
 EdgeRouteGW 是一个高度整合的网络系统。开发者坚信 **原生至上 (Native First)**，完全摒弃了 Docker 容器化带来的网络损耗、内核隔离复杂度以及额外开销，采用 Debian 原生裸机部署：
 
-- **后端 (Go 1.25+)**：基于 Gin 框架，处理配置文件的动态生成、节点并发测速、系统服务守护任务与 Web API 支持。
-- **前端 (Vue 3 + TailwindCSS)**：SPA 单页应用，极致的防抖与锁控制体验，编译产物存放在 `frontend/dist`，完全脱机可用。
-- **数据持久化**：SQLite 3。已在代码层开启 **WAL (Write-Ahead Logging) 模式**，解决了默认模式下的高并发读写锁 (`database is locked`) 问题。
+- **后端 (Go 1.26+)**：基于 Gin 框架，处理配置文件的动态生成、节点并发测速、系统服务守护任务与 Web API 支持。HTTP Server 带读头/空闲超时与 SIGTERM 优雅关闭，JSON 与静态资源默认 gzip。
+- **前端 (Vue 3 + TailwindCSS)**：单文件 SPA，`frontend/dist/index.html` 即源码（应用脚本位于 `frontend/dist/libs/app.js`），使用 Vue 生产版构建与**预编译**的 Tailwind CSS（`frontend/dist/libs/app.css`），完全脱机可用。修改了模板中的类名后需运行 `scripts/build_frontend_css.sh` 重新生成 CSS（配置见 `frontend/tailwind.config.js`，动态拼接的类名需列入 `safelist`）。
+- **数据持久化**：SQLite 3。通过 DSN 为**每个连接**启用 WAL、`busy_timeout=5000` 与 `synchronous=NORMAL`（PRAGMA 仅作用于单个连接，曾导致其余连接 `busy_timeout=0`），连接池上限 8；多处代码在持有游标时继续执行语句，因此不能把连接池缩到 1。
 
 ## 🚀 核心网络组件与协作
 
@@ -58,7 +58,7 @@ EdgeRouteGW 是一个高度整合的网络系统。开发者坚信 **原生至�
 
 3. **域名解析缓存（按 resolver_group 分组）**
    - `domain_resolve_cache` key：`remote:<domain>` / `local:<domain>`。
-   - 优先 `host -t A -v` 提取 ANSWER SECTION TTL，失败回退 Go resolver。
+   - 通过 `dig +noall +answer @127.0.0.1` 查询本机 Mosdns，取应答中最小的 A 记录 TTL（`+short` 会丢弃 TTL，此前所有域名都落到 300s 下限）。
    - TTL clamp 到 `300~3600s`；刷新失败有旧缓存时走 stale fallback。
 
 4. **domain -> CIDR 提升与锁定**
@@ -137,6 +137,7 @@ EdgeRouteGW 是一个高度整合的网络系统。开发者坚信 **原生至�
 所有关键组件（EdgeRouteGW Backend, Xray, Mosdns）的守护进程均运行在受限的 Systemd 权限沙箱中，防范 Shell 注入与越权攻击：
 - `ProtectSystem=strict`: 锁定整个底层 Linux 文件系统为只读。
 - `ReadWritePaths=-/root/proxygw -/usr/local/bin -/etc/frr`: 基于最小权限原则，仅放开当前服务必要的读写目录。
+- `RuntimeDirectory=proxygw` + `RuntimeDirectoryPreserve=yes`: `ProtectSystem=strict` 下 `/run` 只读，Xray 访问日志与连接追踪使用的 `/run/proxygw` 由 systemd 创建并在后端重启时保留。
 - `NoNewPrivileges=yes`: 彻底阻断任何形式的 SUID 提权操作。
 - `PrivateTmp=yes`: 隔离系统临时文件空间。
 
@@ -145,6 +146,13 @@ EdgeRouteGW 是一个高度整合的网络系统。开发者坚信 **原生至�
 为了防止公共加速节点或镜像站点（如 mirror.ghproxy.com）发起的中间人篡改攻击，后端在执行二进制与规则更新时，实施了严格的安全校验：
 - **Xray 更新**：同步拉取 GitHub Release 中的 `.dgst` 文件，在内存中完成 SHA256/512 比对。若哈希不符，直接丢弃阻断安装。
 - **GeoData 更新**：同步拉取 `.sha256sum` 并执行强校验，全程使用官方直连。
+
+## 🔁 配置下发与重启策略
+
+- **mosdns**：`applyMosdnsConfig()` 先渲染 `config.yaml` 与 `proxy_domains.txt`，仅在内容与磁盘不同时写入，仅在有变化或服务未运行时重启。规则重排、direct 策略域名不会触发重启。Mode B 下 Xray 下发附带的 FakeIP 缓存刷新重启在 5s 内去重。
+- **Xray**：规则/节点变更走动态路径（`xray api adrules/rmo/ado`），配置文件同步落盘；节点编辑只重同步该节点 tag 的出站。启动时若渲染结果与磁盘一致且服务运行中则跳过重启（`PROXYGW_FORCE_RESTART_ON_BOOT=1` 强制重启）；显式 `/api/apply` 与模式切换始终重启。
+- **失败补偿**：设备分流、保护 IP、DNS 设置在下发失败时回滚数据库变更；动态路径失败时 3 秒防抖后回退为完整 apply（定时器使用独立的 `applyTimerMu`，不再与跨 `systemctl restart` 持有的 `applyMutex` 争抢）。
+- **测试 seam**：`restartMosdnsFn`、`restartXrayFn`、`unitActiveFn`、`runXrayAPI`、`applyNftablesConfigFn`、`applyMosdnsConfigFn`、`probeVersion`、`probeUnitActive`、`runJournalctl`、`runDig` 等包级函数变量可在测试中替换。
 
 ## 🔧 系统内核级调优
 
@@ -212,9 +220,9 @@ EdgeRouteGW 提供了完整的多层级自动化测试体系，所有测试脚�
 
 ### 后端测试统计（当前）
 
-- **测试总数**: 115+ 个功能测试，覆盖 API/OSPF/Rules/DNS 等模块
-- **基准测试**: 10 个基准测试（GeoQuery、System 等）
-- **代码覆盖率**: ~56.4%（backend subsystem）
+- **测试总数**: 230+ 个功能测试，覆盖 API/OSPF/Rules/DNS/连接追踪/远程部署等模块
+- **基准测试**: 11 个基准测试（GeoQuery、System、连接关联等）
+- **代码覆盖率**: ~63%（backend 主包）
 - **竞态检测**: 全部通过（`go test -race`）
 - **测试套件**: `setupFeatureSuiteRouter` HTTP 集成测试（含 SQLite 内存数据库与种子数据）
 

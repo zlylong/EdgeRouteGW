@@ -5,6 +5,7 @@ import (
 	"log"
 	"net"
 	"net/url"
+	"runtime/debug"
 	"sort"
 	"strconv"
 	"strings"
@@ -208,7 +209,15 @@ func collectStaticRoutesForMode(mode string, protected map[string]struct{}) (map
 			go func() {
 				defer wg.Done()
 				for idx := range jobs {
-					fn(idx)
+					// A panic in one job must not abandon wg.Wait forever.
+					func() {
+						defer func() {
+							if r := recover(); r != nil {
+								log.Printf("[PANIC] route resolve worker job %d: %v\n%s", idx, r, debug.Stack())
+							}
+						}()
+						fn(idx)
+					}()
 				}
 			}()
 		}

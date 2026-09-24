@@ -44,6 +44,38 @@ func goSafe(fn func()) {
 	}()
 }
 
+// goSafeLoop runs fn in a goroutine and restarts it after a recovered panic
+// with exponential backoff (1s..30s). goSafe only recovers: a background loop
+// that panicked once stayed dead until the next backend restart.
+func goSafeLoop(name string, fn func()) {
+	go func() {
+		backoff := time.Second
+		for {
+			exited := func() (panicked bool) {
+				defer func() {
+					if r := recover(); r != nil {
+						panicked = true
+						log.Printf("[PANIC] %s: %v\n%s", name, r, debug.Stack())
+					}
+				}()
+				fn()
+				return false
+			}()
+			if !exited {
+				return
+			}
+			log.Printf("[WARN] restarting %s in %s after panic", name, backoff)
+			time.Sleep(backoff)
+			if backoff < 30*time.Second {
+				backoff *= 2
+				if backoff > 30*time.Second {
+					backoff = 30 * time.Second
+				}
+			}
+		}
+	}()
+}
+
 var ospfLogs []string
 var ospfLogsMu sync.RWMutex
 var syncStaticRoutesToOSPFFunc = syncStaticRoutesToOSPF
@@ -134,20 +166,35 @@ func clampOspfResolveWorkers(v int) int {
 	}
 }
 
+// readIntSettingWithDefault returns the integer setting stored under key,
+// falling back to (and persisting) the default when the row is missing. It only
+// writes when the stored row is absent or does not parse to the value in
+// effect: this runs on hot paths (the OSPF controller loop, GET /api/ospf), and
+// an unconditional INSERT OR REPLACE turned every read into a write
+// transaction on the SQLite file.
 func readIntSettingWithDefault(key string, fallback int, clamp func(int) int) int {
 	value := fallback
 	var raw string
+	found := false
+	parsedOK := false
 	err := getDB().QueryRow("SELECT value FROM settings WHERE key=?", key).Scan(&raw)
 	switch {
 	case err == nil:
+		found = true
 		if parsed, parseErr := strconv.Atoi(strings.TrimSpace(raw)); parseErr == nil {
 			value = parsed
+			parsedOK = true
 		}
 	case err != sql.ErrNoRows:
 		log.Printf("[WARN] SELECT value FROM settings WHERE key=%q err: %v", key, err)
+		return value
 	}
+	stored := value
 	if clamp != nil {
 		value = clamp(value)
+	}
+	if found && parsedOK && stored == value {
+		return value
 	}
 	if _, err := getDB().Exec("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)", key, strconv.Itoa(value)); err != nil {
 		log.Printf("[WARN] persist default setting %s failed: %v", key, err)
@@ -246,3 +293,14 @@ var (
 )
 
 var pendingMosdnsApply bool
+
+// Controllers apply runtime config through these seams so tests can make an
+// apply fail and check that the database change is compensated.
+var (
+	applyNftablesConfigFn = func() error { return applyNftablesConfig() }
+	applyMosdnsConfigFn   = func() error { return applyMosdnsConfig() }
+)
+
+// applyTimerMu guards applyTimer and pendingMosdnsApply. It is separate from
+// applyMutex on purpose (see scheduleApplyWithMosdns).
+var applyTimerMu sync.Mutex

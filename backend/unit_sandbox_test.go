@@ -48,3 +48,32 @@ func TestSysctlWritePathMatchesWhatTheCodeUses(t *testing.T) {
 		t.Fatalf("ipv4ConfDir is %q; update the unit's ReadWritePaths to match", ipv4ConfDir)
 	}
 }
+
+// ProtectSystem=strict mounts /run read-only. The backend creates runtimeDir
+// for the Xray logs the connection tracker tails, so the unit has to ask
+// systemd for that directory (RuntimeDirectory=) and keep it across backend
+// restarts (RuntimeDirectoryPreserve=yes), otherwise a restart of proxygw
+// deletes the log file out from under a running Xray.
+func TestUnitDeclaresTheRuntimeDirectoryTheBackendWrites(t *testing.T) {
+	want := strings.TrimPrefix(filepath.Clean(runtimeDir), "/run/")
+	if want == "" || strings.Contains(want, "/") {
+		t.Fatalf("runtimeDir %q is not a direct child of /run; RuntimeDirectory= cannot express it", runtimeDir)
+	}
+	for _, f := range []string{
+		"../systemd/proxygw.service",
+		"../scripts/install.sh",
+		"../scripts/update.sh",
+	} {
+		b, err := os.ReadFile(f)
+		if err != nil {
+			t.Fatalf("%s: %v", f, err)
+		}
+		body := string(b)
+		if !strings.Contains(body, "RuntimeDirectory="+want+"\n") {
+			t.Errorf("%s lacks RuntimeDirectory=%s; os.MkdirAll(%q) fails under ProtectSystem=strict", f, want, runtimeDir)
+		}
+		if !strings.Contains(body, "RuntimeDirectoryPreserve=yes\n") {
+			t.Errorf("%s lacks RuntimeDirectoryPreserve=yes; a backend restart would remove Xray's open log", f)
+		}
+	}
+}

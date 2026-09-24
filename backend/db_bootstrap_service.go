@@ -9,17 +9,47 @@ import (
 	"strings"
 )
 
+// sqliteMaxOpenConns bounds the connection pool. SQLite allows one writer at
+// a time; with WAL, readers on other connections proceed while it writes.
+// Several code paths hold an open rows cursor while issuing further
+// statements (config rendering, mode-switch conflict detection, the FRR
+// reconcile), so the pool must never shrink to a single connection; eight
+// leaves headroom for the default resolver worker count as well.
+const sqliteMaxOpenConns = 8
+
+// sqliteDSN builds the connection string for path. journal_mode persists in
+// the database file, but busy_timeout and synchronous are per-connection
+// settings: issuing them as PRAGMAs through database/sql only configures
+// whichever pooled connection happens to run them, and every other connection
+// keeps busy_timeout=0 and fails with "database is locked" under contention.
+// Passing them in the DSN makes the driver apply them to every connection it
+// opens. foreign_keys is deliberately left at the driver default (off): the
+// remote_node_history table declares ON DELETE CASCADE and enabling it would
+// change delete semantics.
+func sqliteDSN(path string) string {
+	return "file:" + path + "?_journal_mode=WAL&_busy_timeout=5000&_synchronous=NORMAL"
+}
+
+// openSQLite opens path with the pool limits and per-connection pragmas the
+// gateway relies on. Tests open their databases through it too so they run
+// against the same configuration as production.
+func openSQLite(path string) (*sql.DB, error) {
+	d, err := sql.Open("sqlite3", sqliteDSN(path))
+	if err != nil {
+		return nil, err
+	}
+	d.SetMaxOpenConns(sqliteMaxOpenConns)
+	d.SetMaxIdleConns(sqliteMaxOpenConns)
+	d.SetConnMaxLifetime(0)
+	return d, nil
+}
+
 func initDB() {
-	var err error
-	db, err = sql.Open("sqlite3", getPath("config", "proxygw.db"))
+	d, err := openSQLite(getPath("config", "proxygw.db"))
 	if err != nil {
 		log.Fatal(err)
 	}
-
-	// Enable WAL mode for high concurrency
-	getDB().Exec("PRAGMA journal_mode=WAL;")
-	getDB().Exec("PRAGMA synchronous=NORMAL;")
-	getDB().Exec("PRAGMA busy_timeout=5000;")
+	setDB(d)
 
 	tables := []string{
 

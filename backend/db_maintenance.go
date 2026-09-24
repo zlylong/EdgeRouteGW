@@ -6,9 +6,12 @@ import (
 	"time"
 )
 
+// maintenanceInitialDelay keeps the first prune away from the startup burst.
+var maintenanceInitialDelay = 5 * time.Minute
+
 func runDatabaseMaintenance() {
-	// Wait a bit after startup to avoid contention
-	time.Sleep(5 * time.Minute)
+	initial := time.NewTimer(maintenanceInitialDelay)
+	<-initial.C
 
 	maintenanceTicker := time.NewTicker(24 * time.Hour)
 	defer maintenanceTicker.Stop()
@@ -44,55 +47,65 @@ func rotateLogs() {
 	}
 }
 
+type dbPruneQuery struct {
+	name string
+	sql  string
+}
+
+// dbPruneQueries is the retention policy applied by the daily maintenance job.
+// It is a package variable so tests can run a single entry against a seeded DB.
+var dbPruneQueries = []dbPruneQuery{
+	{
+		// expire_at is written as a Unix timestamp (see resolveDomainIPv4Cached),
+		// not as a datetime string. Comparing it with datetime('now') compared
+		// an INTEGER with TEXT, and in SQLite every integer sorts before every
+		// string, so the predicate matched every row and this job wiped the
+		// whole resolve cache once a day. CAST both sides to integers; legacy
+		// rows that hold a numeric string cast the same way.
+		name: "Expired DNS Cache",
+		sql:  "DELETE FROM domain_resolve_cache WHERE CAST(expire_at AS INTEGER) < CAST(strftime('%s','now') AS INTEGER)",
+	},
+	{
+		name: "API Audit Logs (7d)",
+		sql:  "DELETE FROM gateway_events WHERE module = 'api' AND ts < datetime('now', '-7 days')",
+	},
+	{
+		name: "System Events (30d)",
+		sql:  "DELETE FROM gateway_events WHERE ts < datetime('now', '-30 days')",
+	},
+	{
+		name: "Detailed Traffic History (60d)",
+		sql:  "DELETE FROM traffic_history WHERE ts < datetime('now', '-60 days')",
+	},
+	{
+		name: "Node Traffic History (60d)",
+		sql:  "DELETE FROM node_traffic_history WHERE ts < datetime('now', '-60 days')",
+	},
+	{
+		name: "Remote Node Logs (30d)",
+		sql:  "DELETE FROM remote_node_logs WHERE created_at < datetime('now', '-30 days')",
+	},
+	{
+		name: "Remote Node History (30d)",
+		sql:  "DELETE FROM remote_node_history WHERE created_at < datetime('now', '-30 days')",
+	},
+	{
+		name: "Geosite Expand Cache (30d)",
+		sql:  "DELETE FROM geosite_expand_cache WHERE updated_at < datetime('now', '-30 days')",
+	},
+	{
+		name: "Domain GeoIP Locks (30d)",
+		sql:  "DELETE FROM domain_geoip_lock WHERE updated_at < datetime('now', '-30 days')",
+	},
+}
+
 func performDBPruning() {
 	log.Println("[MAINTENANCE] Starting database pruning...")
 
 	// Log Rotation / Truncation
 	rotateLogs()
 
-	queries := []struct {
-		name string
-		sql  string
-	}{
-		{
-			name: "Expired DNS Cache",
-			sql:  "DELETE FROM domain_resolve_cache WHERE expire_at < datetime('now')",
-		},
-		{
-			name: "API Audit Logs (7d)",
-			sql:  "DELETE FROM gateway_events WHERE module = 'api' AND ts < datetime('now', '-7 days')",
-		},
-		{
-			name: "System Events (30d)",
-			sql:  "DELETE FROM gateway_events WHERE ts < datetime('now', '-30 days')",
-		},
-		{
-			name: "Detailed Traffic History (60d)",
-			sql:  "DELETE FROM traffic_history WHERE ts < datetime('now', '-60 days')",
-		},
-		{
-			name: "Node Traffic History (60d)",
-			sql:  "DELETE FROM node_traffic_history WHERE ts < datetime('now', '-60 days')",
-		},
-		{
-			name: "Remote Node Logs (30d)",
-			sql:  "DELETE FROM remote_node_logs WHERE created_at < datetime('now', '-30 days')",
-		},
-		{
-			name: "Remote Node History (30d)",
-			sql:  "DELETE FROM remote_node_history WHERE created_at < datetime('now', '-30 days')",
-		},
-		{
-			name: "Geosite Expand Cache (30d)",
-			sql:  "DELETE FROM geosite_expand_cache WHERE updated_at < datetime('now', '-30 days')",
-		},
-		{
-			name: "Domain GeoIP Locks (30d)",
-			sql:  "DELETE FROM domain_geoip_lock WHERE updated_at < datetime('now', '-30 days')",
-		},
-	}
-
-	for _, q := range queries {
+	for _, q := range dbPruneQueries {
 		res, err := getDB().Exec(q.sql)
 		if err != nil {
 			log.Printf("[MAINTENANCE] Failed to prune %s: %v", q.name, err)

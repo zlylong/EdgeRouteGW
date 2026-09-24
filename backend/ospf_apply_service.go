@@ -2,19 +2,53 @@ package main
 
 import (
 	"bytes"
+	"database/sql"
+	"errors"
 	"fmt"
 	"log"
 	"strings"
 	"time"
 )
 
-func contains(slice []string, val string) bool {
-	for _, item := range slice {
-		if item == val {
-			return true
-		}
+// execInTx runs fn inside a transaction on the active DB and rolls back on
+// any error. The OSPF batch writers used to ignore Begin/Exec/Commit errors
+// entirely, which panicked on a nil *sql.Tx when the DB was unavailable.
+func execInTx(fn func(tx *sql.Tx) error) error {
+	d := getDB()
+	if d == nil {
+		return errors.New("database not initialised")
 	}
-	return false
+	tx, err := d.Begin()
+	if err != nil {
+		return err
+	}
+	if err := fn(tx); err != nil {
+		_ = tx.Rollback()
+		return err
+	}
+	return tx.Commit()
+}
+
+// markRoutesFailedPolicy moves candidates that policy or the allowlist
+// rejected to failed_policy so they are not retried every cycle. Routes in
+// except are left alone.
+func markRoutesFailedPolicy(ips []string, except map[string]struct{}) error {
+	return execInTx(func(tx *sql.Tx) error {
+		stmt, err := tx.Prepare("UPDATE routes_table SET status='failed_policy', miss_count=miss_count+1 WHERE ip=? AND status='candidate'")
+		if err != nil {
+			return err
+		}
+		defer stmt.Close()
+		for _, ip := range ips {
+			if _, skip := except[ip]; skip {
+				continue
+			}
+			if _, err := stmt.Exec(ip); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
 }
 
 func applyOspfDeleteBatch(toDel []string) bool {
@@ -40,11 +74,22 @@ func applyOspfDeleteBatch(toDel []string) bool {
 		log.Printf("[FRR] DEL batch=%d apply_failed: %v, out=%q", len(applied), err, strings.TrimSpace(out))
 		return false
 	}
-	tx, _ := getDB().Begin()
-	for _, ip := range applied {
-		tx.Exec("DELETE FROM routes_table WHERE ip=?", ip)
+	if err := execInTx(func(tx *sql.Tx) error {
+		stmt, err := tx.Prepare("DELETE FROM routes_table WHERE ip=?")
+		if err != nil {
+			return err
+		}
+		defer stmt.Close()
+		for _, ip := range applied {
+			if _, err := stmt.Exec(ip); err != nil {
+				return err
+			}
+		}
+		return nil
+	}); err != nil {
+		log.Printf("[FRR] DEL batch=%d applied via vtysh but routes_table update failed: %v", len(applied), err)
+		return false
 	}
-	tx.Commit()
 	log.Printf("[FRR] DEL batch=%d applied via vtysh", len(applied))
 	return true
 }
@@ -81,12 +126,9 @@ func applyOspfAddBatch(toAdd []string) bool {
 			log.Printf("[FRR] ADD blocked by ospf publish allowlist: requested=%d skipped=%d", len(toAdd), skipped)
 			// GC blocked candidates: if a candidate is blocked by policy/allowlist,
 			// mark it as 'failed_policy' so it doesn't stay in 'candidate' forever.
-			tx, _ := getDB().Begin()
-			for _, ip := range toAdd {
-				// We don't want to keep retrying these in every sync cycle
-				tx.Exec("UPDATE routes_table SET status='failed_policy', miss_count=miss_count+1 WHERE ip=? AND status='candidate'", ip)
+			if err := markRoutesFailedPolicy(toAdd, nil); err != nil {
+				log.Printf("[FRR] mark blocked candidates failed: %v", err)
 			}
-			tx.Commit()
 		}
 		return false
 	}
@@ -95,17 +137,30 @@ func applyOspfAddBatch(toAdd []string) bool {
 		log.Printf("[FRR] ADD batch=%d apply_failed: %v, out=%q", len(allowed), err, strings.TrimSpace(out))
 		return false
 	}
-	tx, _ := getDB().Begin()
+	allowedSet := make(map[string]struct{}, len(allowed))
 	for _, ip := range allowed {
-		tx.Exec("UPDATE routes_table SET status='published', last_seen=datetime('now'), miss_count=0 WHERE ip=?", ip)
+		allowedSet[ip] = struct{}{}
+	}
+	if err := execInTx(func(tx *sql.Tx) error {
+		stmt, err := tx.Prepare("UPDATE routes_table SET status='published', last_seen=datetime('now'), miss_count=0 WHERE ip=?")
+		if err != nil {
+			return err
+		}
+		defer stmt.Close()
+		for _, ip := range allowed {
+			if _, err := stmt.Exec(ip); err != nil {
+				return err
+			}
+		}
+		return nil
+	}); err != nil {
+		log.Printf("[FRR] ADD batch=%d applied via vtysh but routes_table update failed: %v", len(allowed), err)
+		return false
 	}
 	// Also mark skipped ones in this batch if some were allowed
-	for _, ip := range toAdd {
-		if !contains(allowed, ip) {
-			tx.Exec("UPDATE routes_table SET status='failed_policy', miss_count=miss_count+1 WHERE ip=? AND status='candidate'", ip)
-		}
+	if err := markRoutesFailedPolicy(toAdd, allowedSet); err != nil {
+		log.Printf("[FRR] mark skipped candidates failed: %v", err)
 	}
-	tx.Commit()
 	if skipped > 0 {
 		log.Printf("[FRR] ADD batch=%d applied via vtysh (allowlist_skipped=%d)", len(allowed), skipped)
 	} else {

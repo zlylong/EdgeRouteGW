@@ -54,8 +54,13 @@ func (s *AppService) Bootstrap() {
 	goSafe(cronUpdater)
 	goSafe(domainIPUpdater)
 	goSafe(runDatabaseMaintenance)
-	applyMosdnsConfig()
-	applyXrayConfig()
+	goSafe(remoteNodeHealthLoop)
+	if err := applyMosdnsConfig(); err != nil {
+		log.Printf("[WARN] applyMosdnsConfig on startup failed: %v", err)
+	}
+	if err := applyXrayConfigOnStartup(); err != nil {
+		log.Printf("[WARN] applyXrayConfig on startup failed: %v", err)
+	}
 	if err := applyNftablesConfig(); err != nil {
 		log.Printf("[WARN] applyNftablesConfig on startup failed: %v", err)
 	}

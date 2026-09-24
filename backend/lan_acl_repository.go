@@ -40,11 +40,37 @@ func (r *LanACLRepository) GetDefaultPolicy() string {
 }
 
 func (r *LanACLRepository) Create(typ, value, policy, remark string) error {
-	_, err := getDB().Exec("INSERT INTO lan_acls (type, value, policy, remark) VALUES (?, ?, ?, ?)", typ, value, policy, remark)
+	_, err := r.CreateReturningID(typ, value, policy, remark)
+	return err
+}
+
+func (r *LanACLRepository) CreateReturningID(typ, value, policy, remark string) (int64, error) {
+	res, err := getDB().Exec("INSERT INTO lan_acls (type, value, policy, remark) VALUES (?, ?, ?, ?)", typ, value, policy, remark)
+	if err != nil {
+		return 0, err
+	}
+	return res.LastInsertId()
+}
+
+func (r *LanACLRepository) Get(id string) (LanACLRecord, error) {
+	var rec LanACLRecord
+	err := getDB().QueryRow("SELECT id, type, value, policy, remark, created_at FROM lan_acls WHERE id=?", id).
+		Scan(&rec.ID, &rec.Type, &rec.Value, &rec.Policy, &rec.Remark, &rec.CreatedAt)
+	return rec, err
+}
+
+// Restore re-inserts a record (with its original id) after a delete whose
+// follow-up apply failed.
+func (r *LanACLRepository) Restore(rec LanACLRecord) error {
+	_, err := getDB().Exec("INSERT INTO lan_acls (id, type, value, policy, remark, created_at) VALUES (?, ?, ?, ?, ?, ?)", rec.ID, rec.Type, rec.Value, rec.Policy, rec.Remark, rec.CreatedAt)
 	return err
 }
 
 func (r *LanACLRepository) Delete(id string) error {
+	return execExpectingRow("DELETE FROM lan_acls WHERE id=?", id)
+}
+
+func (r *LanACLRepository) DeleteByID(id int64) error {
 	_, err := getDB().Exec("DELETE FROM lan_acls WHERE id=?", id)
 	return err
 }

@@ -87,9 +87,9 @@ func countOspfNeighborStates(v interface{}) int {
 
 func (ctl *SystemController) HandleStatus(c *gin.Context) {
 	ensureDefaultNetworkRoleSettings()
-	xray := sysCmd.run("systemctl", "is-active", "--quiet", "xray") == nil
-	frr := sysCmd.run("systemctl", "is-active", "--quiet", "frr") == nil
-	mosdns := sysCmd.run("systemctl", "is-active", "--quiet", "mosdns") == nil
+	xray := probeUnitActive("xray")
+	frr := probeUnitActive("frr")
+	mosdns := probeUnitActive("mosdns")
 
 	cpu := readCPUUsage()
 	ram := readMemoryUsage()
@@ -101,28 +101,7 @@ func (ctl *SystemController) HandleStatus(c *gin.Context) {
 		mode = v
 	}
 
-	xrayVer := "Unknown"
-	xrayVersionOut, err := sysCmd.output(getPath("core", "xray", "xray"), "version")
-	if err == nil {
-		xrayVer = parseXrayVersionOutput(string(xrayVersionOut))
-	}
-
-	frrVer := "Unknown"
-	// vtysh cannot answer while frr is stopped (the normal state in Mode A) and
-	// fails with "failed to connect to any daemons" on every status poll.
-	if frr {
-		if out, err := sysCmd.output("vtysh", "-c", "show version"); err == nil {
-			line := strings.TrimSpace(string(out))
-			if line != "" {
-				frrVer = strings.Split(line, "\n")[0]
-			}
-		}
-	}
-
-	osVer := "Unknown"
-	if out, err := sysCmd.output("sh", "-c", ". /etc/os-release 2>/dev/null; echo ${PRETTY_NAME:-Unknown}"); err == nil {
-		osVer = strings.Trim(strings.TrimSpace(string(out)), "\"")
-	}
+	static := loadStatusStaticInfo(frr)
 
 	geoVer := "Unknown"
 	if data, err := os.ReadFile(getPath("core", "mosdns", "geodata.ver")); err == nil && len(data) > 0 {
@@ -135,11 +114,6 @@ func (ctl *SystemController) HandleStatus(c *gin.Context) {
 	upStr := formatBytes(totalMonthUp)
 	downStr := formatBytes(totalMonthDown)
 
-	mosdnsVer := "Unknown"
-	if mosdnsVersionOut, err := sysCmd.output(getPath("core", "mosdns", "mosdns"), "version"); err == nil {
-		mosdnsVer = strings.TrimSpace(string(mosdnsVersionOut))
-	}
-
 	interfaceOptions := listPrivateIPv4Interfaces()
 	managementIface, serviceIface := loadNetworkRoleSettings()
 	managementNetwork, ok := findNetworkByIface(interfaceOptions, managementIface)
@@ -150,26 +124,23 @@ func (ctl *SystemController) HandleStatus(c *gin.Context) {
 	if !ok {
 		serviceNetwork = managementNetwork
 	}
-	commit, binaryBuildTime := getBuildInfo()
-	appVersion := getAppVersion()
-
 	c.JSON(http.StatusOK, gin.H{
 		"status": "running", "mode": mode,
 		"xray": xray, "ospf": frr, "mosdns": mosdns,
-		"xrayVersion": xrayVer, "frrVersion": frrVer, "osVersion": osVer, "appVersion": appVersion, "geoVersion": geoVer, "mosdnsVersion": mosdnsVer,
+		"xrayVersion": static.XrayVersion, "frrVersion": static.FrrVersion, "osVersion": static.OSVersion, "appVersion": static.AppVersion, "geoVersion": geoVer, "mosdnsVersion": static.MosdnsVersion,
 		"cpu": fmt.Sprintf("%.1f", cpu), "ram": fmt.Sprintf("%.1f", ram),
 		"up": upStr, "down": downStr,
 		"interface_options":  interfaceOptions,
 		"management_network": gin.H{"iface": managementNetwork.Name, "ip": managementNetwork.IPv4, "subnet": managementNetwork.Subnet},
 		"service_network":    gin.H{"iface": serviceNetwork.Name, "ip": serviceNetwork.IPv4, "subnet": serviceNetwork.Subnet},
-		"commit":             commit,
-		"binary_build_time":  binaryBuildTime,
+		"commit":             static.Commit,
+		"binary_build_time":  static.BinaryBuildTime,
 	})
 }
 
 func (ctl *SystemController) HandleGetCron(c *gin.Context) {
 	cfg := loadCronScheduleSettings()
-	ctl.repo.SaveCronDefaults(cfg.Time, cfg.ScheduleType, cfg.Weekday, cfg.Monthday)
+	ctl.repo.EnsureCronDefaults(cfg.Time, cfg.ScheduleType, cfg.Weekday, cfg.Monthday)
 	c.JSON(http.StatusOK, gin.H{
 		"enabled":       cfg.Enabled,
 		"time":          cfg.Time,

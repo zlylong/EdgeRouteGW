@@ -104,14 +104,36 @@ func buildBaseXrayConfig(mode string) map[string]interface{} {
 }
 
 func applyXrayConfig() error {
-	return applyXrayConfigInternal(true)
+	return applyXrayConfigInternal(xrayApplyOptions{restart: true})
 }
 
 func writeXrayConfigOnly() error {
-	return applyXrayConfigInternal(false)
+	return applyXrayConfigInternal(xrayApplyOptions{})
 }
 
-func applyXrayConfigInternal(restart bool) error {
+// applyXrayConfigOnStartup is the boot-time apply. Every backend start used
+// to restart Xray (and, in Mode B, mosdns) even though the rendered config
+// was byte-identical to the one Xray was already running: writeXrayConfigOnly
+// persists after every dynamic change, and any failed dynamic change already
+// schedules a full apply. So when the config on disk is unchanged and the
+// unit is active, the restart is skipped and a systemctl restart proxygw no
+// longer interrupts traffic. PROXYGW_FORCE_RESTART_ON_BOOT=1 restores the
+// old behaviour.
+func applyXrayConfigOnStartup() error {
+	force := os.Getenv("PROXYGW_FORCE_RESTART_ON_BOOT") == "1"
+	return applyXrayConfigInternal(xrayApplyOptions{restart: true, skipRestartIfUnchanged: !force})
+}
+
+type xrayApplyOptions struct {
+	restart                bool
+	skipRestartIfUnchanged bool
+}
+
+// Seams for the service side of an Xray apply.
+var restartXrayFn = func() error { return sysCmd.run("systemctl", "restart", "xray") }
+
+func applyXrayConfigInternal(opts xrayApplyOptions) error {
+	restart := opts.restart
 	applyMutex.Lock()
 	defer applyMutex.Unlock()
 	if restart {
@@ -483,16 +505,29 @@ func applyXrayConfigInternal(restart bool) error {
 	// config.json holds every node's credentials (VLESS UUIDs, Trojan and
 	// Shadowsocks passwords). Only root reads it -- xray and this backend both
 	// run as root -- so there is no reason for it to be world-readable.
-	if err := os.WriteFile(getPath("core", "xray", "config.json"), configData, 0600); err != nil {
+	configPath := getPath("core", "xray", "config.json")
+	changed, err := writeFileIfChanged(configPath, configData, 0600)
+	if err != nil {
 		return fmt.Errorf("failed to write xray config.json: %v", err)
+	}
+	if err := os.Chmod(configPath, 0600); err != nil {
+		log.Printf("[WARN] chmod xray config.json: %v", err)
 	}
 	if !restart {
 		return nil
 	}
+	if opts.skipRestartIfUnchanged && !changed && unitActiveFn("xray") {
+		log.Println("[AUDIT] Xray config unchanged and unit active, restart skipped")
+		return nil
+	}
 	cleanupTransientWireguardInterfaces()
 	if mode == "B" {
-		// Flush Mosdns FakeIP cache by restarting it, ensuring consistency with Xray's new session
-		_ = sysCmd.run("systemctl", "restart", "mosdns")
+		// Flush the Mosdns FakeIP cache by restarting it so its mappings stay
+		// consistent with Xray's new session; skipped when applyMosdnsConfig
+		// restarted it a moment ago (the /api/apply path).
+		if err := restartMosdnsUnlessJustRestarted("fakeip flush"); err != nil {
+			log.Printf("[WARN] mosdns restart for fakeip flush failed: %v", err)
+		}
 	}
-	return sysCmd.run("systemctl", "restart", "xray")
+	return restartXrayFn()
 }

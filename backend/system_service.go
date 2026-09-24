@@ -236,15 +236,42 @@ func readCPUUsage() float64 {
 		}
 		return
 	}
-	idle1, total1 := getStat()
-	time.Sleep(200 * time.Millisecond)
-	idle2, total2 := getStat()
-
-	if total2-total1 > 0 {
-		return 100.0 * (1.0 - (idle2-idle1)/(total2-total1))
+	idle, total := getStat()
+	cpuSampleMu.Lock()
+	defer cpuSampleMu.Unlock()
+	if cpuLastTotal == 0 || total < cpuLastTotal {
+		// First sample since start: take a short second sample so the very
+		// first poll after boot still reports a number. Every later call
+		// measures against the previous poll instead of sleeping.
+		cpuSampleMu.Unlock()
+		time.Sleep(200 * time.Millisecond)
+		idle2, total2 := getStat()
+		cpuSampleMu.Lock()
+		if total2-total > 0 {
+			cpuLastValue = 100.0 * (1.0 - (idle2-idle)/(total2-total))
+		} else {
+			cpuLastValue = 0
+		}
+		cpuLastIdle, cpuLastTotal, cpuLastAt = idle2, total2, time.Now()
+		return cpuLastValue
 	}
-	return 0
+	// Two polls closer than the sample window would divide by a handful of
+	// jiffies and produce noise; keep the previous reading instead.
+	if time.Since(cpuLastAt) < 200*time.Millisecond || total-cpuLastTotal <= 0 {
+		return cpuLastValue
+	}
+	cpuLastValue = 100.0 * (1.0 - (idle-cpuLastIdle)/(total-cpuLastTotal))
+	cpuLastIdle, cpuLastTotal, cpuLastAt = idle, total, time.Now()
+	return cpuLastValue
 }
+
+var (
+	cpuSampleMu  sync.Mutex
+	cpuLastIdle  float64
+	cpuLastTotal float64
+	cpuLastAt    time.Time
+	cpuLastValue float64
+)
 
 func readMemoryUsage() float64 {
 	f, err := os.Open("/proc/meminfo")
@@ -362,14 +389,16 @@ func ensureDefaultNetworkRoleSettings() {
 		return
 	}
 	managementIface, serviceIface := loadNetworkRoleSettings()
+	if managementIface != "" && serviceIface != "" {
+		return
+	}
 	if managementIface == "" {
 		managementIface = options[0].Name
+		_, _ = getDB().Exec("INSERT OR IGNORE INTO settings (key, value) VALUES ('management_iface', ?)", managementIface)
 	}
 	if serviceIface == "" {
-		serviceIface = managementIface
+		_, _ = getDB().Exec("INSERT OR IGNORE INTO settings (key, value) VALUES ('service_iface', ?)", managementIface)
 	}
-	_, _ = getDB().Exec("INSERT OR REPLACE INTO settings (key, value) VALUES ('management_iface', ?)", managementIface)
-	_, _ = getDB().Exec("INSERT OR REPLACE INTO settings (key, value) VALUES ('service_iface', ?)", serviceIface)
 }
 
 func getBuildInfo() (string, string) {

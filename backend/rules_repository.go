@@ -122,8 +122,14 @@ func (r *RulesRepository) GetRuleTypeByID(ruleID string) (string, error) {
 }
 
 func (r *RulesRepository) DeleteRuleByID(ruleID string) error {
-	_, err := r.db.Exec("DELETE FROM rules WHERE id=?", ruleID)
-	return err
+	res, err := r.db.Exec("DELETE FROM rules WHERE id=?", ruleID)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return errNotFound
+	}
+	return nil
 }
 
 func (r *RulesRepository) NextRulePriority(tx *sql.Tx) (int, error) {
@@ -157,16 +163,23 @@ func (r *RulesRepository) InsertRulesBatch(ruleType string, values []string, pol
 	if err != nil {
 		return err
 	}
+	nextPriority, err := r.NextRulePriority(tx)
+	if err != nil {
+		_ = tx.Rollback()
+		return err
+	}
+	stmt, err := tx.Prepare("INSERT INTO rules (type, value, policy, priority, group_id, group_name) VALUES (?, ?, ?, ?, ?, ?)")
+	if err != nil {
+		_ = tx.Rollback()
+		return err
+	}
+	defer stmt.Close()
 	for _, value := range values {
-		nextPriority, err := r.NextRulePriority(tx)
-		if err != nil {
+		if _, err := stmt.Exec(ruleType, value, policy, nextPriority, groupID, groupName); err != nil {
 			_ = tx.Rollback()
 			return err
 		}
-		if _, err := tx.Exec("INSERT INTO rules (type, value, policy, priority, group_id, group_name) VALUES (?, ?, ?, ?, ?, ?)", ruleType, value, policy, nextPriority, groupID, groupName); err != nil {
-			_ = tx.Rollback()
-			return err
-		}
+		nextPriority++
 	}
 	if err := tx.Commit(); err != nil {
 		return err

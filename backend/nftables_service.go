@@ -114,6 +114,8 @@ func nftablesRuntimeBackupPath() string {
 	return filepath.Join(os.TempDir(), "proxygw-nftables-runtime-backup.nft")
 }
 
+var nftablesTemplate = template.Must(template.New("nftables").Parse(nftablesTmpl))
+
 func applyNftablesConfig() error {
 	var defaultPolicy string
 	if err := getDB().QueryRow("SELECT value FROM settings WHERE key='lan_default_policy'").Scan(&defaultPolicy); err != nil {
@@ -221,13 +223,8 @@ func applyNftablesConfig() error {
 		Mode:          mode,
 	}
 
-	tmpl, err := template.New("nftables").Parse(nftablesTmpl)
-	if err != nil {
-		return fmt.Errorf("failed to parse template: %v", err)
-	}
-
 	var buf bytes.Buffer
-	if err := tmpl.Execute(&buf, data); err != nil {
+	if err := nftablesTemplate.Execute(&buf, data); err != nil {
 		return fmt.Errorf("failed to execute template: %v", err)
 	}
 

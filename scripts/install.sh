@@ -153,23 +153,34 @@ if [ -z "$PROXYGW_LATEST" ]; then
     PROXYGW_LATEST=$(curl --retry 3 --connect-timeout 5 --fail -s -4 https://api.github.com/repos/zlylong/EdgeRouteGW/releases/latest | jq -r '.tag_name // empty' || true)
 fi
 
-# Ultimate fallback if both git and API fail (GFW block / no IPv4)
+# Last resort: the newest tag in the clone. There is no hardcoded version
+# any more; an install that cannot determine a release must stop rather than
+# quietly pin an old one.
+if [ -z "$PROXYGW_LATEST" ] && [ -d "$REPO_DIR/.git" ]; then
+    PROXYGW_LATEST=$(cd "$REPO_DIR" && git tag --sort=-v:refname | head -n1 || true)
+fi
 if [ -z "$PROXYGW_LATEST" ]; then
-    echo "Warning: API blocked. Using fallback version v1.8.1..."
-    PROXYGW_LATEST="v1.8.1"
+    echo "Error: could not determine the release tag (git tags and GitHub API both unavailable)"; exit 1
 fi
 
 # verify_backend_checksum FILE ASSET_NAME TAG
 # Releases publish SHA256SUMS next to the binaries. A mismatch is fatal: the
 # file is a root-executed binary and a bad byte is worse than no update. A
-# missing SHA256SUMS is only a warning, because tags older than the one that
-# introduced it (and the hardcoded offline fallback tag) never had one.
+# missing SHA256SUMS is fatal too (fail closed): a blocked or tampered
+# download of the checksum list must not silently disable verification. Set
+# PROXYGW_ALLOW_UNVERIFIED=1 to install a release that predates SHA256SUMS.
 verify_backend_checksum() {
     local file="$1" asset="$2" tag="$3"
     local sums; sums=$(mktemp)
     if ! ${DOWNLOAD_CMD:-wget -q -4 -O} "$sums" "https://github.com/zlylong/EdgeRouteGW/releases/download/${tag}/SHA256SUMS" 2>/dev/null || [ ! -s "$sums" ]; then
-        echo "Warning: no SHA256SUMS published for ${tag}; skipping verification"
-        rm -f "$sums"; return 0
+        rm -f "$sums"
+        if [ "${PROXYGW_ALLOW_UNVERIFIED:-0}" = "1" ]; then
+            echo "Warning: no SHA256SUMS for ${tag}; PROXYGW_ALLOW_UNVERIFIED=1 set, skipping verification"
+            return 0
+        fi
+        echo "Error: could not fetch SHA256SUMS for ${tag}; refusing to install an unverified binary"
+        echo "       (set PROXYGW_ALLOW_UNVERIFIED=1 to override for releases that predate checksums)"
+        rm -f "$file"; return 1
     fi
     local want; want=$(awk -v a="$asset" '$2==a {print $1}' "$sums")
     rm -f "$sums"
@@ -190,6 +201,8 @@ if [ "$ARCH" = "x86_64" ]; then
     BACKEND_ASSET="proxygw-backend-linux-amd64"
 elif [ "$ARCH" = "aarch64" ]; then
     BACKEND_ASSET="proxygw-backend-linux-arm64"
+else
+    echo "Error: unsupported architecture ${ARCH} (need x86_64 or aarch64)"; exit 1
 fi
 wget -q -4 -O "$REPO_DIR/backend/proxygw-backend" "https://github.com/zlylong/EdgeRouteGW/releases/download/${PROXYGW_LATEST}/${BACKEND_ASSET}"
 verify_backend_checksum "$REPO_DIR/backend/proxygw-backend" "$BACKEND_ASSET" "$PROXYGW_LATEST" || exit 1
@@ -220,6 +233,11 @@ ProtectKernelTunables=yes
 ProtectControlGroups=yes
 RestrictSUIDSGID=yes
 ReadWritePaths=-/root/proxygw -/usr/local/bin -/etc/frr -/etc/nftables.conf /proc/sys/net/ipv4/conf
+# ProtectSystem=strict mounts /run read-only; the backend and the connection
+# tracker write the Xray logs under /run/proxygw. Preserve keeps the directory
+# (and Xray's open log file) across backend restarts.
+RuntimeDirectory=proxygw
+RuntimeDirectoryPreserve=yes
 
 [Install]
 WantedBy=multi-user.target

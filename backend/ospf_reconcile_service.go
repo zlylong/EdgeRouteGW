@@ -14,12 +14,33 @@ func reconcilePublishedRoutesWithFRR() {
 		log.Printf("[WARN] OSPF reconcile skip: %v", err)
 		return
 	}
+	// Read the whole set first and close the cursor before opening the write
+	// transaction: holding a reader while writing on a second pooled
+	// connection needs two connections for one goroutine and deadlocks the
+	// moment the pool is exhausted.
+	type staticRouteRow struct {
+		ip     string
+		status string
+	}
+	var staticRows []staticRouteRow
 	rows, err := getDB().Query("SELECT ip, status FROM routes_table WHERE source='static'")
 	if err != nil {
 		log.Printf("[WARN] OSPF reconcile query failed: %v", err)
 		return
 	}
-	defer rows.Close()
+	for rows.Next() {
+		var r staticRouteRow
+		if rows.Scan(&r.ip, &r.status) != nil {
+			continue
+		}
+		staticRows = append(staticRows, r)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		log.Printf("[WARN] OSPF reconcile row err: %v", err)
+		return
+	}
+	rows.Close()
 
 	tx, err := getDB().Begin()
 	if err != nil {
@@ -31,12 +52,8 @@ func reconcilePublishedRoutesWithFRR() {
 	demotedToCandidate := 0
 	totalPublished := 0
 	dbStaticSet := make(map[string]struct{})
-	for rows.Next() {
-		var ip string
-		var status string
-		if rows.Scan(&ip, &status) != nil {
-			continue
-		}
+	for _, r := range staticRows {
+		ip, status := r.ip, r.status
 		routeKey, ok := normalizeRouteKey(ip)
 		if !ok {
 			continue
@@ -57,11 +74,6 @@ func reconcilePublishedRoutesWithFRR() {
 				demotedToCandidate++
 			}
 		}
-	}
-	if err := rows.Err(); err != nil {
-		_ = tx.Rollback()
-		log.Printf("[WARN] OSPF reconcile row err: %v", err)
-		return
 	}
 	if err := tx.Commit(); err != nil {
 		log.Printf("[WARN] OSPF reconcile commit failed: %v", err)

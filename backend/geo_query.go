@@ -87,16 +87,74 @@ type geoIPBucketRule struct {
 	tag     string
 }
 
+// geoCIDRKey is a compact IPv4 CIDR (5 bytes) kept per tag so the expansion
+// helpers can format on demand instead of re-parsing geoip.dat.
+type geoCIDRKey struct {
+	ip     uint32
+	prefix uint8
+}
+
+func (k geoCIDRKey) String() string {
+	return fmt.Sprintf("%d.%d.%d.%d/%d", byte(k.ip>>24), byte(k.ip>>16), byte(k.ip>>8), byte(k.ip), k.prefix)
+}
+
 type geoIPMatcher struct {
 	version string
 	buckets [256][]geoIPBucketRule
 	tags    map[string]struct{}
+	// tagOrder is the order tags appear in the file; cidrsByTag keeps each
+	// tag's IPv4 CIDRs in file order so the expansions are stable.
+	tagOrder   []string
+	cidrsByTag map[string][]geoCIDRKey
+}
+
+// cidrsForTag returns the tag's IPv4 CIDRs formatted as strings.
+func (m *geoIPMatcher) cidrsForTag(tag string) []string {
+	keys := m.cidrsByTag[strings.ToLower(strings.TrimSpace(tag))]
+	out := make([]string, 0, len(keys))
+	for _, k := range keys {
+		out = append(out, k.String())
+	}
+	return out
+}
+
+// cidrsExcluding returns every tag's IPv4 CIDRs except those of the excluded
+// tags, in file order.
+func (m *geoIPMatcher) cidrsExcluding(excludeTags ...string) []string {
+	excluded := make(map[string]struct{}, len(excludeTags))
+	for _, tag := range excludeTags {
+		tag = strings.ToLower(strings.TrimSpace(strings.TrimPrefix(tag, "!")))
+		if tag != "" {
+			excluded[tag] = struct{}{}
+		}
+	}
+	out := make([]string, 0)
+	for _, tag := range m.tagOrder {
+		if _, skip := excluded[tag]; skip {
+			continue
+		}
+		for _, k := range m.cidrsByTag[tag] {
+			out = append(out, k.String())
+		}
+	}
+	return out
 }
 
 type geoSiteCompiledEntry struct {
 	Type  string
 	Value string
+	// Raw is the value as written in the file when it differs from the
+	// lowercased Value (regex patterns can be case-sensitive); the expansion
+	// helpers report it so what they show matches the file.
+	Raw   string
 	Regex *regexp.Regexp
+}
+
+func (e geoSiteCompiledEntry) rawValue() string {
+	if e.Raw != "" {
+		return e.Raw
+	}
+	return e.Value
 }
 
 type geoSiteMatcher struct {
@@ -244,9 +302,14 @@ func loadGeoIPMatcher(filename string) *geoIPMatcher {
 		return cached
 	}
 
-	geoIPMatcherMu.Lock()
-	defer geoIPMatcherMu.Unlock()
+	// Build under a separate mutex so readers of the previous matcher are
+	// not blocked for the duration of the parse; only the swap takes the
+	// write lock.
+	geoIPBuildMu.Lock()
+	defer geoIPBuildMu.Unlock()
+	geoIPMatcherMu.RLock()
 	cached = geoIPMatcherCache[filename]
+	geoIPMatcherMu.RUnlock()
 	if cached != nil && cached.version == ver {
 		return cached
 	}
@@ -256,16 +319,23 @@ func loadGeoIPMatcher(filename string) *geoIPMatcher {
 		log.Printf("[WARN] build geoip matcher failed: %v", err)
 		return nil
 	}
+	geoIPMatcherMu.Lock()
 	geoIPMatcherCache[filename] = matcher
+	geoIPMatcherMu.Unlock()
 	return matcher
 }
+
+var (
+	geoIPBuildMu   sync.Mutex
+	geoSiteBuildMu sync.Mutex
+)
 
 func buildGeoIPMatcher(filename string, version string) (*geoIPMatcher, error) {
 	data, err := os.ReadFile(filename)
 	if err != nil {
 		return nil, err
 	}
-	matcher := &geoIPMatcher{version: version, tags: make(map[string]struct{})}
+	matcher := &geoIPMatcher{version: version, tags: make(map[string]struct{}), cidrsByTag: make(map[string][]geoCIDRKey)}
 	idx := 0
 	for idx < len(data) {
 		if data[idx] != 0x0A {
@@ -293,6 +363,9 @@ func buildGeoIPMatcher(filename string, version string) (*geoIPMatcher, error) {
 					break
 				}
 				tag = strings.ToLower(string(data[idx : idx+strLen]))
+				if _, seen := matcher.tags[tag]; !seen {
+					matcher.tagOrder = append(matcher.tagOrder, tag)
+				}
 				matcher.tags[tag] = struct{}{}
 				idx += strLen
 			case 0x12:
@@ -354,6 +427,7 @@ func buildGeoIPMatcher(filename string, version string) (*geoIPMatcher, error) {
 				for first := startFirst; first <= endFirst; first++ {
 					matcher.buckets[first] = append(matcher.buckets[first], rule)
 				}
+				matcher.cidrsByTag[tag] = append(matcher.cidrsByTag[tag], geoCIDRKey{ip: ipValue, prefix: uint8(prefix)})
 			default:
 				idx = skipProtoField(data, idx, field)
 			}
@@ -432,18 +506,24 @@ func loadGeoSiteMatcher(filename string) *geoSiteMatcher {
 		return cached
 	}
 
-	geoSiteMatcherMu.Lock()
-	defer geoSiteMatcherMu.Unlock()
+	geoSiteBuildMu.Lock()
+	defer geoSiteBuildMu.Unlock()
+	geoSiteMatcherMu.RLock()
 	cached = geoSiteMatcherCache[filename]
+	geoSiteMatcherMu.RUnlock()
 	if cached != nil && cached.version == ver {
 		return cached
 	}
+	// Compiling every regex in geosite.dat takes a while; do it without the
+	// matcher lock so lookups against the previous version keep flowing.
 	matcher, err := buildGeoSiteMatcher(filename, ver)
 	if err != nil {
 		log.Printf("[WARN] build geosite matcher failed: %v", err)
 		return nil
 	}
+	geoSiteMatcherMu.Lock()
 	geoSiteMatcherCache[filename] = matcher
+	geoSiteMatcherMu.Unlock()
 	return matcher
 }
 
@@ -464,12 +544,15 @@ func buildGeoSiteMatcher(filename string, version string) (*geoSiteMatcher, erro
 				continue
 			}
 			ce := geoSiteCompiledEntry{Type: strings.ToLower(strings.TrimSpace(entry.Type)), Value: strings.ToLower(v)}
+			if ce.Value != v {
+				ce.Raw = v
+			}
 			if ce.Type == "regex" {
-				re, err := regexp.Compile(v)
-				if err != nil {
-					continue
+				// An entry whose pattern does not compile is kept (it never
+				// matches) so tag expansions still list it.
+				if re, err := regexp.Compile(v); err == nil {
+					ce.Regex = re
 				}
-				ce.Regex = re
 			}
 			compiled = append(compiled, ce)
 		}
@@ -743,17 +826,29 @@ func queryGeoSiteTagsByDomain(filename, input string) []string {
 	return matches
 }
 
+// geoSiteEntriesForTag returns a tag's entries from the version-cached
+// matcher. The helpers below used to re-read and re-parse the whole
+// geosite.dat (tens of MB, every regex compiled) on every call: once per
+// geosite rule on every mosdns apply, and on every POST /api/rules.
+func geoSiteEntriesForTag(filename, tag string) ([]geoSiteCompiledEntry, bool) {
+	tag = strings.ToLower(strings.TrimSpace(tag))
+	if tag == "" {
+		return nil, false
+	}
+	matcher := loadGeoSiteMatcher(filename)
+	if matcher == nil {
+		return nil, false
+	}
+	entries, ok := matcher.tags[tag]
+	return entries, ok
+}
+
 func extractGeoSiteValues(filename, targetTag string) []string {
-	targetTag = strings.ToLower(strings.TrimSpace(targetTag))
-	values := make([]string, 0)
-	scanGeoSiteEntries(filename, func(tag string, entries []geoSiteDomainEntry) {
-		if tag != targetTag {
-			return
-		}
-		for _, entry := range entries {
-			values = append(values, fmt.Sprintf("%s:%s", entry.Type, entry.Value))
-		}
-	})
+	entries, _ := geoSiteEntriesForTag(filename, targetTag)
+	values := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		values = append(values, fmt.Sprintf("%s:%s", entry.Type, entry.rawValue()))
+	}
 	return values
 }
 
@@ -762,45 +857,36 @@ func extractGeoSiteResolvableDomains(filename, targetTag string) ([]string, int,
 	if targetTag == "" {
 		return nil, 0, nil
 	}
+	if _, err := os.Stat(filename); err != nil {
+		return nil, 0, err
+	}
+	entries, _ := geoSiteEntriesForTag(filename, targetTag)
 	seen := make(map[string]struct{})
 	domains := make([]string, 0)
 	skipped := 0
-	if err := scanGeoSiteEntriesE(filename, func(tag string, entries []geoSiteDomainEntry) {
-		if tag != targetTag {
-			return
-		}
-		for _, entry := range entries {
-			switch entry.Type {
-			case "domain", "full":
-				domain := strings.TrimSuffix(strings.ToLower(strings.TrimSpace(entry.Value)), ".")
-				if domain == "" {
-					continue
-				}
-				if _, ok := seen[domain]; ok {
-					continue
-				}
-				seen[domain] = struct{}{}
-				domains = append(domains, domain)
-			default:
-				skipped++
+	for _, entry := range entries {
+		switch entry.Type {
+		case "domain", "full":
+			domain := strings.TrimSuffix(strings.TrimSpace(entry.Value), ".")
+			if domain == "" {
+				continue
 			}
+			if _, ok := seen[domain]; ok {
+				continue
+			}
+			seen[domain] = struct{}{}
+			domains = append(domains, domain)
+		default:
+			skipped++
 		}
-	}); err != nil {
-		return nil, 0, err
 	}
 	sort.Strings(domains)
 	return domains, skipped, nil
 }
 
 func hasGeoSiteTag(filename, targetTag string) bool {
-	targetTag = strings.ToLower(strings.TrimSpace(targetTag))
-	found := false
-	scanGeoSiteEntries(filename, func(tag string, _ []geoSiteDomainEntry) {
-		if tag == targetTag {
-			found = true
-		}
-	})
-	return found
+	_, ok := geoSiteEntriesForTag(filename, targetTag)
+	return ok
 }
 
 func hasGeoIPTag(filename, targetTag string) bool {

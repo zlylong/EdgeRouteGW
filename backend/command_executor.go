@@ -31,9 +31,16 @@ func newCommandExecutor(maxConcurrent int, timeout time.Duration) *commandExecut
 	return &commandExecutor{sem: make(chan struct{}, maxConcurrent), timeout: timeout}
 }
 
-func (e *commandExecutor) acquire() func() {
-	e.sem <- struct{}{}
-	return func() { <-e.sem }
+// acquire takes a slot in the concurrency semaphore. It gives up when ctx is
+// cancelled so a caller's deadline also bounds the time spent queueing behind
+// slow commands, not just the command's own run time.
+func (e *commandExecutor) acquire(ctx context.Context) (func(), error) {
+	select {
+	case e.sem <- struct{}{}:
+		return func() { <-e.sem }, nil
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
 }
 
 func (e *commandExecutor) runCombinedOutput(name string, args ...string) commandResult {
@@ -58,11 +65,24 @@ const slowCommandThreshold = 2 * time.Second
 // than a failure. "systemctl is-active" exits 3 for a stopped unit, which is
 // the normal state of frr outside Mode B/C.
 func isExpectedProbeFailure(name string, args []string) bool {
-	return name == "systemctl" && len(args) > 0 && args[0] == "is-active"
+	if name == "systemctl" && len(args) > 0 && args[0] == "is-active" {
+		return true
+	}
+	// The traffic monitor polls "xray api statsquery" every two seconds; while
+	// Xray is stopped each poll fails, and the first failure is already
+	// surfaced as a gateway event. Logging every one flooded the journal.
+	if strings.HasSuffix(name, "/xray") || name == "xray" {
+		return len(args) >= 2 && args[0] == "api" && args[1] == "statsquery"
+	}
+	return false
 }
 
 func (e *commandExecutor) runCombinedOutputCtx(ctx context.Context, name string, args ...string) commandResult {
-	release := e.acquire()
+	release, err := e.acquire(ctx)
+	if err != nil {
+		log.Printf("[CMD][queue] gave up waiting for a slot: %v cmd=%s %s", err, name, strings.Join(redactSensitiveCommandArgs(args), " "))
+		return commandResult{Err: err}
+	}
 	defer release()
 	id := atomic.AddUint64(&e.seq, 1)
 	start := time.Now()

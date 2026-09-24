@@ -174,7 +174,7 @@ func syncXrayRoutingRulesDynamically() error {
 	if err := tmpFile.Close(); err != nil {
 		return fmt.Errorf("write routing payload failed: %w", err)
 	}
-	if res := sysCmd.runCombinedOutput(getPath("core", "xray", "xray"), "api", "adrules", "-s", "127.0.0.1:10085", tmp); res.Err != nil {
+	if res := runXrayAPI("adrules", "-s", "127.0.0.1:10085", tmp); res.Err != nil {
 		return fmt.Errorf("xray api adrules failed: %v, output: %s", res.Err, string(res.Output))
 	}
 	return nil

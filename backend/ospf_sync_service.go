@@ -91,6 +91,11 @@ func scheduleStaticRouteSync(mode string) {
 		defer func() {
 			if r := recover(); r != nil {
 				log.Printf("[PANIC] OSPF sync: %v", r)
+				// Without this the running flag stayed set and no later
+				// scheduleStaticRouteSync ever started another sync.
+				staticRouteSyncMu.Lock()
+				staticRouteSyncRunning = false
+				staticRouteSyncMu.Unlock()
 			}
 		}()
 		for {
@@ -162,12 +167,19 @@ func syncStaticRoutesToOSPF(mode string) {
 		}
 	}
 
+	upsert, err := txSync.Prepare("INSERT INTO routes_table (ip, domain, source, first_seen, last_seen, ttl, status, miss_count) VALUES (?, ?, 'static', datetime('now', '-61 seconds'), datetime('now'), ?, 'candidate', 0) ON CONFLICT(ip) DO UPDATE SET domain=excluded.domain, source='static', ttl=excluded.ttl, miss_count=0, last_seen=datetime('now')")
+	if err != nil {
+		_ = txSync.Rollback()
+		log.Printf("[WARN] syncStaticRoutesToOSPF prepare upsert failed: %v", err)
+		return
+	}
+	defer upsert.Close()
 	for ipStr, state := range staticRoutes {
 		domain := state.domain
 		if domain == "" {
 			domain = "static_rule"
 		}
-		if _, err := txSync.Exec("INSERT INTO routes_table (ip, domain, source, first_seen, last_seen, ttl, status, miss_count) VALUES (?, ?, 'static', datetime('now', '-61 seconds'), datetime('now'), ?, 'candidate', 0) ON CONFLICT(ip) DO UPDATE SET domain=excluded.domain, source='static', ttl=excluded.ttl, miss_count=0, last_seen=datetime('now')", ipStr, domain, state.ttl); err != nil {
+		if _, err := upsert.Exec(ipStr, domain, state.ttl); err != nil {
 			_ = txSync.Rollback()
 			log.Printf("[WARN] syncStaticRoutesToOSPF upsert route failed: ip=%s err=%v", ipStr, err)
 			return

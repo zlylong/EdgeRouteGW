@@ -54,12 +54,6 @@ func initTrafficDB() {
 	if _, err := getDB().Exec(`CREATE INDEX IF NOT EXISTS idx_node_traffic_history_ts ON node_traffic_history(ts)`); err != nil {
 		log.Printf("[WARN] Failed to create index on node_traffic_history: %v", err)
 	}
-	if _, err := getDB().Exec(`DELETE FROM traffic_history WHERE ts < datetime('now', '-180 days')`); err != nil {
-		log.Printf("[WARN] prune traffic_history failed: %v", err)
-	}
-	if _, err := getDB().Exec(`DELETE FROM node_traffic_history WHERE ts < datetime('now', '-180 days')`); err != nil {
-		log.Printf("[WARN] prune node_traffic_history failed: %v", err)
-	}
 }
 
 func startTrafficMonitor() {
@@ -85,24 +79,28 @@ func startTrafficMonitor() {
 				lastTotalUp = 0
 				lastTotalDown = 0
 				lastNodeTotals = map[int]trafficBytes{}
-				if !xrayStatsUnavailable {
-					xrayStatsUnavailable = true
+				becameUnavailable := !xrayStatsUnavailable
+				xrayStatsUnavailable = true
+				trafficMutex.Unlock()
+				// The event insert is a DB write; keep it outside the lock that
+				// /api/traffic and the nft monitor contend on.
+				if becameUnavailable {
 					logGatewayEvent("warn", "xray", "stats_unavailable", "Xray statsquery failed", map[string]interface{}{"reason": err.Error()})
 				}
-				trafficMutex.Unlock()
 				continue
 			}
 
 			trafficMutex.Lock()
-			if xrayStatsUnavailable {
-				xrayStatsUnavailable = false
+			recovered := xrayStatsUnavailable
+			xrayStatsUnavailable = false
+			trafficMutex.Unlock()
+			if recovered {
 				logGatewayEvent("info", "xray", "stats_recovered", "Xray statsquery recovered", nil)
 			}
-			trafficMutex.Unlock()
 
 			var stats XrayStat
 			if err := json.Unmarshal(out, &stats); err != nil {
-				logGatewayEvent("warn", "xray", "stats_decode_failed", "decode Xray stats failed", map[string]interface{}{"reason": err.Error()})
+				logGatewayEventThrottled("xray_stats_decode_failed", time.Minute, "warn", "xray", "stats_decode_failed", "decode Xray stats failed", map[string]interface{}{"reason": err.Error()})
 				continue
 			}
 
@@ -170,27 +168,60 @@ func startTrafficMonitor() {
 			accumNodeTotals = map[int]trafficBytes{}
 			trafficMutex.Unlock()
 
-			if saveUp > 0 || saveDown > 0 {
-				if _, err := getDB().Exec(`INSERT INTO traffic_history (up_bytes, down_bytes) VALUES (?, ?)`, saveUp, saveDown); err != nil {
-					log.Printf("[WARN] insert traffic_history failed: %v", err)
-				}
-			}
-			for nodeID, stat := range saveNodeTotals {
-				if stat.up <= 0 && stat.down <= 0 {
-					continue
-				}
-				if _, err := getDB().Exec(`INSERT INTO node_traffic_history (node_id, up_bytes, down_bytes) VALUES (?, ?, ?)`, nodeID, stat.up, stat.down); err != nil {
-					log.Printf("[WARN] insert node_traffic_history failed node=%d err=%v", nodeID, err)
-				}
-			}
-			if _, err := getDB().Exec(`DELETE FROM traffic_history WHERE ts < datetime('now', '-180 days')`); err != nil {
-				log.Printf("[WARN] prune traffic_history failed: %v", err)
-			}
-			if _, err := getDB().Exec(`DELETE FROM node_traffic_history WHERE ts < datetime('now', '-180 days')`); err != nil {
-				log.Printf("[WARN] prune node_traffic_history failed: %v", err)
+			if err := persistTrafficMinute(saveUp, saveDown, saveNodeTotals); err != nil {
+				log.Printf("[WARN] persist traffic minute failed: %v", err)
 			}
 		}
 	}
+}
+
+// persistTrafficMinute writes one minute of gateway and per-node totals in a
+// single transaction. Retention is handled by the daily maintenance job; the
+// per-minute DELETEs that used to run here were redundant with it.
+func persistTrafficMinute(up, down int64, nodeTotals map[int]trafficBytes) error {
+	hasNode := false
+	for _, stat := range nodeTotals {
+		if stat.up > 0 || stat.down > 0 {
+			hasNode = true
+			break
+		}
+	}
+	if up <= 0 && down <= 0 && !hasNode {
+		return nil
+	}
+	tx, err := getDB().Begin()
+	if err != nil {
+		return err
+	}
+	if up > 0 || down > 0 {
+		if _, err := tx.Exec(`INSERT INTO traffic_history (up_bytes, down_bytes) VALUES (?, ?)`, up, down); err != nil {
+			_ = tx.Rollback()
+			return err
+		}
+	}
+	if hasNode {
+		stmt, err := tx.Prepare(`INSERT INTO node_traffic_history (node_id, up_bytes, down_bytes) VALUES (?, ?, ?)`)
+		if err != nil {
+			_ = tx.Rollback()
+			return err
+		}
+		for nodeID, stat := range nodeTotals {
+			if stat.up <= 0 && stat.down <= 0 {
+				continue
+			}
+			if _, err := stmt.Exec(nodeID, stat.up, stat.down); err != nil {
+				_ = stmt.Close()
+				_ = tx.Rollback()
+				return err
+			}
+		}
+		_ = stmt.Close()
+	}
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+	invalidateMonthlyTrafficCache()
+	return nil
 }
 
 func parseNodeTrafficStat(name string) (nodeID int, direction string, ok bool) {

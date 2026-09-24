@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"github.com/gin-gonic/gin"
 	"log"
@@ -10,8 +11,10 @@ import (
 	"proxygw/remote_deploy"
 	"regexp"
 	"runtime/debug"
+	"strconv"
 	"strings"
 	"sync"
+	"time"
 )
 
 type RemoteNodeReq struct {
@@ -37,6 +40,7 @@ type RemoteNodeReq struct {
 
 type remoteSSHClient interface {
 	RunCommand(cmd string) (string, string, error)
+	RunCommandWithTimeout(cmd string, timeout time.Duration) (string, string, error)
 	Close() error
 }
 
@@ -79,8 +83,22 @@ func wrapRemoteCommandWithSudo(req RemoteNodeReq, cmd string, withPassword bool)
 }
 
 func runRemoteCommand(sshClient remoteSSHClient, req RemoteNodeReq, cmd string) (string, string, error) {
+	return runRemoteCommandWithTimeout(sshClient, req, cmd, 0)
+}
+
+// remoteProbeTimeout bounds the short status probes (check, cleanup on
+// delete) that run inside or right after an HTTP request.
+const remoteProbeTimeout = 15 * time.Second
+
+func runRemoteCommandWithTimeout(sshClient remoteSSHClient, req RemoteNodeReq, cmd string, timeout time.Duration) (string, string, error) {
+	run := func(c string) (string, string, error) {
+		if timeout > 0 {
+			return sshClient.RunCommandWithTimeout(c, timeout)
+		}
+		return sshClient.RunCommand(c)
+	}
 	primary := wrapRemoteCommandWithSudo(req, cmd, false)
-	stdout, stderr, err := sshClient.RunCommand(primary)
+	stdout, stderr, err := run(primary)
 	if err == nil || strings.EqualFold(strings.TrimSpace(req.SSHUser), "root") || req.SSHAuthType != "password" || strings.TrimSpace(req.SSHCredential) == "" {
 		return stdout, stderr, err
 	}
@@ -89,7 +107,121 @@ func runRemoteCommand(sshClient remoteSSHClient, req RemoteNodeReq, cmd string) 
 		return stdout, stderr, err
 	}
 	fallback := wrapRemoteCommandWithSudo(req, cmd, true)
-	return sshClient.RunCommand(fallback)
+	return run(fallback)
+}
+
+// remoteNodeBatchLimit caps one batch deploy request. Each item becomes a
+// goroutine parked on the deploy semaphore; an unbounded list is a memory
+// and SSH-connection amplifier.
+const remoteNodeBatchLimit = 20
+
+var (
+	remoteSSHUserRe = regexp.MustCompile(`^[A-Za-z0-9._-]{1,32}$`)
+	remoteHostRe    = regexp.MustCompile(`^[A-Za-z0-9.:\[\]-]{1,253}$`)
+)
+
+// validateRemoteNodeReq checks a deploy request before anything is stored or
+// an SSH connection is attempted. The fields end up in shell commands on the
+// remote host and in the SSH dial, so they are constrained to what those
+// consumers can safely take.
+func validateRemoteNodeReq(req *RemoteNodeReq) error {
+	req.Name = strings.TrimSpace(req.Name)
+	req.Type = strings.ToLower(strings.TrimSpace(req.Type))
+	req.SSHHost = strings.TrimSpace(req.SSHHost)
+	req.SSHUser = strings.TrimSpace(req.SSHUser)
+	req.SSHAuthType = strings.ToLower(strings.TrimSpace(req.SSHAuthType))
+	req.SSHHostKey = strings.TrimSpace(req.SSHHostKey)
+	req.Region = strings.TrimSpace(req.Region)
+	req.Remark = strings.TrimSpace(req.Remark)
+	req.ServerName = strings.TrimSpace(req.ServerName)
+	req.Dest = strings.TrimSpace(req.Dest)
+
+	if req.Type != "wg" && req.Type != "vless" {
+		return fmt.Errorf("type must be wg or vless")
+	}
+	if req.SSHHost == "" || !remoteHostRe.MatchString(req.SSHHost) {
+		return fmt.Errorf("ssh_host must be a hostname or IP address")
+	}
+	if req.SSHPort == 0 {
+		req.SSHPort = 22
+	}
+	if err := remote_deploy.ValidatePort(req.SSHPort); err != nil {
+		return fmt.Errorf("ssh_port: %v", err)
+	}
+	if req.SSHUser == "" {
+		req.SSHUser = "root"
+	}
+	if !remoteSSHUserRe.MatchString(req.SSHUser) {
+		return fmt.Errorf("ssh_user contains unsupported characters")
+	}
+	if req.SSHAuthType != "password" && req.SSHAuthType != "key" {
+		return fmt.Errorf("ssh_auth_type must be password or key")
+	}
+	if strings.TrimSpace(req.SSHCredential) == "" {
+		return fmt.Errorf("ssh_credential is required")
+	}
+	if len(req.SSHHostKey) > 128 || strings.ContainsAny(req.SSHHostKey, " \t\r\n") {
+		return fmt.Errorf("ssh_host_key is malformed")
+	}
+	if len(req.Name) > 64 || len(req.Region) > 64 || len(req.Remark) > 256 {
+		return fmt.Errorf("name/region/remark too long")
+	}
+	if req.Type == "vless" {
+		if req.Port != 0 {
+			if err := remote_deploy.ValidatePort(req.Port); err != nil {
+				return fmt.Errorf("port: %v", err)
+			}
+		}
+		if req.ServerName != "" {
+			if err := remote_deploy.ValidateRealityServerName(req.ServerName); err != nil {
+				return fmt.Errorf("server_name: %v", err)
+			}
+		}
+		if req.Dest != "" {
+			if err := remote_deploy.ValidateRealityDest(req.Dest); err != nil {
+				return fmt.Errorf("dest: %v", err)
+			}
+		}
+	}
+	return nil
+}
+
+// redactedHistoryParams strips private key material from an archived
+// parameter set before it leaves the API. The database keeps the full set so
+// a rollback can still restore it; the UI only needs the public half to show
+// what a version looked like.
+var historySecretKeys = []string{"server_priv", "client_priv", "reality_priv"}
+
+func redactedHistoryParams(raw string) string {
+	var params map[string]interface{}
+	if err := json.Unmarshal([]byte(raw), &params); err != nil || params == nil {
+		return raw
+	}
+	changed := false
+	for _, k := range historySecretKeys {
+		if _, ok := params[k]; ok {
+			delete(params, k)
+			changed = true
+		}
+	}
+	if !changed {
+		return raw
+	}
+	out, err := json.Marshal(params)
+	if err != nil {
+		return raw
+	}
+	return string(out)
+}
+
+// parseRemoteNodeID turns the :id path parameter into the int64 the deploy
+// routine keys on; "abc" used to Sscanf into 0 and start a deploy for node 0.
+func parseRemoteNodeID(raw string) (int64, error) {
+	id, err := strconv.ParseInt(strings.TrimSpace(raw), 10, 64)
+	if err != nil || id <= 0 {
+		return 0, fmt.Errorf("invalid node id")
+	}
+	return id, nil
 }
 
 type RemoteNodesController struct{}
@@ -110,16 +242,49 @@ func (ctl *RemoteNodesController) RegisterRoutes(authed *gin.RouterGroup) {
 	authed.POST("/remote_nodes/batch", batchDeployRemoteNodes)
 	authed.POST("/remote_nodes/:id/regenerate", regenerateRemoteNodeParams)
 	authed.GET("/remote_nodes/:id/history", getRemoteNodeHistory)
+	authed.GET("/remote_nodes/:id/logs", getRemoteNodeLogs)
 	authed.POST("/remote_nodes/:id/rollback", rollbackRemoteNode)
 }
 
 func getRemoteNodes(c *gin.Context) {
-	nodes, err := NewRemoteNodesRepository().ListRemoteNodes()
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+	window, ok := parsePageWindow(c)
+	if !ok {
 		return
 	}
-	c.JSON(http.StatusOK, nodes)
+	nodes, err := NewRemoteNodesRepository().ListRemoteNodes()
+	if err != nil {
+		log.Printf("[WARN] list remote nodes: %v", err)
+		apiError(c, http.StatusInternalServerError, errCodeInternal, "failed to list remote nodes")
+		return
+	}
+	c.JSON(http.StatusOK, pageSlice(c, window, nodes))
+}
+
+// getRemoteNodeLogs exposes the deploy/check log a node accumulated.
+func getRemoteNodeLogs(c *gin.Context) {
+	id := c.Param("id")
+	if _, err := parseRemoteNodeID(id); err != nil {
+		apiError(c, http.StatusBadRequest, errCodeBadRequest, "invalid node id")
+		return
+	}
+	repo := NewRemoteNodesRepository()
+	if _, err := repo.GetRemoteNodeBasic(id); err != nil {
+		apiNotFound(c, "node")
+		return
+	}
+	limit := 100
+	if raw := strings.TrimSpace(c.Query("limit")); raw != "" {
+		if n, err := strconv.Atoi(raw); err == nil && n > 0 {
+			limit = n
+		}
+	}
+	logs, err := repo.ListRemoteNodeLogs(id, limit)
+	if err != nil {
+		log.Printf("[WARN] list remote node %s logs: %v", id, err)
+		apiError(c, http.StatusInternalServerError, errCodeInternal, "failed to load logs")
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "logs": logs})
 }
 
 func getRemoteNodeDetails(c *gin.Context) {
@@ -440,6 +605,10 @@ func doDeployRoutine(id int64, req RemoteNodeReq, isUpdate bool, params map[stri
 func createAndDeployRemoteNode(c *gin.Context) {
 	var req RemoteNodeReq
 	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request payload"})
+		return
+	}
+	if err := validateRemoteNodeReq(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
@@ -456,17 +625,37 @@ func createAndDeployRemoteNode(c *gin.Context) {
 func batchDeployRemoteNodes(c *gin.Context) {
 	var reqs []RemoteNodeReq
 	if err := c.ShouldBindJSON(&reqs); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request payload: expected a JSON array of nodes"})
 		return
 	}
-
-	for _, req := range reqs {
-		nodeId, err := NewRemoteNodesRepository().InsertRemoteNodeDeploying(req)
-		if err == nil {
-			startDeployRoutine(nodeId, req, false, nil)
+	if len(reqs) == 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "no nodes in batch"})
+		return
+	}
+	if len(reqs) > remoteNodeBatchLimit {
+		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("batch too large: %d nodes, limit %d", len(reqs), remoteNodeBatchLimit)})
+		return
+	}
+	for i := range reqs {
+		if err := validateRemoteNodeReq(&reqs[i]); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("node %d: %v", i+1, err)})
+			return
 		}
 	}
-	c.JSON(http.StatusOK, gin.H{"success": true, "message": fmt.Sprintf("Batch deployment started for %d nodes", len(reqs))})
+
+	started := 0
+	failed := 0
+	for _, req := range reqs {
+		nodeId, err := NewRemoteNodesRepository().InsertRemoteNodeDeploying(req)
+		if err != nil {
+			failed++
+			log.Printf("[WARN] batch deploy: insert node %q failed: %v", req.Name, err)
+			continue
+		}
+		startDeployRoutine(nodeId, req, false, nil)
+		started++
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "started": started, "failed": failed, "message": fmt.Sprintf("Batch deployment started for %d nodes", started)})
 }
 
 func deleteRemoteNode(c *gin.Context) {
@@ -476,39 +665,55 @@ func deleteRemoteNode(c *gin.Context) {
 	if err == nil {
 		goSafe(func() {
 			client, err := getRemoteConnect()(req.SSHHost, req.SSHPort, req.SSHUser, req.SSHAuthType, req.SSHCredential, req.SSHHostKey)
-			if err == nil {
-				defer client.Close()
-				if req.Type == "wg" {
-					runRemoteCommand(client, req, "systemctl stop wg-quick@wg0; systemctl disable wg-quick@wg0; rm -f /etc/wireguard/wg0.conf")
-				} else if req.Type == "vless" {
-					runRemoteCommand(client, req, "systemctl stop xray; systemctl disable xray; rm -f /etc/systemd/system/xray.service; rm -rf /usr/local/etc/xray; rm -f /usr/local/bin/xray")
-				}
+			if err != nil {
+				log.Printf("[WARN] remote node %s: cleanup skipped, SSH connect failed: %v", id, err)
+				return
+			}
+			defer client.Close()
+			cmd := ""
+			if req.Type == "wg" {
+				cmd = "systemctl stop wg-quick@wg0; systemctl disable wg-quick@wg0; rm -f /etc/wireguard/wg0.conf"
+			} else if req.Type == "vless" {
+				cmd = "systemctl stop xray; systemctl disable xray; rm -f /etc/systemd/system/xray.service; rm -rf /usr/local/etc/xray; rm -f /usr/local/bin/xray"
+			}
+			if cmd == "" {
+				return
+			}
+			if _, stderr, err := runRemoteCommandWithTimeout(client, req, cmd, 60*time.Second); err != nil {
+				log.Printf("[WARN] remote node %s: cleanup command failed: %v %s", id, err, strings.TrimSpace(stderr))
+			} else {
+				log.Printf("[INFO] remote node %s: remote service removed", id)
 			}
 		})
 	}
 
 	err = NewRemoteNodesRepository().DeleteRemoteNodeCascade(id)
 	if err != nil {
+		if errors.Is(err, errNotFound) {
+			apiNotFound(c, "node")
+			return
+		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete"})
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"success": true})
 }
 
-func checkRemoteNode(c *gin.Context) {
-	id := c.Param("id")
-	info, err := NewRemoteNodesRepository().GetRemoteNodeCheckInfo(id)
+// probeRemoteNode connects to the node, asks systemd whether its service is
+// active, stores the resulting status and returns it. connectErr is set when
+// the SSH connection itself failed.
+func probeRemoteNode(id string) (status string, connectErr error, found bool) {
+	repo := NewRemoteNodesRepository()
+	info, err := repo.GetRemoteNodeCheckInfo(id)
 	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Node not found"})
-		return
+		return "", nil, false
 	}
-
+	nodeID, _ := parseRemoteNodeID(id)
 	client, err := getRemoteConnect()(info.Host, info.Port, info.User, info.AuthType, info.Credential, info.HostKey)
 	if err != nil {
-		NewRemoteNodesRepository().SetRemoteNodeStatus(id, "Offline")
-		logAction(0, "check", "failed", fmt.Sprintf("Node %s SSH check failed: %v", id, err))
-		c.JSON(http.StatusOK, gin.H{"success": false, "status": "Offline", "reason": err.Error()})
-		return
+		repo.SetRemoteNodeStatus(id, "Offline")
+		logAction(nodeID, "check", "failed", fmt.Sprintf("SSH check failed: %v", err))
+		return "Offline", err, true
 	}
 	defer client.Close()
 
@@ -516,27 +721,104 @@ func checkRemoteNode(c *gin.Context) {
 	if info.Type == "wg" {
 		cmd = "systemctl is-active wg-quick@wg0"
 	}
-
 	checkReq := RemoteNodeReq{SSHUser: info.User, SSHAuthType: info.AuthType, SSHCredential: info.Credential}
-	out, _, err := runRemoteCommand(client, checkReq, cmd)
-	status := "Online"
-	if err != nil || out == "" {
+	out, _, err := runRemoteCommandWithTimeout(client, checkReq, cmd, remoteProbeTimeout)
+	status = "Online"
+	if err != nil || strings.TrimSpace(out) == "" {
 		status = "Offline"
+		logAction(nodeID, "check", "failed", fmt.Sprintf("service probe returned %q err=%v", strings.TrimSpace(out), err))
 	}
+	repo.SetRemoteNodeStatus(id, status)
+	return status, nil, true
+}
 
-	NewRemoteNodesRepository().SetRemoteNodeStatus(id, status)
+func checkRemoteNode(c *gin.Context) {
+	id := c.Param("id")
+	status, connectErr, found := probeRemoteNode(id)
+	if !found {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Node not found"})
+		return
+	}
+	if connectErr != nil {
+		c.JSON(http.StatusOK, gin.H{"success": false, "status": status, "reason": connectErr.Error()})
+		return
+	}
 	c.JSON(http.StatusOK, gin.H{"success": true, "status": status})
+}
+
+// remoteHealthCheckInterval is how often deployed nodes are probed in the
+// background. Until now a node's status only changed on deploy or when the
+// operator pressed "check", so an outage was invisible until then.
+var remoteHealthCheckInterval = 5 * time.Minute
+
+const remoteHealthCheckConcurrency = 3
+
+// runRemoteHealthCheckOnce probes every node that is not mid-deploy.
+func runRemoteHealthCheckOnce() {
+	ids, err := NewRemoteNodesRepository().ListRemoteNodeIDsForHealthCheck()
+	if err != nil {
+		log.Printf("[WARN] remote health check: list nodes: %v", err)
+		return
+	}
+	if len(ids) == 0 {
+		return
+	}
+	sem := make(chan struct{}, remoteHealthCheckConcurrency)
+	var wg sync.WaitGroup
+	for _, id := range ids {
+		wg.Add(1)
+		goSafe(func(id string) func() {
+			return func() {
+				defer wg.Done()
+				sem <- struct{}{}
+				defer func() { <-sem }()
+				probeRemoteNode(id)
+			}
+		}(id))
+	}
+	wg.Wait()
+}
+
+func remoteNodeHealthLoop() {
+	// Let the gateway settle after boot before dialling out.
+	time.Sleep(time.Minute)
+	ticker := time.NewTicker(remoteHealthCheckInterval)
+	defer ticker.Stop()
+	for {
+		runRemoteHealthCheckOnce()
+		<-ticker.C
+	}
 }
 
 func fetchNodeReq(id string) (RemoteNodeReq, error) {
 	return NewRemoteNodesRepository().FetchNodeReq(id)
 }
 
+// rejectIfDeploying answers 409 when a deploy routine is already running for
+// the node; a second routine on the same host would race it for the remote
+// service files and the history table.
+func rejectIfDeploying(c *gin.Context, id string) bool {
+	basic, err := NewRemoteNodesRepository().GetRemoteNodeBasic(id)
+	if err == nil && strings.EqualFold(basic.Status, "Deploying") {
+		c.JSON(http.StatusConflict, gin.H{"error": "a deployment is already in progress for this node", "error_code": "DEPLOY_IN_PROGRESS"})
+		return true
+	}
+	return false
+}
+
 func regenerateRemoteNodeParams(c *gin.Context) {
 	id := c.Param("id")
+	intId, err := parseRemoteNodeID(id)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid node id"})
+		return
+	}
 	req, err := fetchNodeReq(id)
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Node not found"})
+		return
+	}
+	if rejectIfDeploying(c, id) {
 		return
 	}
 
@@ -569,9 +851,6 @@ func regenerateRemoteNodeParams(c *gin.Context) {
 
 	NewRemoteNodesRepository().SetRemoteNodeStatus(id, "Deploying")
 
-	var intId int64
-	fmt.Sscanf(id, "%d", &intId)
-
 	startDeployRoutine(intId, req, true, nil)
 	c.JSON(http.StatusOK, gin.H{"success": true, "message": "Regeneration started"})
 }
@@ -580,8 +859,14 @@ func getRemoteNodeHistory(c *gin.Context) {
 	id := c.Param("id")
 	history, err := NewRemoteNodesRepository().ListRemoteNodeHistory(id)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		log.Printf("[WARN] list remote node %s history: %v", id, err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to load history"})
 		return
+	}
+	for _, h := range history {
+		if raw, ok := h["params"].(string); ok {
+			h["params"] = redactedHistoryParams(raw)
+		}
 	}
 	c.JSON(http.StatusOK, history)
 }
@@ -592,13 +877,21 @@ func rollbackRemoteNode(c *gin.Context) {
 		HistoryId int `json:"history_id"`
 	}
 	if err := c.ShouldBindJSON(&reqBody); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request payload"})
+		return
+	}
+	intId, err := parseRemoteNodeID(id)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid node id"})
 		return
 	}
 
 	req, err := fetchNodeReq(id)
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Node not found"})
+		return
+	}
+	if rejectIfDeploying(c, id) {
 		return
 	}
 
@@ -609,12 +902,13 @@ func rollbackRemoteNode(c *gin.Context) {
 	}
 
 	var oldParams map[string]interface{}
-	json.Unmarshal([]byte(pjson), &oldParams)
+	if err := json.Unmarshal([]byte(pjson), &oldParams); err != nil || oldParams == nil {
+		log.Printf("[WARN] rollback node %s: history %d holds unreadable params: %v", id, reqBody.HistoryId, err)
+		c.JSON(http.StatusUnprocessableEntity, gin.H{"error": "history record is not restorable"})
+		return
+	}
 
 	NewRemoteNodesRepository().SetRemoteNodeStatus(id, "Deploying")
-
-	var intId int64
-	fmt.Sscanf(id, "%d", &intId)
 
 	startDeployRoutine(intId, req, true, oldParams)
 	c.JSON(http.StatusOK, gin.H{"success": true, "message": "Rollback started"})

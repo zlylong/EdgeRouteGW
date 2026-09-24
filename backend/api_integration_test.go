@@ -19,7 +19,7 @@ func setupTestDB(t *testing.T) (*sql.DB, string) {
 	t.Helper()
 	dir := t.TempDir()
 	dbPath := filepath.Join(dir, "test.db")
-	tdb, err := sql.Open("sqlite3", dbPath)
+	tdb, err := openSQLite(dbPath)
 	if err != nil {
 		t.Fatal(err)
 	}
