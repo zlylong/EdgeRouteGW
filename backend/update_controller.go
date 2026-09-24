@@ -62,7 +62,8 @@ func (ctl *UpdateController) UpdateComponent(c *gin.Context) {
 	switch comp {
 	case "geodata":
 		if err := updateGeodata(); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
+			log.Printf("[ERR] geodata update: %v", err)
+			apiError(c, http.StatusInternalServerError, errCodeInternal, "geodata update failed; see journalctl -u proxygw")
 			return
 		}
 
@@ -108,7 +109,8 @@ func (ctl *UpdateController) UpdateComponent(c *gin.Context) {
 		mosdnsZip := filepath.Join(tmpDir, "mosdns.zip")
 
 		if err := downloadWithVerification(downloadURL, mosdnsZip, mosdnsHash); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": fmt.Sprintf("mosdns download failed: %v", err)})
+			log.Printf("[ERR] mosdns %s download/verify: %v", req.Version, err)
+			apiError(c, http.StatusInternalServerError, errCodeInternal, "mosdns download or checksum verification failed")
 			return
 		}
 		if err := sysCmd.run("unzip", "-qo", mosdnsZip, "-d", tmpDir); err != nil {
@@ -178,7 +180,8 @@ func (ctl *UpdateController) UpdateComponent(c *gin.Context) {
 		xrayZip := filepath.Join(tmpDir, "xray.zip")
 
 		if err := downloadWithVerification(downloadURL, xrayZip, hash); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": fmt.Sprintf("xray validation failed: %v", err)})
+			log.Printf("[ERR] xray %s download/verify: %v", req.Version, err)
+			apiError(c, http.StatusInternalServerError, errCodeInternal, "xray download or checksum verification failed")
 			return
 		}
 		if err := sysCmd.run("unzip", "-qo", xrayZip, "-d", tmpDir); err != nil {

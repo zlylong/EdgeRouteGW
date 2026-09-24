@@ -20,15 +20,17 @@ grep -q "EdgeRouteGW ${LATEST_VERSION}" "$FRONTEND" || {
   exit 1
 }
 
-grep -q "Using fallback version ${LATEST_VERSION}..." "$INSTALL_SH" || {
-  echo "failed: install.sh fallback mismatch, expected ${LATEST_VERSION}"
-  exit 1
-}
-
-grep -q "Using fallback version ${LATEST_VERSION}..." "$UPDATE_SH" || {
-  echo "failed: update.sh fallback mismatch, expected ${LATEST_VERSION}"
-  exit 1
-}
+# The scripts must verify the backend binary against the release's SHA256SUMS
+# and refuse to install without it; and they must not carry a hardcoded
+# fallback release tag (it silently downgraded once stale).
+for f in "$INSTALL_SH" "$UPDATE_SH"; do
+  grep -q 'verify_backend_checksum()' "$f" || { echo "failed: $(basename "$f") lacks verify_backend_checksum"; exit 1; }
+  grep -q 'PROXYGW_ALLOW_UNVERIFIED' "$f" || { echo "failed: $(basename "$f") lacks the PROXYGW_ALLOW_UNVERIFIED override"; exit 1; }
+  grep -q 'refusing to install an unverified binary' "$f" || { echo "failed: $(basename "$f") does not fail closed on a missing SHA256SUMS"; exit 1; }
+  if grep -q 'PROXYGW_LATEST="v' "$f"; then
+    echo "failed: $(basename "$f") still hardcodes a fallback release tag"; exit 1
+  fi
+done
 
 if ! grep -q 'name: EdgeRouteGW \${{ github.ref_name }} Stable' "$RELEASE_YML" \
    && ! grep -q "contains(github.ref_name, '-rc.')" "$RELEASE_YML"; then

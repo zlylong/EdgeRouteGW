@@ -22,7 +22,7 @@ while [[ $# -gt 0 ]]; do
       echo "Usage: $0 [--bench=Pattern] [--cpu|--mem] [--count=N]"
       echo ""
       echo "Examples:"
-      echo "  $0 --bench=GeoQuery       Run GeoQuery benchmarks only"
+      echo "  $0 --bench=QueryGeoIP     Run the GeoIP lookup benchmark only"
       echo "  $0 --bench=. --count=5    Run all benchmarks 5 times"
       exit 0
       ;;

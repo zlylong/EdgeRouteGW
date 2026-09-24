@@ -1,6 +1,9 @@
 #!/bin/bash
 # EdgeRouteGW Update Script
-# Executes a full sync and rebuild from the remote repository.
+# Syncs the repository, downloads the checksum-verified release binary for
+# this architecture, rewrites the systemd units and restarts proxygw. The
+# previous binary is kept as proxygw-backend.prev and restored automatically
+# if the new one is not active within 10 seconds.
 
 set -euo pipefail
 

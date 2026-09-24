@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 # test_frontend.sh — Frontend E2E tests (Playwright)
-# Requires: Node.js, Playwright, frontend dist built
+# Requires: Node.js/npm, python3 (static web server used by playwright.config.js),
+# and frontend/dist/libs/app.css (scripts/build_frontend_css.sh). Runs the
+# mocked button suite; tests/test-tools.spec.js needs a live backend and is
+# not run here.
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"

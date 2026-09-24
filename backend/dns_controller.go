@@ -143,7 +143,8 @@ func (ctl *DNSController) SetDNS(c *gin.Context) {
 
 	if err := applyMosdnsConfigFn(); err != nil {
 		restore()
-		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": "Mosdns failed: " + err.Error()})
+		log.Printf("[ERR] apply mosdns after dns settings change: %v", err)
+		apiError(c, http.StatusInternalServerError, errCodeInternal, "Mosdns apply failed; settings were restored")
 		return
 	}
 	if resolverChanged {

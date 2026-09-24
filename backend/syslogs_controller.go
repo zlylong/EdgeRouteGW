@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"log"
 	"net/http"
 	"regexp"
 	"strconv"
@@ -128,7 +129,8 @@ func (ctl *SyslogsController) GetServiceLogs(c *gin.Context) {
 
 	out, err := runJournalctl(args...)
 	if err != nil {
-		apiError(c, http.StatusInternalServerError, errCodeInternal, fmt.Sprintf("Failed to fetch logs: %v\nOutput: %s", err, string(out)))
+		log.Printf("[ERR] journalctl %v: %v %s", args, err, strings.TrimSpace(string(out)))
+		apiError(c, http.StatusInternalServerError, errCodeInternal, "Failed to fetch logs from journalctl")
 		return
 	}
 	logs := string(out)

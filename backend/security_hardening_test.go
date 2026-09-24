@@ -233,7 +233,7 @@ func TestRouterSetsSecurityCacheAndCompressionHeaders(t *testing.T) {
 	for _, tc := range []struct{ path, want string }{
 		{"/ui/", "no-cache, no-store, must-revalidate"},
 		{"/ui/index.html", "no-cache, no-store, must-revalidate"},
-		{"/ui/libs/vue.global.js", "public, max-age=3600"},
+		{"/ui/libs/vue.global.prod.js", "public, max-age=3600"},
 	} {
 		w = httptest.NewRecorder()
 		r.ServeHTTP(w, httptest.NewRequest(http.MethodGet, tc.path, nil))

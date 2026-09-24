@@ -59,7 +59,8 @@ func (ctl *ApplyController) HandleApply(c *gin.Context) {
 
 	if applyMosdns {
 		if err := applyMosdnsConfig(); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": "Mosdns failed: " + err.Error()})
+			log.Printf("[ERR] /api/apply mosdns: %v", err)
+			apiError(c, http.StatusInternalServerError, errCodeInternal, "Mosdns apply failed; see journalctl -u proxygw")
 			return
 		}
 	}
@@ -68,13 +69,15 @@ func (ctl *ApplyController) HandleApply(c *gin.Context) {
 			if err := applyNodeChangeDynamically(); err != nil {
 				log.Printf("[WARN] /api/apply dynamic xray failed, fallback restart: %v", err)
 				if err := applyXrayConfig(); err != nil {
-					c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": "Xray failed: " + err.Error()})
+					log.Printf("[ERR] /api/apply xray: %v", err)
+					apiError(c, http.StatusInternalServerError, errCodeInternal, "Xray apply failed (config validation or restart); see journalctl -u proxygw")
 					return
 				}
 			}
 		} else {
 			if err := applyXrayConfig(); err != nil {
-				c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": "Xray failed: " + err.Error()})
+				log.Printf("[ERR] /api/apply xray: %v", err)
+				apiError(c, http.StatusInternalServerError, errCodeInternal, "Xray apply failed (config validation or restart); see journalctl -u proxygw")
 				return
 			}
 		}

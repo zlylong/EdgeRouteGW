@@ -196,7 +196,8 @@ func (ctl *SystemController) HandleSetCron(c *gin.Context) {
 	monthday = clampCronMonthday(monthday)
 
 	if err := ctl.repo.SaveCronSettings(enabled, cronTime, scheduleType, weekday, monthday); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		log.Printf("[ERR] save cron settings: %v", err)
+		apiError(c, http.StatusInternalServerError, errCodeInternal, "failed to save cron settings")
 		return
 	}
 	triggerCronReload()
@@ -308,7 +309,8 @@ func (ctl *SystemController) HandleNetworkConfig(c *gin.Context) {
 		return
 	}
 	if err := ctl.repo.SaveNetworkRoleSettings(req.ManagementIface, req.ServiceIface); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		log.Printf("[ERR] save network role settings: %v", err)
+		apiError(c, http.StatusInternalServerError, errCodeInternal, "failed to save network settings")
 		return
 	}
 	syncFRRConfig()
@@ -339,18 +341,20 @@ func (ctl *SystemController) HandleMode(c *gin.Context) {
 		return
 	}
 	if err := applyModeChange(req.Mode); err != nil {
-		msg := err.Error()
+		log.Printf("[ERR] mode switch to %s failed: %v", req.Mode, err)
+		raw := strings.ToLower(err.Error())
+		msg := "mode switch failed and was rolled back; see journalctl -u proxygw"
 		switch {
 		case errors.Is(err, sql.ErrConnDone):
 			msg = "db error"
-		case strings.Contains(msg, "nft") || strings.Contains(strings.ToLower(msg), "nftables"):
-			msg = "Nftables failed: " + err.Error()
-		case strings.Contains(strings.ToLower(msg), "mosdns"):
-			msg = "Mosdns failed: " + err.Error()
-		case strings.Contains(strings.ToLower(msg), "xray"):
-			msg = "Xray failed: " + err.Error()
+		case strings.Contains(raw, "nft"):
+			msg = "Nftables apply failed during mode switch; see journalctl -u proxygw"
+		case strings.Contains(raw, "mosdns"):
+			msg = "Mosdns apply failed during mode switch; see journalctl -u proxygw"
+		case strings.Contains(raw, "xray"):
+			msg = "Xray apply failed during mode switch (config validation or restart); see journalctl -u proxygw"
 		}
-		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": msg})
+		apiError(c, http.StatusInternalServerError, errCodeInternal, msg)
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"success": true})
@@ -398,7 +402,8 @@ func (ctl *SystemController) HandleOspfSettings(c *gin.Context) {
 	}
 
 	if err := ctl.repo.SaveOspfSettings(batchLimit, intervalSeconds, resolveWorkers, allowlist); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		log.Printf("[ERR] save ospf settings: %v", err)
+		apiError(c, http.StatusInternalServerError, errCodeInternal, "failed to save OSPF settings")
 		return
 	}
 
@@ -427,7 +432,8 @@ func (ctl *SystemController) HandleResetOspfPending(c *gin.Context) {
 	}
 	deleted, err := ctl.repo.ResetOspfPendingStaticRoutes()
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		log.Printf("[ERR] reset pending ospf routes: %v", err)
+		apiError(c, http.StatusInternalServerError, errCodeInternal, "failed to reset pending routes")
 		return
 	}
 	pub, cand, cntErr := ctl.repo.GetOspfRouteCounts()

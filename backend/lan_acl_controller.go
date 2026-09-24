@@ -109,7 +109,8 @@ func (ctl *LanACLController) Create(c *gin.Context) {
 		if rbErr := ctl.repo.DeleteByID(newID); rbErr != nil {
 			log.Printf("[WARN] rollback of lan_acl %d after failed apply: %v", newID, rbErr)
 		}
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to apply nftables: " + err.Error()})
+		log.Printf("[ERR] apply nftables after lan_acl change: %v", err)
+		apiError(c, http.StatusInternalServerError, errCodeInternal, "Failed to apply nftables ruleset; see journalctl -u proxygw")
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"success": true})
@@ -132,7 +133,8 @@ func (ctl *LanACLController) Delete(c *gin.Context) {
 				log.Printf("[WARN] restore of lan_acl %s after failed apply: %v", id, rbErr)
 			}
 		}
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to apply nftables: " + err.Error()})
+		log.Printf("[ERR] apply nftables after lan_acl change: %v", err)
+		apiError(c, http.StatusInternalServerError, errCodeInternal, "Failed to apply nftables ruleset; see journalctl -u proxygw")
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"success": true})
@@ -161,7 +163,8 @@ func (ctl *LanACLController) SetDefaultPolicy(c *gin.Context) {
 		if rbErr := ctl.repo.SetDefaultPolicy(previous); rbErr != nil {
 			log.Printf("[WARN] restore of lan default policy after failed apply: %v", rbErr)
 		}
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to apply nftables: " + err.Error()})
+		log.Printf("[ERR] apply nftables after lan_acl change: %v", err)
+		apiError(c, http.StatusInternalServerError, errCodeInternal, "Failed to apply nftables ruleset; see journalctl -u proxygw")
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"success": true})

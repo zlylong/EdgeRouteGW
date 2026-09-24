@@ -57,5 +57,5 @@ echo "[4/4] Deleting Geosite expand cache (geosite_expand_cache)..."
 sqlite3 "$DB_PATH" "DELETE FROM geosite_expand_cache;"
 
 echo "========================================================="
-echo "Done! The system will now safely re-resolve rules via SOCKS5."
+echo "Done! The OSPF engine will re-resolve domain rules through the local Mosdns (dig @127.0.0.1) on its next sync."
 echo "You can check OSPF routes using: vtysh -c 'show ip ospf route'"
