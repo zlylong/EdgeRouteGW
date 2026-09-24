@@ -1,15 +1,31 @@
 package main
 
 import (
+	"database/sql"
 	"sort"
 	"strings"
+	"sync"
 )
 
+var (
+	domainGeoIPLockEnsureMu sync.Mutex
+	domainGeoIPLockEnsured  *sql.DB
+)
+
+// ensureDomainGeoIPLockTable creates the lock table once per *sql.DB. It is
+// called from every resolve worker, so re-issuing the DDL on each call put a
+// schema statement in front of every lookup.
 func ensureDomainGeoIPLockTable() {
-	if getDB() == nil {
+	current := getDB()
+	if current == nil {
 		return
 	}
-	if _, err := getDB().Exec(`CREATE TABLE IF NOT EXISTS domain_geoip_lock (
+	domainGeoIPLockEnsureMu.Lock()
+	defer domainGeoIPLockEnsureMu.Unlock()
+	if domainGeoIPLockEnsured == current {
+		return
+	}
+	if _, err := current.Exec(`CREATE TABLE IF NOT EXISTS domain_geoip_lock (
 		domain TEXT NOT NULL,
 		resolver_group TEXT NOT NULL,
 		geoip_tag TEXT NOT NULL,
@@ -19,6 +35,7 @@ func ensureDomainGeoIPLockTable() {
 	)`); err != nil {
 		return
 	}
+	domainGeoIPLockEnsured = current
 }
 
 func loadDomainGeoIPLockedTags(domain, resolverGroup, geodataVer string) []string {

@@ -135,6 +135,7 @@ func (ctl *UpdateController) UpdateComponent(c *gin.Context) {
 			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": "install failed"})
 			return
 		}
+		invalidateStatusStaticInfo()
 		if err := sysCmd.run("systemctl", "restart", "mosdns"); err != nil {
 			_ = sysCmd.run("cp", getPath("core", "mosdns", "mosdns.bak"), getPath("core", "mosdns", "mosdns"))
 			_ = sysCmd.run("systemctl", "restart", "mosdns")
@@ -142,6 +143,7 @@ func (ctl *UpdateController) UpdateComponent(c *gin.Context) {
 			return
 		}
 	case "rollback_mosdns":
+		invalidateStatusStaticInfo()
 		if err := sysCmd.run("cp", getPath("core", "mosdns", "mosdns.bak"), getPath("core", "mosdns", "mosdns")); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": "rollback copy failed"})
 			return
@@ -198,6 +200,7 @@ func (ctl *UpdateController) UpdateComponent(c *gin.Context) {
 			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": "install failed"})
 			return
 		}
+		invalidateStatusStaticInfo()
 		if err := sysCmd.run("systemctl", "restart", "xray"); err != nil {
 			_ = sysCmd.run("cp", getPath("core", "xray", "xray.bak"), getPath("core", "xray", "xray"))
 			_ = sysCmd.run("systemctl", "restart", "xray")
@@ -217,5 +220,8 @@ func (ctl *UpdateController) UpdateComponent(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "unsupported component"})
 		return
 	}
+	// A binary or geodata file was just replaced; drop the cached versions so
+	// the next status poll shows the new one instead of waiting out the TTL.
+	invalidateStatusStaticInfo()
 	c.JSON(http.StatusOK, gin.H{"success": true})
 }

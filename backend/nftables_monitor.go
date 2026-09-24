@@ -26,15 +26,17 @@ var (
 	nftUpdatedAt  time.Time
 )
 
+var (
+	counterRe = regexp.MustCompile(`counter packets\s+(\d+)\s+bytes\s+(\d+)`)
+	commentRe = regexp.MustCompile(`comment\s+"([^"]+)"`)
+)
+
 func collectNftPreroutingCounters() (map[string]nftCounterStat, error) {
 	cmdRes := sysCmd.runCombinedOutput("nft", "-a", "list", "chain", "inet", "proxygw", "prerouting")
 	if cmdRes.Err != nil {
 		return nil, fmt.Errorf("nft list prerouting failed: %v, out=%s", cmdRes.Err, strings.TrimSpace(string(cmdRes.Output)))
 	}
 	out := cmdRes.Output
-
-	counterRe := regexp.MustCompile(`counter packets\s+(\d+)\s+bytes\s+(\d+)`)
-	commentRe := regexp.MustCompile(`comment\s+"([^"]+)"`)
 
 	res := map[string]nftCounterStat{}
 	for _, line := range strings.Split(string(out), "\n") {

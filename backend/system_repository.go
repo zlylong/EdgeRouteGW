@@ -32,11 +32,15 @@ func (r *SystemRepository) SaveMode(mode string) error {
 	return err
 }
 
-func (r *SystemRepository) SaveCronDefaults(cronTime, scheduleType string, weekday, monthday int) {
-	_, _ = getDB().Exec("INSERT OR REPLACE INTO settings (key, value) VALUES ('cron_time', ?)", cronTime)
-	_, _ = getDB().Exec("INSERT OR REPLACE INTO settings (key, value) VALUES ('cron_schedule_type', ?)", scheduleType)
-	_, _ = getDB().Exec("INSERT OR REPLACE INTO settings (key, value) VALUES ('cron_weekday', ?)", strconv.Itoa(weekday))
-	_, _ = getDB().Exec("INSERT OR REPLACE INTO settings (key, value) VALUES ('cron_monthday', ?)", strconv.Itoa(monthday))
+// EnsureCronDefaults persists the effective schedule for any key that has no
+// row yet. It is called from GET /api/cron, so it must not rewrite rows that
+// already exist: INSERT OR IGNORE keeps a plain read from turning into four
+// write transactions on every page load.
+func (r *SystemRepository) EnsureCronDefaults(cronTime, scheduleType string, weekday, monthday int) {
+	_, _ = getDB().Exec("INSERT OR IGNORE INTO settings (key, value) VALUES ('cron_time', ?)", cronTime)
+	_, _ = getDB().Exec("INSERT OR IGNORE INTO settings (key, value) VALUES ('cron_schedule_type', ?)", scheduleType)
+	_, _ = getDB().Exec("INSERT OR IGNORE INTO settings (key, value) VALUES ('cron_weekday', ?)", strconv.Itoa(weekday))
+	_, _ = getDB().Exec("INSERT OR IGNORE INTO settings (key, value) VALUES ('cron_monthday', ?)", strconv.Itoa(monthday))
 }
 
 func (r *SystemRepository) SaveCronSettings(enabled bool, cronTime, scheduleType string, weekday, monthday int) error {
@@ -81,6 +85,10 @@ func (r *SystemRepository) GetMode() (string, error) {
 }
 
 func (r *SystemRepository) GetMonthlyTrafficTotal() (int64, int64, error) {
+	return cachedMonthlyTrafficTotal(r.queryMonthlyTrafficTotal)
+}
+
+func (r *SystemRepository) queryMonthlyTrafficTotal() (int64, int64, error) {
 	var totalMonthUp, totalMonthDown int64
 	err := getDB().QueryRow(`
 		SELECT COALESCE(SUM(up_bytes), 0), COALESCE(SUM(down_bytes), 0)

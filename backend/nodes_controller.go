@@ -18,6 +18,8 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+var pingTimeRe = regexp.MustCompile(`time=([0-9.]+)`)
+
 type NodesController struct{ repo *NodesRepository }
 
 func NewNodesController(repo *NodesRepository) *NodesController { return &NodesController{repo: repo} }
@@ -391,8 +393,7 @@ func (ctl *NodesController) RegisterRoutes(api *gin.RouterGroup) {
 				if strings.ToLower(nType) == "wireguard" || strings.ToLower(nType) == "wg" {
 					out, _ := sysCmd.output("ping", "-c", "1", "-W", "2", addr)
 					if strings.Contains(string(out), "1 received") || strings.Contains(string(out), "1 packets received") {
-						re := regexp.MustCompile(`time=([0-9.]+)`)
-						matches := re.FindStringSubmatch(string(out))
+						matches := pingTimeRe.FindStringSubmatch(string(out))
 						if len(matches) > 1 {
 							f, _ := strconv.ParseFloat(matches[1], 64)
 							ping = int(f)
@@ -436,9 +437,6 @@ func (ctl *NodesController) RegisterRoutes(api *gin.RouterGroup) {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "db rows error"})
 			return
 		}
-		go func() {
-			wg.Wait()
-		}()
 		c.JSON(http.StatusOK, gin.H{"success": true})
 	})
 

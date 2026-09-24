@@ -134,20 +134,35 @@ func clampOspfResolveWorkers(v int) int {
 	}
 }
 
+// readIntSettingWithDefault returns the integer setting stored under key,
+// falling back to (and persisting) the default when the row is missing. It only
+// writes when the stored row is absent or does not parse to the value in
+// effect: this runs on hot paths (the OSPF controller loop, GET /api/ospf), and
+// an unconditional INSERT OR REPLACE turned every read into a write
+// transaction on the SQLite file.
 func readIntSettingWithDefault(key string, fallback int, clamp func(int) int) int {
 	value := fallback
 	var raw string
+	found := false
+	parsedOK := false
 	err := getDB().QueryRow("SELECT value FROM settings WHERE key=?", key).Scan(&raw)
 	switch {
 	case err == nil:
+		found = true
 		if parsed, parseErr := strconv.Atoi(strings.TrimSpace(raw)); parseErr == nil {
 			value = parsed
+			parsedOK = true
 		}
 	case err != sql.ErrNoRows:
 		log.Printf("[WARN] SELECT value FROM settings WHERE key=%q err: %v", key, err)
+		return value
 	}
+	stored := value
 	if clamp != nil {
 		value = clamp(value)
+	}
+	if found && parsedOK && stored == value {
+		return value
 	}
 	if _, err := getDB().Exec("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)", key, strconv.Itoa(value)); err != nil {
 		log.Printf("[WARN] persist default setting %s failed: %v", key, err)

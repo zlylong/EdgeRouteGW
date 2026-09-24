@@ -34,8 +34,9 @@ func createSession() (string, error) {
 		return "", err // fail-close on entropy failure
 	}
 	token := hex.EncodeToString(b)
+	pruneExpiredSessions()
 	sessions.Store(token, SessionInfo{
-		ExpiresAt: time.Now().Add(24 * time.Hour), // 24-hour expiration
+		ExpiresAt: time.Now().Add(sessionTTL),
 	})
 	return token, nil
 }
@@ -51,15 +52,36 @@ func validateSession(token string) bool {
 		return false
 	}
 	info := val.(SessionInfo)
-	if time.Now().After(info.ExpiresAt) {
+	now := time.Now()
+	if now.After(info.ExpiresAt) {
 		sessions.Delete(token)
 		return false
 	}
-	// Slide expiration window
-	sessions.Store(token, SessionInfo{
-		ExpiresAt: time.Now().Add(24 * time.Hour),
-	})
+	// Slide the expiration window, but only once the session has aged by
+	// sessionSlideGranularity: every authenticated request goes through here
+	// and a Store per request defeats sync.Map's read-mostly fast path.
+	if info.ExpiresAt.Sub(now) < sessionTTL-sessionSlideGranularity {
+		sessions.Store(token, SessionInfo{ExpiresAt: now.Add(sessionTTL)})
+	}
 	return true
+}
+
+const (
+	sessionTTL              = 24 * time.Hour
+	sessionSlideGranularity = time.Hour
+)
+
+// pruneExpiredSessions drops tokens whose window has passed. Expired entries
+// are otherwise only removed when that same token is presented again, so a
+// long-running gateway accumulated one entry per login forever.
+func pruneExpiredSessions() {
+	now := time.Now()
+	sessions.Range(func(key, value interface{}) bool {
+		if info, ok := value.(SessionInfo); ok && now.After(info.ExpiresAt) {
+			sessions.Delete(key)
+		}
+		return true
+	})
 }
 
 func revokeAllSessions() {

@@ -7,6 +7,7 @@ import (
 	"os"
 	"regexp"
 	"strings"
+	"sync"
 
 	"github.com/gin-gonic/gin"
 )
@@ -271,6 +272,24 @@ func (ctl *TestController) HandleTrace(c *gin.Context) {
 	c.JSON(http.StatusOK, result)
 }
 
+// ruleRegexpCache memoises compiled regexp: rules so the trace endpoint does
+// not recompile every pattern on every lookup.
+var ruleRegexpCache sync.Map
+
+func cachedRuleRegexp(expr string) *regexp.Regexp {
+	if v, ok := ruleRegexpCache.Load(expr); ok {
+		re, _ := v.(*regexp.Regexp)
+		return re
+	}
+	re, err := regexp.Compile(expr)
+	if err != nil {
+		ruleRegexpCache.Store(expr, (*regexp.Regexp)(nil))
+		return nil
+	}
+	ruleRegexpCache.Store(expr, re)
+	return re
+}
+
 func matchDomain(target, pattern string) bool {
 	target = strings.ToLower(target)
 	if strings.HasPrefix(pattern, "full:") {
@@ -284,8 +303,8 @@ func matchDomain(target, pattern string) bool {
 		return strings.Contains(target, strings.TrimPrefix(pattern, "keyword:"))
 	}
 	if strings.HasPrefix(pattern, "regexp:") {
-		matched, _ := regexp.MatchString(strings.TrimPrefix(pattern, "regexp:"), target)
-		return matched
+		re := cachedRuleRegexp(strings.TrimPrefix(pattern, "regexp:"))
+		return re != nil && re.MatchString(target)
 	}
 	// Default Xray domain match behavior (same as domain:)
 	return target == pattern || strings.HasSuffix(target, "."+pattern)
