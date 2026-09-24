@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"log"
 	"net"
@@ -77,6 +78,10 @@ func validateRulePolicy(repo *RulesRepository, policy string) error {
 	return fmt.Errorf("invalid policy")
 }
 
+// geoExpandDefaultLimit caps how many expanded values /api/geo/query returns
+// unless the client asks for more with ?limit=.
+const geoExpandDefaultLimit = 2000
+
 type RulesController struct {
 	repo *RulesRepository
 }
@@ -126,6 +131,14 @@ func (ctl *RulesController) RegisterRoutes(api *gin.RouterGroup) {
 		geoipPath := getPath("core", "mosdns", "geoip.dat")
 		geositePath := getPath("core", "mosdns", "geosite.dat")
 		if kind, tag, ok := parseGeoRuleInput(input); ok {
+			// Expansions such as geoip:!cn run to tens of thousands of CIDRs;
+			// cap the payload and say so. "count" is always the full size.
+			expandLimit := geoExpandDefaultLimit
+			if raw := strings.TrimSpace(c.Query("limit")); raw != "" {
+				if n, err := strconv.Atoi(raw); err == nil && n > 0 {
+					expandLimit = n
+				}
+			}
 			if kind == "geoip" {
 				values := []string{}
 				exists := false
@@ -138,12 +151,25 @@ func (ctl *RulesController) RegisterRoutes(api *gin.RouterGroup) {
 					values = extractGeoIPs(geoipPath, tag)
 					exists = hasGeoIPTag(geoipPath, tag)
 				}
-				c.JSON(http.StatusOK, gin.H{"mode": "expand", "query_type": "geoip", "input": input, "rule": "geoip:" + tag, "exists": exists, "count": len(values), "values": values})
+				if values == nil {
+					values = []string{}
+				}
+				total := len(values)
+				truncated := total > expandLimit
+				if truncated {
+					values = values[:expandLimit]
+				}
+				c.JSON(http.StatusOK, gin.H{"mode": "expand", "query_type": "geoip", "input": input, "rule": "geoip:" + tag, "exists": exists, "count": total, "truncated": truncated, "values": values})
 				return
 			}
 
 			values := extractGeoSiteValues(geositePath, tag)
-			c.JSON(http.StatusOK, gin.H{"mode": "expand", "query_type": "geosite", "input": input, "rule": "geosite:" + tag, "exists": hasGeoSiteTag(geositePath, tag), "count": len(values), "values": values})
+			total := len(values)
+			truncated := total > expandLimit
+			if truncated {
+				values = values[:expandLimit]
+			}
+			c.JSON(http.StatusOK, gin.H{"mode": "expand", "query_type": "geosite", "input": input, "rule": "geosite:" + tag, "exists": hasGeoSiteTag(geositePath, tag), "count": total, "truncated": truncated, "values": values})
 			return
 		}
 
@@ -171,6 +197,10 @@ func (ctl *RulesController) RegisterRoutes(api *gin.RouterGroup) {
 	})
 
 	api.GET("/rules", func(c *gin.Context) {
+		window, ok := parsePageWindow(c)
+		if !ok {
+			return
+		}
 		groupFilter := strings.TrimSpace(c.Query("group_id"))
 		rules, err := ctl.repo.ListRules(groupFilter)
 		if err != nil {
@@ -178,7 +208,7 @@ func (ctl *RulesController) RegisterRoutes(api *gin.RouterGroup) {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "db query error"})
 			return
 		}
-		c.JSON(http.StatusOK, gin.H{"rules": rules, "groups": ctl.repo.CollectRuleGroups()})
+		c.JSON(http.StatusOK, gin.H{"rules": pageSlice(c, window, rules), "groups": ctl.repo.CollectRuleGroups()})
 	})
 
 	api.POST("/rules", func(c *gin.Context) {
@@ -388,6 +418,10 @@ func (ctl *RulesController) RegisterRoutes(api *gin.RouterGroup) {
 			ruleType = ""
 		}
 		if err := ctl.repo.DeleteRuleByID(ruleID); err != nil {
+			if errors.Is(err, errNotFound) {
+				apiNotFound(c, "rule")
+				return
+			}
 			log.Printf("[ERR] DeleteRuleByID: %v", err)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "db error"})
 			return

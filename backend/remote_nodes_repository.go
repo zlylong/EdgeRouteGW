@@ -1,6 +1,9 @@
 package main
 
-import "database/sql"
+import (
+	"database/sql"
+	"strconv"
+)
 
 type RemoteNodeBasic struct {
 	Name   string
@@ -244,6 +247,53 @@ func (r *RemoteNodesRepository) DeleteRemoteNodeCascade(id string) error {
 	_, _ = r.db.Exec("DELETE FROM remote_node_vless WHERE node_id = ?", id)
 	_, _ = r.db.Exec("DELETE FROM remote_node_logs WHERE node_id = ?", id)
 	_, _ = r.db.Exec("DELETE FROM remote_node_history WHERE node_id = ?", id)
-	_, err := r.db.Exec("DELETE FROM remote_nodes WHERE id = ?", id)
-	return err
+	res, err := r.db.Exec("DELETE FROM remote_nodes WHERE id = ?", id)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return errNotFound
+	}
+	return nil
+}
+
+// ListRemoteNodeLogs returns the most recent deploy/check log lines for a
+// node, newest first. Until now these rows were written but never readable
+// through the API, so a failed deploy showed only a "Failed" badge.
+func (r *RemoteNodesRepository) ListRemoteNodeLogs(id string, limit int) ([]map[string]interface{}, error) {
+	if limit <= 0 || limit > 500 {
+		limit = 100
+	}
+	rows, err := r.db.Query("SELECT id, action, status, log_text, created_at FROM remote_node_logs WHERE node_id = ? ORDER BY id DESC LIMIT ?", id, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := make([]map[string]interface{}, 0, limit)
+	for rows.Next() {
+		var lid int
+		var action, status, text, createdAt string
+		if err := rows.Scan(&lid, &action, &status, &text, &createdAt); err != nil {
+			continue
+		}
+		out = append(out, map[string]interface{}{"id": lid, "action": action, "status": status, "log_text": text, "created_at": createdAt})
+	}
+	return out, rows.Err()
+}
+
+// ListRemoteNodeIDsForHealthCheck returns nodes that are not mid-deploy.
+func (r *RemoteNodesRepository) ListRemoteNodeIDsForHealthCheck() ([]string, error) {
+	rows, err := r.db.Query("SELECT id FROM remote_nodes WHERE status IS NULL OR status <> 'Deploying' ORDER BY id")
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var ids []string
+	for rows.Next() {
+		var id int64
+		if rows.Scan(&id) == nil {
+			ids = append(ids, strconv.FormatInt(id, 10))
+		}
+	}
+	return ids, rows.Err()
 }

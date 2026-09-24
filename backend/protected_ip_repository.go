@@ -53,8 +53,7 @@ func (r *ProtectedIPRepository) Restore(it ProtectedIPItem) error {
 }
 
 func (r *ProtectedIPRepository) Delete(id string) error {
-	_, err := getDB().Exec("DELETE FROM protected_ips WHERE id=?", id)
-	return err
+	return execExpectingRow("DELETE FROM protected_ips WHERE id=?", id)
 }
 
 func (r *ProtectedIPRepository) DeleteByID(id int64) error {

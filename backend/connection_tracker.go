@@ -10,6 +10,7 @@ import (
 	"os"
 	"regexp"
 	"runtime/debug"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -51,8 +52,12 @@ func normalizeConnectionPolicy(raw string) string {
 	return p
 }
 
+// connectionRingSize is how many recent connections are kept in memory and
+// the upper bound of the ?limit= parameter.
+const connectionRingSize = 200
+
 func init() {
-	connRing = ring.New(200) // Keep last 200 connections
+	connRing = ring.New(connectionRingSize)
 }
 
 func GetRecentConnections() []ConnectionRecord {
@@ -424,11 +429,19 @@ func attachRuleMatchMeta(records []ConnectionRecord) []ConnectionRecord {
 func registerConnectionRoutes(r *gin.RouterGroup) {
 	r.GET("/connections", func(c *gin.Context) {
 		ip := c.Query("ip")
+		limit := connectionRingSize
+		if raw := strings.TrimSpace(c.Query("limit")); raw != "" {
+			if n, err := strconv.Atoi(raw); err == nil && n > 0 && n < limit {
+				limit = n
+			}
+		}
 		allConns := GetRecentConnections()
 
 		queryIP := strings.ToLower(strings.TrimSpace(ip))
 
-		var filtered []ConnectionRecord
+		// Always an array: the UI gates rendering on "data" being truthy, and
+		// a nil slice encoded as null left the previous list on screen.
+		filtered := make([]ConnectionRecord, 0, len(allConns))
 		for _, conn := range allConns {
 			if queryIP != "" {
 				clientHit := strings.Contains(strings.ToLower(conn.Client), queryIP)
@@ -439,7 +452,13 @@ func registerConnectionRoutes(r *gin.RouterGroup) {
 			}
 			filtered = append(filtered, conn)
 		}
+		if len(filtered) > limit {
+			filtered = filtered[:limit]
+		}
 		filtered = attachRuleMatchMeta(filtered)
+		if filtered == nil {
+			filtered = make([]ConnectionRecord, 0)
+		}
 
 		c.JSON(http.StatusOK, gin.H{
 			"success": true,

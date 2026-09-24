@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"github.com/gin-gonic/gin"
 	"log"
@@ -241,16 +242,49 @@ func (ctl *RemoteNodesController) RegisterRoutes(authed *gin.RouterGroup) {
 	authed.POST("/remote_nodes/batch", batchDeployRemoteNodes)
 	authed.POST("/remote_nodes/:id/regenerate", regenerateRemoteNodeParams)
 	authed.GET("/remote_nodes/:id/history", getRemoteNodeHistory)
+	authed.GET("/remote_nodes/:id/logs", getRemoteNodeLogs)
 	authed.POST("/remote_nodes/:id/rollback", rollbackRemoteNode)
 }
 
 func getRemoteNodes(c *gin.Context) {
-	nodes, err := NewRemoteNodesRepository().ListRemoteNodes()
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+	window, ok := parsePageWindow(c)
+	if !ok {
 		return
 	}
-	c.JSON(http.StatusOK, nodes)
+	nodes, err := NewRemoteNodesRepository().ListRemoteNodes()
+	if err != nil {
+		log.Printf("[WARN] list remote nodes: %v", err)
+		apiError(c, http.StatusInternalServerError, errCodeInternal, "failed to list remote nodes")
+		return
+	}
+	c.JSON(http.StatusOK, pageSlice(c, window, nodes))
+}
+
+// getRemoteNodeLogs exposes the deploy/check log a node accumulated.
+func getRemoteNodeLogs(c *gin.Context) {
+	id := c.Param("id")
+	if _, err := parseRemoteNodeID(id); err != nil {
+		apiError(c, http.StatusBadRequest, errCodeBadRequest, "invalid node id")
+		return
+	}
+	repo := NewRemoteNodesRepository()
+	if _, err := repo.GetRemoteNodeBasic(id); err != nil {
+		apiNotFound(c, "node")
+		return
+	}
+	limit := 100
+	if raw := strings.TrimSpace(c.Query("limit")); raw != "" {
+		if n, err := strconv.Atoi(raw); err == nil && n > 0 {
+			limit = n
+		}
+	}
+	logs, err := repo.ListRemoteNodeLogs(id, limit)
+	if err != nil {
+		log.Printf("[WARN] list remote node %s logs: %v", id, err)
+		apiError(c, http.StatusInternalServerError, errCodeInternal, "failed to load logs")
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "logs": logs})
 }
 
 func getRemoteNodeDetails(c *gin.Context) {
@@ -655,27 +689,31 @@ func deleteRemoteNode(c *gin.Context) {
 
 	err = NewRemoteNodesRepository().DeleteRemoteNodeCascade(id)
 	if err != nil {
+		if errors.Is(err, errNotFound) {
+			apiNotFound(c, "node")
+			return
+		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete"})
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"success": true})
 }
 
-func checkRemoteNode(c *gin.Context) {
-	id := c.Param("id")
-	info, err := NewRemoteNodesRepository().GetRemoteNodeCheckInfo(id)
+// probeRemoteNode connects to the node, asks systemd whether its service is
+// active, stores the resulting status and returns it. connectErr is set when
+// the SSH connection itself failed.
+func probeRemoteNode(id string) (status string, connectErr error, found bool) {
+	repo := NewRemoteNodesRepository()
+	info, err := repo.GetRemoteNodeCheckInfo(id)
 	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Node not found"})
-		return
+		return "", nil, false
 	}
-
 	nodeID, _ := parseRemoteNodeID(id)
 	client, err := getRemoteConnect()(info.Host, info.Port, info.User, info.AuthType, info.Credential, info.HostKey)
 	if err != nil {
-		NewRemoteNodesRepository().SetRemoteNodeStatus(id, "Offline")
+		repo.SetRemoteNodeStatus(id, "Offline")
 		logAction(nodeID, "check", "failed", fmt.Sprintf("SSH check failed: %v", err))
-		c.JSON(http.StatusOK, gin.H{"success": false, "status": "Offline", "reason": err.Error()})
-		return
+		return "Offline", err, true
 	}
 	defer client.Close()
 
@@ -683,16 +721,73 @@ func checkRemoteNode(c *gin.Context) {
 	if info.Type == "wg" {
 		cmd = "systemctl is-active wg-quick@wg0"
 	}
-
 	checkReq := RemoteNodeReq{SSHUser: info.User, SSHAuthType: info.AuthType, SSHCredential: info.Credential}
 	out, _, err := runRemoteCommandWithTimeout(client, checkReq, cmd, remoteProbeTimeout)
-	status := "Online"
-	if err != nil || out == "" {
+	status = "Online"
+	if err != nil || strings.TrimSpace(out) == "" {
 		status = "Offline"
+		logAction(nodeID, "check", "failed", fmt.Sprintf("service probe returned %q err=%v", strings.TrimSpace(out), err))
 	}
+	repo.SetRemoteNodeStatus(id, status)
+	return status, nil, true
+}
 
-	NewRemoteNodesRepository().SetRemoteNodeStatus(id, status)
+func checkRemoteNode(c *gin.Context) {
+	id := c.Param("id")
+	status, connectErr, found := probeRemoteNode(id)
+	if !found {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Node not found"})
+		return
+	}
+	if connectErr != nil {
+		c.JSON(http.StatusOK, gin.H{"success": false, "status": status, "reason": connectErr.Error()})
+		return
+	}
 	c.JSON(http.StatusOK, gin.H{"success": true, "status": status})
+}
+
+// remoteHealthCheckInterval is how often deployed nodes are probed in the
+// background. Until now a node's status only changed on deploy or when the
+// operator pressed "check", so an outage was invisible until then.
+var remoteHealthCheckInterval = 5 * time.Minute
+
+const remoteHealthCheckConcurrency = 3
+
+// runRemoteHealthCheckOnce probes every node that is not mid-deploy.
+func runRemoteHealthCheckOnce() {
+	ids, err := NewRemoteNodesRepository().ListRemoteNodeIDsForHealthCheck()
+	if err != nil {
+		log.Printf("[WARN] remote health check: list nodes: %v", err)
+		return
+	}
+	if len(ids) == 0 {
+		return
+	}
+	sem := make(chan struct{}, remoteHealthCheckConcurrency)
+	var wg sync.WaitGroup
+	for _, id := range ids {
+		wg.Add(1)
+		goSafe(func(id string) func() {
+			return func() {
+				defer wg.Done()
+				sem <- struct{}{}
+				defer func() { <-sem }()
+				probeRemoteNode(id)
+			}
+		}(id))
+	}
+	wg.Wait()
+}
+
+func remoteNodeHealthLoop() {
+	// Let the gateway settle after boot before dialling out.
+	time.Sleep(time.Minute)
+	ticker := time.NewTicker(remoteHealthCheckInterval)
+	defer ticker.Stop()
+	for {
+		runRemoteHealthCheckOnce()
+		<-ticker.C
+	}
 }
 
 func fetchNodeReq(id string) (RemoteNodeReq, error) {

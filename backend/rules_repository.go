@@ -122,8 +122,14 @@ func (r *RulesRepository) GetRuleTypeByID(ruleID string) (string, error) {
 }
 
 func (r *RulesRepository) DeleteRuleByID(ruleID string) error {
-	_, err := r.db.Exec("DELETE FROM rules WHERE id=?", ruleID)
-	return err
+	res, err := r.db.Exec("DELETE FROM rules WHERE id=?", ruleID)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return errNotFound
+	}
+	return nil
 }
 
 func (r *RulesRepository) NextRulePriority(tx *sql.Tx) (int, error) {

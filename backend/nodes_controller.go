@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"net"
@@ -59,6 +60,10 @@ func (ctl *NodesController) RegisterRoutes(api *gin.RouterGroup) {
 	})
 
 	api.GET("/nodes", func(c *gin.Context) {
+		window, ok := parsePageWindow(c)
+		if !ok {
+			return
+		}
 		var defNodeStr string
 		defNodeStr, _ = ctl.repo.GetDefaultNodeID()
 		defNodeId, _ := strconv.Atoi(defNodeStr)
@@ -112,10 +117,17 @@ func (ctl *NodesController) RegisterRoutes(api *gin.RouterGroup) {
 			}
 		}
 
-		c.JSON(http.StatusOK, nodes)
+		c.JSON(http.StatusOK, pageSlice(c, window, nodes))
 	})
 
 	api.PUT("/nodes/:id/default", func(c *gin.Context) {
+		if exists, err := ctl.repo.NodeExists(c.Param("id")); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "db error"})
+			return
+		} else if !exists {
+			apiNotFound(c, "node")
+			return
+		}
 		if err := ctl.repo.SetDefaultNodeID(c.Param("id")); err != nil {
 			log.Printf("[ERR] SetDefaultNodeID: %v", err)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "db error"})
@@ -372,72 +384,98 @@ func (ctl *NodesController) RegisterRoutes(api *gin.RouterGroup) {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "db query error"})
 			return
 		}
-		defer rows.Close()
-		const maxConcurrentPing = 20
-		sem := make(chan struct{}, maxConcurrentPing)
-		var wg sync.WaitGroup
+		type pingTarget struct {
+			id      int
+			ntype   string
+			address string
+			port    int
+		}
+		var targets []pingTarget
 		for rows.Next() {
-			var id, port int
-			var ntype, address string
-			if err := rows.Scan(&id, &ntype, &address, &port); err != nil {
+			var t pingTarget
+			if err := rows.Scan(&t.id, &t.ntype, &t.address, &t.port); err != nil {
 				continue
 			}
-			wg.Add(1)
-			go func(nid int, nType string, addr string, p int) {
-				defer wg.Done()
-				sem <- struct{}{}
-				defer func() { <-sem }()
-
-				ping := -1
-
-				if strings.ToLower(nType) == "wireguard" || strings.ToLower(nType) == "wg" {
-					out, _ := sysCmd.output("ping", "-c", "1", "-W", "2", addr)
-					if strings.Contains(string(out), "1 received") || strings.Contains(string(out), "1 packets received") {
-						matches := pingTimeRe.FindStringSubmatch(string(out))
-						if len(matches) > 1 {
-							f, _ := strconv.ParseFloat(matches[1], 64)
-							ping = int(f)
-							if ping == 0 {
-								ping = 1
-							}
-						} else {
-							ping = 1
-						}
-					}
-				} else {
-					start := time.Now()
-					d := net.Dialer{
-						Timeout: 2 * time.Second,
-						Control: func(network, address string, c syscall.RawConn) error {
-							return c.Control(func(fd uintptr) {
-								err := syscall.SetsockoptInt(int(fd), syscall.SOL_SOCKET, 36, 2)
-								if err != nil {
-									log.Printf("[WARN] setsockopt SO_MARK error: %v", err)
-								}
-							})
-						},
-					}
-					conn, err := d.Dial("tcp", net.JoinHostPort(addr, fmt.Sprintf("%d", p)))
-					if err == nil {
-						ping = int(time.Since(start).Milliseconds())
-						if ping == 0 {
-							ping = 1
-						}
-						conn.Close()
-					}
-				}
-
-				if err := ctl.repo.UpdateNodePing(nid, ping); err != nil {
-					log.Printf("[WARN] update node ping failed id=%d err=%v", nid, err)
-				}
-			}(id, ntype, address, port)
+			targets = append(targets, t)
 		}
 		if err := rows.Err(); err != nil {
+			rows.Close()
 			log.Printf("[ERROR] ping nodes rows err: %v", err)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "db rows error"})
 			return
 		}
-		c.JSON(http.StatusOK, gin.H{"success": true})
+		rows.Close()
+
+		const maxConcurrentPing = 20
+		sem := make(chan struct{}, maxConcurrentPing)
+		var wg sync.WaitGroup
+		for _, t := range targets {
+			wg.Add(1)
+			// goSafe: a panic in a probe must not take the backend down.
+			goSafe(func(nid int, nType string, addr string, p int) func() {
+				return func() {
+					defer wg.Done()
+					sem <- struct{}{}
+					defer func() { <-sem }()
+
+					ping := -1
+
+					if strings.ToLower(nType) == "wireguard" || strings.ToLower(nType) == "wg" {
+						out, _ := sysCmd.output("ping", "-c", "1", "-W", "2", addr)
+						if strings.Contains(string(out), "1 received") || strings.Contains(string(out), "1 packets received") {
+							matches := pingTimeRe.FindStringSubmatch(string(out))
+							if len(matches) > 1 {
+								f, _ := strconv.ParseFloat(matches[1], 64)
+								ping = int(f)
+								if ping == 0 {
+									ping = 1
+								}
+							} else {
+								ping = 1
+							}
+						}
+					} else {
+						start := time.Now()
+						d := net.Dialer{
+							Timeout: 2 * time.Second,
+							Control: func(network, address string, c syscall.RawConn) error {
+								return c.Control(func(fd uintptr) {
+									err := syscall.SetsockoptInt(int(fd), syscall.SOL_SOCKET, 36, 2)
+									if err != nil {
+										log.Printf("[WARN] setsockopt SO_MARK error: %v", err)
+									}
+								})
+							},
+						}
+						conn, err := d.Dial("tcp", net.JoinHostPort(addr, fmt.Sprintf("%d", p)))
+						if err == nil {
+							ping = int(time.Since(start).Milliseconds())
+							if ping == 0 {
+								ping = 1
+							}
+							conn.Close()
+						}
+					}
+
+					if err := ctl.repo.UpdateNodePing(nid, ping); err != nil {
+						log.Printf("[WARN] update node ping failed id=%d err=%v", nid, err)
+					}
+				}
+			}(t.id, t.ntype, t.address, t.port))
+		}
+		// ?wait=1 lets a caller block (bounded) until the probes finish so the
+		// list it fetches next already carries the new latencies.
+		completed := false
+		if raw := strings.ToLower(strings.TrimSpace(c.Query("wait"))); raw == "1" || raw == "true" {
+			done := make(chan struct{})
+			go func() { wg.Wait(); close(done) }()
+			select {
+			case <-done:
+				completed = true
+			case <-time.After(5 * time.Second):
+			}
+		}
+		c.JSON(http.StatusOK, gin.H{"success": true, "started": len(targets), "completed": completed})
 	})
 
 	api.PUT("/nodes/:id", func(c *gin.Context) {
@@ -456,6 +494,10 @@ func (ctl *NodesController) RegisterRoutes(api *gin.RouterGroup) {
 			n.Params = "{}"
 		}
 		if err := ctl.repo.UpdateNodeByID(c.Param("id"), n.Name, n.Group, n.Type, n.Address, n.Port, n.UUID, n.Params); err != nil {
+			if errors.Is(err, errNotFound) {
+				apiNotFound(c, "node")
+				return
+			}
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "db error"})
 			return
 		}
@@ -469,6 +511,10 @@ func (ctl *NodesController) RegisterRoutes(api *gin.RouterGroup) {
 	api.DELETE("/nodes/:id", func(c *gin.Context) {
 		removedTag := nodeIDToTag(c.Param("id"))
 		if err := ctl.repo.DeleteNodeByID(c.Param("id")); err != nil {
+			if errors.Is(err, errNotFound) {
+				apiNotFound(c, "node")
+				return
+			}
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "db error"})
 			return
 		}
@@ -481,6 +527,10 @@ func (ctl *NodesController) RegisterRoutes(api *gin.RouterGroup) {
 
 	api.PUT("/nodes/:id/toggle", func(c *gin.Context) {
 		if err := ctl.repo.ToggleNodeByID(c.Param("id")); err != nil {
+			if errors.Is(err, errNotFound) {
+				apiNotFound(c, "node")
+				return
+			}
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "db error"})
 			return
 		}

@@ -67,8 +67,7 @@ func (r *LanACLRepository) Restore(rec LanACLRecord) error {
 }
 
 func (r *LanACLRepository) Delete(id string) error {
-	_, err := getDB().Exec("DELETE FROM lan_acls WHERE id=?", id)
-	return err
+	return execExpectingRow("DELETE FROM lan_acls WHERE id=?", id)
 }
 
 func (r *LanACLRepository) DeleteByID(id int64) error {

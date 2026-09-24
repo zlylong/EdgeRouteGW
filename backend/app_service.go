@@ -54,6 +54,7 @@ func (s *AppService) Bootstrap() {
 	goSafe(cronUpdater)
 	goSafe(domainIPUpdater)
 	goSafe(runDatabaseMaintenance)
+	goSafe(remoteNodeHealthLoop)
 	if err := applyMosdnsConfig(); err != nil {
 		log.Printf("[WARN] applyMosdnsConfig on startup failed: %v", err)
 	}

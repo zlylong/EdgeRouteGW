@@ -206,6 +206,24 @@ func auditEventMiddleware(c *gin.Context) {
 	})
 }
 
+// sinceDurationRe matches the relative forms parseSinceParam accepts.
+var sinceDurationRe = regexp.MustCompile(`^(\d{1,6})([smhd])$`)
+
+// parseSinceParam accepts an RFC3339 timestamp or a relative duration such
+// as 30s, 15m, 2h or 1d and returns the absolute time it denotes.
+func parseSinceParam(raw string) (time.Time, bool) {
+	raw = strings.TrimSpace(raw)
+	if m := sinceDurationRe.FindStringSubmatch(raw); m != nil {
+		n, _ := strconv.Atoi(m[1])
+		unit := map[string]time.Duration{"s": time.Second, "m": time.Minute, "h": time.Hour, "d": 24 * time.Hour}[m[2]]
+		return time.Now().Add(-time.Duration(n) * unit), true
+	}
+	if t, err := time.Parse(time.RFC3339, raw); err == nil {
+		return t, true
+	}
+	return time.Time{}, false
+}
+
 func registerEventRoutes(r *gin.RouterGroup) {
 	r.GET("/events", func(c *gin.Context) {
 		limit := 200
@@ -222,8 +240,8 @@ func registerEventRoutes(r *gin.RouterGroup) {
 
 		baseSQL := `SELECT id, datetime(ts, 'localtime'), level, module, event_type, message, trace_id, source_ip, method, path, status, duration_ms, details_json
 			FROM gateway_events`
-		conds := make([]string, 0, 2)
-		args := make([]interface{}, 0, 3)
+		conds := make([]string, 0, 5)
+		args := make([]interface{}, 0, 6)
 		if module != "" {
 			conds = append(conds, "module = ?")
 			args = append(args, module)
@@ -232,11 +250,49 @@ func registerEventRoutes(r *gin.RouterGroup) {
 			conds = append(conds, "level = ?")
 			args = append(args, level)
 		}
+		// Cursor and time-window filters so a client can page through the
+		// log or ask only for what happened since its last poll.
+		if raw := strings.TrimSpace(c.Query("before_id")); raw != "" {
+			n, err := strconv.ParseInt(raw, 10, 64)
+			if err != nil || n <= 0 {
+				apiError(c, http.StatusBadRequest, errCodeBadRequest, "before_id must be a positive integer")
+				return
+			}
+			conds = append(conds, "id < ?")
+			args = append(args, n)
+		}
+		if raw := strings.TrimSpace(c.Query("after_id")); raw != "" {
+			n, err := strconv.ParseInt(raw, 10, 64)
+			if err != nil || n < 0 {
+				apiError(c, http.StatusBadRequest, errCodeBadRequest, "after_id must be a non-negative integer")
+				return
+			}
+			conds = append(conds, "id > ?")
+			args = append(args, n)
+		}
+		if raw := strings.TrimSpace(c.Query("since")); raw != "" {
+			since, ok := parseSinceParam(raw)
+			if !ok {
+				apiError(c, http.StatusBadRequest, errCodeBadRequest, "since must be RFC3339 or a duration like 15m, 2h, 1d")
+				return
+			}
+			conds = append(conds, "ts >= ?")
+			args = append(args, since.UTC().Format("2006-01-02 15:04:05"))
+		}
 		if len(conds) > 0 {
 			baseSQL += " WHERE " + strings.Join(conds, " AND ")
 		}
 		baseSQL += " ORDER BY id DESC LIMIT ?"
 		args = append(args, limit)
+		if raw := strings.TrimSpace(c.Query("offset")); raw != "" {
+			n, err := strconv.Atoi(raw)
+			if err != nil || n < 0 {
+				apiError(c, http.StatusBadRequest, errCodeBadRequest, "offset must be a non-negative integer")
+				return
+			}
+			baseSQL += " OFFSET ?"
+			args = append(args, n)
+		}
 
 		rows, err := getDB().Query(baseSQL, args...)
 		if err != nil {

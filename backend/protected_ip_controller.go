@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"log"
 	"net/http"
 	"strings"
@@ -17,11 +18,16 @@ func NewProtectedIPController(repo *ProtectedIPRepository) *ProtectedIPControlle
 }
 
 func (ctl *ProtectedIPController) List(c *gin.Context) {
+	window, ok := parsePageWindow(c)
+	if !ok {
+		return
+	}
 	recs, err := ctl.repo.List()
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "db query error"})
 		return
 	}
+	recs = pageSlice(c, window, recs)
 	items := make([]map[string]interface{}, 0, len(recs))
 	for _, rec := range recs {
 		items = append(items, map[string]interface{}{
@@ -71,6 +77,10 @@ func (ctl *ProtectedIPController) Delete(c *gin.Context) {
 	id := c.Param("id")
 	prev, getErr := ctl.repo.Get(id)
 	if err := ctl.repo.Delete(id); err != nil {
+		if errors.Is(err, errNotFound) {
+			apiNotFound(c, "protected ip")
+			return
+		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "delete failed"})
 		return
 	}

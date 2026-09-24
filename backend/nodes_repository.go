@@ -1,5 +1,7 @@
 package main
 
+import "errors"
+
 import "database/sql"
 
 type NodesRepository struct{}
@@ -59,17 +61,41 @@ func (r *NodesRepository) UpdateNodePing(id int, ping int) error {
 	return err
 }
 
+// errNotFound is returned by repository writes that matched no row so the
+// controller can answer 404 instead of a misleading 200.
+var errNotFound = errors.New("not found")
+
+func execExpectingRow(query string, args ...interface{}) error {
+	res, err := getDB().Exec(query, args...)
+	if err != nil {
+		return err
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if n == 0 {
+		return errNotFound
+	}
+	return nil
+}
+
+func (r *NodesRepository) NodeExists(id string) (bool, error) {
+	var n int
+	if err := getDB().QueryRow("SELECT COUNT(*) FROM nodes WHERE id=?", id).Scan(&n); err != nil {
+		return false, err
+	}
+	return n > 0, nil
+}
+
 func (r *NodesRepository) UpdateNodeByID(id, name, groupName, nodeType, address string, port int, uuid, params string) error {
-	_, err := getDB().Exec("UPDATE nodes SET name=?, grp=?, type=?, address=?, port=?, uuid=?, params=? WHERE id=?", name, groupName, nodeType, address, port, uuid, params, id)
-	return err
+	return execExpectingRow("UPDATE nodes SET name=?, grp=?, type=?, address=?, port=?, uuid=?, params=? WHERE id=?", name, groupName, nodeType, address, port, uuid, params, id)
 }
 
 func (r *NodesRepository) DeleteNodeByID(id string) error {
-	_, err := getDB().Exec("DELETE FROM nodes WHERE id=?", id)
-	return err
+	return execExpectingRow("DELETE FROM nodes WHERE id=?", id)
 }
 
 func (r *NodesRepository) ToggleNodeByID(id string) error {
-	_, err := getDB().Exec("UPDATE nodes SET active = NOT active WHERE id=?", id)
-	return err
+	return execExpectingRow("UPDATE nodes SET active = NOT active WHERE id=?", id)
 }
