@@ -1,4 +1,43 @@
 ## [Unreleased]
+系统功能优化：覆盖运行时性能与写放大、安全与健壮性、规则/节点变更路径、API 契约与前端体验。
+
+### ⚡ 性能
+- **状态接口不再每次轮询 fork 进程**: `/api/status` 每 2 秒被 UI 轮询一次，此前每次都执行 `xray version`、`mosdns version`、`vtysh`、`sh -c os-release`、`git rev-parse/describe` 等约 8 个子进程并阻塞 200ms 采样 CPU。静态信息现缓存 60s（组件更新后立即失效），`/etc/os-release` 直接读取，CPU 使用率改为与上次采样求差，月流量汇总缓存 10s 并与 `/api/traffic` 共享。
+- **读接口不再写库**: `readIntSettingWithDefault` 每次读取都 `INSERT OR REPLACE`，OSPF 控制循环在所有模式下每 2 秒触发 3 次写事务；`GET /api/cron` 每次写 4 行、`/api/status` 每次写 2 行。现仅在缺行或值变化时写入，OSPF 循环只在 Mode B/C 读取参数，并真正遵守 `push_interval_seconds`；每 2 秒一条的 `[DEBUG] toDel len` 日志已移除。
+- **SQLite 连接级参数**: `busy_timeout`/`synchronous` 是每连接设置，此前只作用于连接池中执行过 PRAGMA 的那一个连接，其余连接 `busy_timeout=0`，并发写入时直接报 `database is locked`。现通过 DSN 对每个连接生效，连接池上限 8。
+- **mosdns 只在配置变化时重启**: 规则重排、direct 策略域名等不影响 `proxy_domains.txt` 的变更此前也会 `systemctl restart mosdns`。现渲染后与磁盘比对，无变化且服务运行中则跳过；Mode B 下 Xray 下发时的二次 mosdns 重启在 5s 内去重。
+- **后端重启不再重启 Xray/mosdns**: 启动时若渲染出的 `config.json` 与磁盘一致且服务运行中则跳过重启，`systemctl restart proxygw` 不再引起流量/DNS 抖动。`PROXYGW_FORCE_RESTART_ON_BOOT=1` 可恢复旧行为。
+- **节点变更只重同步自身出站**: 编辑/停用/删除节点此前对全部出站执行 `rmo` + `ado`，现只处理该节点的 tag。
+- **GeoData 不再重复解析**: `hasGeoSiteTag`/`extractGeoSiteValues`/`extractGeoSiteResolvableDomains` 与 `extractGeoIPs*` 改由按版本缓存的 matcher 提供（此前每条 geosite 规则每次 apply、每次 `POST /rules` 都完整重新解析 `.dat`）；matcher 构建移出读写锁，重建期间查询不阻塞；旧解析器补齐边界检查（截断文件不再 panic）。
+- **连接追踪批量关联**: `/api/connections` 此前对每条记录执行最多两次查询（其中一次是 `LIKE '%ip%'` 全表扫描），每次轮询多达 400 次；现一次 `IN (...)` 查询加 10s 刷新一次的反向索引，规则值只解析一次。
+- **DNS 解析使用真实 TTL**: `dig +short` 丢弃 TTL 导致所有域名缓存固定 300s、Mode C 每 5 分钟全量重解析；改为 `+noall +answer` 取最小 TTL（仍夹在 300–3600s）。
+- 其它：流量监控分钟数据单事务写入、事件写入移出锁外、Xray 停止时不再每 2 秒刷 `[CMD][error]`；`/api/logs` 2s 结果缓存；正则与 nftables 模板一次编译；会话续期每小时最多一次并在登录时清理过期会话；`commandExecutor` 排队时响应上下文取消。
+
+### 🐛 修复
+- **DNS 解析缓存每天被整表清空**: `db_maintenance` 用 `expire_at < datetime('now')` 比较整数与文本，SQLite 中整数恒小于文本，条件对所有行成立。现两侧均转为整数比较。
+- **连接追踪在日志截断后停摆**: tailer 只在文件恰好为 0 字节时重开，5MB 截断后保持旧偏移、静默丢失后续记录直到文件重新超过旧长度。现检测到收缩或 inode 变化即重开，打开时只回读最后 256KB。
+- **登录限速可被并发绕过**: 延迟期间释放锁且事后计数，突发并发请求全部看到同一计数。现先计数再延迟；失败与锁定记录到事件日志。
+- **arm64 应用内更新 Xray 必然失败**: 摘要 URL 固定为 `Xray-linux-64.zip.dgst`，与实际下载的 arm64 资产不匹配。
+- **`/remote_nodes/:id/history` 泄露私钥**: 响应中的 `params` 不再包含 `server_priv/client_priv/reality_priv`。
+- **后台循环 panic 后永久停止**: 连接追踪、静态路由同步等改用可自动重启的 `goSafeLoop`；解析 worker 内 panic 不再导致 `wg.Wait` 永久挂起。
+- **apply 失败留下脏数据**: 设备分流、保护 IP、DNS 设置在 nftables/mosdns 下发失败时回滚数据库变更；DNS 仅在上游或模式变化时清空解析缓存。
+- **systemd 沙箱缺少运行目录**: `ProtectSystem=strict` 下 `/run` 只读，unit 现声明 `RuntimeDirectory=proxygw` + `RuntimeDirectoryPreserve=yes`。
+
+### 🔐 安全与健壮性
+- HTTP Server 增加 `ReadHeaderTimeout`/`IdleTimeout`/`MaxHeaderBytes` 与 SIGTERM 优雅关闭；响应带安全头（`nosniff`、`X-Frame-Options: DENY`、Referrer/Permissions-Policy、CSP report-only）；JSON 与静态资源 gzip；`/ui/libs` 缓存 1 小时。
+- SSH 远程命令带超时（默认 10 分钟，探测 15s）；远程节点创建/批量部署做字段校验，批量上限 20；部署进行中拒绝再次生成/回滚（409）；删除时记录远端清理结果。
+- 组件更新：检查 GitHub API 状态码、版本列表空时返回 `[]`、限制远程文本 4MB、校验 geodata tag、原子替换 geodata 文件、安装前冒烟测试、同一时间只允许一个更新。
+- DNS `log_level`/`mode`、LAN 默认策略白名单校验（`log_level` 此前原样写入 YAML）；`X-Trace-ID` 限制为 64 个安全字符。
+- `install.sh`/`update.sh`：无法获取 `SHA256SUMS` 时拒绝安装（`PROXYGW_ALLOW_UNVERIFIED=1` 覆盖），不再内置固定回退版本号，不支持的架构直接报错；`update.sh` 保留旧二进制并在新版本 10s 内未启动时自动回滚。
+
+### 🔌 API
+- 错误统一为 `{"success":false,"error","error_code"}`（保留 `error` 键）；5xx 不再回显内部错误文本。
+- 对不存在 ID 的删除/更新/切换返回 404（规则、节点、设备分流、保护 IP、远程节点）。
+- 列表接口支持 `?limit=&offset=` 与 `X-Total-Count`；`/events` 增加 `offset/before_id/after_id/since`；`/logs/:service` 增加 `lines/since/priority/grep` 与 `frr/nftables`；`/connections` 的 `data` 恒为数组并支持 `?limit=`。
+- 新增 `GET /remote_nodes/:id/logs`；远程节点后台每 5 分钟自动探测状态；`/nodes/ping` 返回 `started/completed` 并支持 `?wait=1`；`/geo/query` 展开默认 2000 条并标记 `truncated`。
+
+### 🗂️ 仓库
+- 删除误提交的 `backend/cookies.txt` 与 `.omo/` 会话残留；去除 `index.html` 末尾杂散注释。
 
 ## [1.8.1] - 2026-09-19
 生产环境首次升级到 1.8.0 后的体检修复版。

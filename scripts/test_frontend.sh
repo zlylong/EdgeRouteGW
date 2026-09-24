@@ -9,10 +9,15 @@ FRONTEND_DIST="$ROOT_DIR/frontend/dist"
 
 cd "$E2E_DIR"
 
-# Check frontend dist
+# Check frontend dist. index.html is the source (no bundler); only the
+# Tailwind CSS is generated, by scripts/build_frontend_css.sh.
 if [[ ! -d "$FRONTEND_DIST" ]]; then
   echo "Error: Frontend dist not found at $FRONTEND_DIST"
-  echo "Build it first: cd frontend && npm run build"
+  exit 1
+fi
+if [[ ! -f "$FRONTEND_DIST/libs/app.css" ]]; then
+  echo "Error: $FRONTEND_DIST/libs/app.css missing"
+  echo "Generate it first: scripts/build_frontend_css.sh"
   exit 1
 fi
 

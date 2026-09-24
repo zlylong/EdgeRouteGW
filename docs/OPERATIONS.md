@@ -18,6 +18,8 @@
   ```
   推荐的日常维护命令。它将自动从 GitHub `main` 分支拉取最新代码，智能检查依赖，自动获取 GitHub Releases 最新版预编译后端二进制，并平滑重启所有相关守护服务。
 
+  > 安全策略：脚本必须拿到发布页的 `SHA256SUMS` 并校验通过才会安装二进制；获取失败即中止（fail-closed）。安装早于校验文件的旧版本可显式设置 `PROXYGW_ALLOW_UNVERIFIED=1`。`update.sh` 会把旧二进制保留为 `proxygw-backend.prev`，新版本在 10 秒内未进入 active 状态时自动回滚并重启。不再内置固定的回退版本号：无法从 GitHub API 或本地 git 标签确定版本时脚本直接报错退出。
+
   > 自 `v1.6.16+` 起，`install.sh` / `update.sh` 在服务启动后会自动执行一次数据库低风险优化（`scripts/db_optimize.sh --index-only`）：
   > - 幂等创建关键索引（`domain_geoip_lock` / `gateway_events`）
   > - 执行 `ANALYZE` 与 `PRAGMA optimize`
@@ -28,6 +30,19 @@
   bash scripts/uninstall.sh
   ```
   安全停用相关守护进程，清理所有的二进制文件，剥离 Linux 内核级别的 TProxy 劫持规则和路由表，恢复纯净的宿主机网络环境。卸载过程中会询问是否保留用户配置文件和 SQLite 数据库。
+
+## 🔩 运行时环境变量
+
+在 `/etc/systemd/system/proxygw.service` 的 `[Service]` 段加 `Environment=` 后 `systemctl daemon-reload && systemctl restart proxygw` 生效：
+
+| 变量 | 作用 |
+| :--- | :--- |
+| `PROXYGW_LISTEN_ADDR` | 管理界面监听地址，默认 `:80`。 |
+| `PROXYGW_CMD_LOG=1` | 记录每条外部命令的开始/结束（默认只记失败与 ≥2s 的慢命令）。 |
+| `PROXYGW_FORCE_RESTART_ON_BOOT=1` | 后端启动时无条件重启 Xray/mosdns（默认配置未变化且服务运行中则跳过）。 |
+| `GIN_MODE` | 显式指定 gin 模式（默认 release）。 |
+
+脚本相关：`PROXYGW_ALLOW_UNVERIFIED=1`（安装/升级脚本跳过缺失的 `SHA256SUMS` 校验）。
 
 ## ⚙️ 系统服务状态管理
 
@@ -97,7 +112,7 @@ EdgeRouteGW 后端自 `v1.7.5+` 起内置了自动化的数据库维护任务（
 | **系统事件日志** | 30 天 | 除 API 外的其他模块（OSPF, DNS, Nodes）日志。 |
 | **流量统计历史** | 60 天 | 包含总流量与单节点流量的分时历史数据。 |
 | **远程节点日志** | 30 天 | 远程节点的部署、扩容与状态变更日志。 |
-| **DNS 解析缓存** | 即时清理 | `expire_at < now` 的过期解析条目。 |
+| **DNS 解析缓存** | 即时清理 | `expire_at`（Unix 时间戳）已过期的解析条目。此前的比较把整数与文本混比，导致每天清空整表，已修复。 |
 | **其他中间缓存** | 30 天 | 包含 Geosite 展开缓存、GeoIP 自动锁定记录等。 |
 
 **维护操作细节：**
@@ -132,7 +147,7 @@ EdgeRouteGW 后端自 `v1.7.5+` 起内置了自动化的数据库维护任务（
 在 Mode C 下，EdgeRouteGW 会通过 OSPF 将大量的真实代理 IP 网段发给 ROS，这会覆盖 ROS 的默认路由。当 EdgeRouteGW 自身向代理节点发起出站连接时，如果节点的 IP 刚好命中这些 OSPF 路由，流量又会被 ROS 踢回给 EdgeRouteGW，造成死循环。
 您必须在 ROS 中强制让 EdgeRouteGW 发出的流量直连公网。
 
-> 完整新手配置与图形界面路径请同时参考：`docs/ROS_SETUP.md`（第 5 章 Mode C 防环路 PBR）。
+> 完整新手配置与图形界面路径请同时参考：[`docs/NETWORK_SETUP.md`](./NETWORK_SETUP.md)（Mode C 防环路 PBR 章节）。
 
 **ROS v7 配置命令参考：**
 ```routeros
