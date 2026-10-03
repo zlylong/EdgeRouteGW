@@ -13,6 +13,9 @@ jobs:
     runs-on: ubuntu-latest
     env:
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+      GH_TOKEN: ${{ github.token }}
+      # Upstream release/raw endpoints return transient 4xx/5xx; retry instead of failing the run
+      CURL_RETRY: --retry 5 --retry-delay 10 --retry-all-errors
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v5
@@ -20,9 +23,9 @@ jobs:
       - name: Download Latest Xray-Core
         run: |
           mkdir -p core/xray
-          LATEST_XRAY=$(curl -s https://api.github.com/repos/XTLS/Xray-core/releases/latest | jq -r '.assets[] | select(.name == "Xray-linux-64.zip") | .browser_download_url')
+          LATEST_XRAY=$(curl -fsSL $CURL_RETRY -H "Authorization: Bearer $GH_TOKEN" https://api.github.com/repos/XTLS/Xray-core/releases/latest | jq -r '.assets[] | select(.name == "Xray-linux-64.zip") | .browser_download_url')
           echo "Downloading Xray from $LATEST_XRAY"
-          wget -qO xray.zip "$LATEST_XRAY"
+          curl -fsSL $CURL_RETRY -o xray.zip "$LATEST_XRAY"
           unzip -o xray.zip xray -d core/xray/
           rm xray.zip
           chmod +x core/xray/xray
@@ -30,31 +33,31 @@ jobs:
       - name: Download GeoData (.dat files)
         run: |
           mkdir -p core/mosdns core/xray
-          wget -qO core/mosdns/geoip.dat "https://github.com/Loyalsoldier/v2ray-rules-dat/releases/latest/download/geoip.dat"
-          wget -qO core/mosdns/geosite.dat "https://github.com/Loyalsoldier/v2ray-rules-dat/releases/latest/download/geosite.dat"
+          curl -fsSL $CURL_RETRY -o core/mosdns/geoip.dat "https://github.com/Loyalsoldier/v2ray-rules-dat/releases/latest/download/geoip.dat"
+          curl -fsSL $CURL_RETRY -o core/mosdns/geosite.dat "https://github.com/Loyalsoldier/v2ray-rules-dat/releases/latest/download/geosite.dat"
           cp core/mosdns/geoip.dat core/xray/geoip.dat
           cp core/mosdns/geosite.dat core/xray/geosite.dat
 
       - name: Fetch Text Rules (.txt files for Mosdns)
         run: |
           echo "Fetching plain text rules for Mosdns v5..."
-          wget -qO core/mosdns/geoip_cn.txt "https://raw.githubusercontent.com/Loyalsoldier/geoip/release/text/cn.txt"
-          wget -qO core/mosdns/geosite_cn.txt "https://raw.githubusercontent.com/Loyalsoldier/domain-list-custom/release/cn.txt"
-          wget -qO core/mosdns/proxy_domains.txt "https://raw.githubusercontent.com/Loyalsoldier/domain-list-custom/release/geolocation-!cn.txt"
+          curl -fsSL $CURL_RETRY -o core/mosdns/geoip_cn.txt "https://raw.githubusercontent.com/Loyalsoldier/geoip/release/text/cn.txt"
+          curl -fsSL $CURL_RETRY -o core/mosdns/geosite_cn.txt "https://raw.githubusercontent.com/Loyalsoldier/domain-list-custom/release/cn.txt"
+          curl -fsSL $CURL_RETRY -o core/mosdns/proxy_domains.txt "https://raw.githubusercontent.com/Loyalsoldier/domain-list-custom/release/geolocation-!cn.txt"
 
       - name: Download Mosdns binary
         run: |
           mkdir -p core/mosdns
-          LATEST_MOSDNS=$(curl -s https://api.github.com/repos/IrineSistiana/mosdns/releases/latest | jq -r '.assets[] | select(.name | endswith("linux-amd64.zip")) | .browser_download_url')
+          LATEST_MOSDNS=$(curl -fsSL $CURL_RETRY -H "Authorization: Bearer $GH_TOKEN" https://api.github.com/repos/IrineSistiana/mosdns/releases/latest | jq -r '.assets[] | select(.name | endswith("linux-amd64.zip")) | .browser_download_url')
           echo "Downloading Mosdns from $LATEST_MOSDNS"
-          wget -qO mosdns.zip "$LATEST_MOSDNS"
+          curl -fsSL $CURL_RETRY -o mosdns.zip "$LATEST_MOSDNS"
           unzip -o mosdns.zip mosdns -d core/mosdns/
           rm mosdns.zip
           chmod +x core/mosdns/mosdns
 
       - name: Generate Rules Ver
         run: |
-          curl -s https://api.github.com/repos/Loyalsoldier/v2ray-rules-dat/releases/latest | jq -r '.tag_name' > core/mosdns/geodata.ver
+          curl -fsSL $CURL_RETRY -H "Authorization: Bearer $GH_TOKEN" https://api.github.com/repos/Loyalsoldier/v2ray-rules-dat/releases/latest | jq -r '.tag_name' > core/mosdns/geodata.ver
 
       - name: Commit and Push Changes
         run: |
