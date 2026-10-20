@@ -13,13 +13,9 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"os/signal"
-	"syscall"
 	"time"
 
-	"github.com/zlylong/EdgeRouteGW/internal/api"
 	"github.com/zlylong/EdgeRouteGW/internal/config"
-	"github.com/zlylong/EdgeRouteGW/internal/httpserver"
 	"github.com/zlylong/EdgeRouteGW/internal/store"
 	"github.com/zlylong/EdgeRouteGW/internal/version"
 )
@@ -64,6 +60,9 @@ Flags shared by serve and migrate (environment variable in parentheses):
   -listen     HTTP listen address        (ERGW_LISTEN,    default :80)
   -data-dir   database and state dir     (ERGW_DATA_DIR,  default /var/lib/edgeroutegw)
   -log-level  debug|info|warn|error      (ERGW_LOG_LEVEL, default info)
+
+serve only:
+  -no-reconcile   store desired state but never drive Xray/Mosdns/nftables (development)
 `)
 }
 
@@ -111,48 +110,5 @@ func cmdMigrate(args []string, stdout, stderr io.Writer, env config.LookupEnv) i
 	if len(applied) == 0 {
 		fmt.Fprintln(stdout, "database is up to date")
 	}
-	return 0
-}
-
-func cmdServe(args []string, stdout, stderr io.Writer, env config.LookupEnv) int {
-	fs := flag.NewFlagSet("serve", flag.ContinueOnError)
-	fs.SetOutput(stderr)
-	cfg, err := config.Parse(fs, args, env)
-	if err != nil {
-		if errors.Is(err, flag.ErrHelp) {
-			return 0
-		}
-		fmt.Fprintln(stderr, "edgeroutegw serve:", err)
-		return 2
-	}
-	log := cfg.NewLogger(stderr)
-	v := version.Get()
-	log.Info("edgeroutegw starting", "version", v.Version, "commit", v.Commit, "data_dir", cfg.DataDir, "listen", cfg.ListenAddr)
-
-	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
-	defer stop()
-
-	st, err := store.Open(ctx, cfg.DBPath())
-	if err != nil {
-		log.Error("open database failed", "path", cfg.DBPath(), "err", err)
-		return 1
-	}
-	defer st.Close()
-
-	applied, err := st.Migrate(ctx)
-	if err != nil {
-		log.Error("database migration failed", "err", err, "applied", applied)
-		return 1
-	}
-	if len(applied) > 0 {
-		log.Info("database migrated", "applied", applied)
-	}
-
-	h := api.NewHandler(api.Deps{Store: st, Log: log, StartedAt: time.Now()})
-	if err := httpserver.Serve(ctx, cfg.ListenAddr, h, log, nil); err != nil {
-		log.Error("http server failed", "err", err)
-		return 1
-	}
-	log.Info("edgeroutegw stopped")
 	return 0
 }

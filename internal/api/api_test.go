@@ -13,6 +13,10 @@ import (
 	"time"
 
 	v2 "github.com/zlylong/EdgeRouteGW/internal/api/v2"
+	"github.com/zlylong/EdgeRouteGW/internal/events"
+	"github.com/zlylong/EdgeRouteGW/internal/paths"
+	"github.com/zlylong/EdgeRouteGW/internal/reconcile"
+	"github.com/zlylong/EdgeRouteGW/internal/render"
 	"github.com/zlylong/EdgeRouteGW/internal/store"
 )
 
@@ -27,7 +31,11 @@ func newTestServer(t *testing.T) *httptest.Server {
 	if _, err := st.Migrate(ctx); err != nil {
 		t.Fatal(err)
 	}
-	h := NewHandler(Deps{Store: st, Log: slog.New(slog.NewTextHandler(io.Discard, nil)), StartedAt: time.Now().Add(-5 * time.Second)})
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	bus := events.New(16)
+	p := paths.New(t.TempDir())
+	rec := reconcile.New(st, nil, render.Deps{Paths: p}, nil, bus, log)
+	h := NewHandler(Deps{Store: st, Reconciler: rec, Bus: bus, Paths: p, Log: log, StartedAt: time.Now().Add(-5 * time.Second)})
 	srv := httptest.NewServer(h)
 	t.Cleanup(srv.Close)
 	return srv
@@ -56,13 +64,8 @@ func TestState(t *testing.T) {
 	if err := json.NewDecoder(res.Body).Decode(&body); err != nil {
 		t.Fatal(err)
 	}
-	if body.Mode != "A" || body.Generation != 0 || body.Pending || len(body.Components) != 4 || body.SchemaVersion != "0001_init" || body.UptimeSeconds < 5 {
+	if body.Mode != "A" || body.Generation != 0 || body.SchemaVersion != "0001_init" || body.UptimeSeconds < 5 {
 		t.Fatalf("unexpected state: %+v", body)
-	}
-	for _, c := range body.Components {
-		if c.Status != "unknown" {
-			t.Fatalf("component %s status %q, want unknown in M0", c.Name, c.Status)
-		}
 	}
 }
 
@@ -112,8 +115,8 @@ func TestMethodNotAllowed(t *testing.T) {
 		t.Fatal(err)
 	}
 	res.Body.Close()
-	if res.StatusCode != http.StatusMethodNotAllowed {
-		t.Fatalf("status %d, want 405", res.StatusCode)
+	if res.StatusCode != http.StatusMethodNotAllowed || res.Header.Get("Allow") != "GET" {
+		t.Fatalf("status %d allow %q", res.StatusCode, res.Header.Get("Allow"))
 	}
 }
 

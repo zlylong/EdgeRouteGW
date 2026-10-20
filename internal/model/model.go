@@ -73,17 +73,20 @@ const (
 
 // Node is an outbound proxy node.
 type Node struct {
-	ID        string    `json:"id"`
-	Name      string    `json:"name"`
-	Protocol  Protocol  `json:"protocol"`
-	Address   string    `json:"address"`
-	Port      int       `json:"port"`
-	Params    string    `json:"params"` // protocol-specific JSON, never holds the credential
-	Enabled   bool      `json:"enabled"`
-	IsDefault bool      `json:"is_default"`
-	LatencyMs *int      `json:"latency_ms,omitempty"`
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
+	ID       string   `json:"id"`
+	Name     string   `json:"name"`
+	Protocol Protocol `json:"protocol"`
+	Address  string   `json:"address"`
+	Port     int      `json:"port"`
+	Params   string   `json:"params"` // protocol-specific JSON, never holds the credential
+	// Credential is the UUID / password / private key. It is decrypted only
+	// into the renderer's snapshot and never leaves the process.
+	Credential string    `json:"-"`
+	Enabled    bool      `json:"enabled"`
+	IsDefault  bool      `json:"is_default"`
+	LatencyMs  *int      `json:"latency_ms,omitempty"`
+	CreatedAt  time.Time `json:"created_at"`
+	UpdatedAt  time.Time `json:"updated_at"`
 }
 
 // GroupKind is how an outbound group picks a member.
@@ -214,4 +217,51 @@ type NetworkConfig struct {
 	OSPFPublishAllow    []string  `json:"ospf_publish_allowlist"`
 	NodeFailoverMode    string    `json:"node_failover_mode"`
 	UpdatedAt           time.Time `json:"updated_at"`
+}
+
+// Changeset records one desired-state mutation so it can be shown and
+// reverted.
+type Changeset struct {
+	ID         string    `json:"id"`
+	Generation int64     `json:"generation"`
+	Actor      string    `json:"actor,omitempty"`
+	Summary    string    `json:"summary"`
+	Diff       string    `json:"diff,omitempty"`
+	RevertedBy string    `json:"reverted_by,omitempty"`
+	CreatedAt  time.Time `json:"created_at"`
+}
+
+// ApplyLogEntry is one driver action the reconciler performed.
+type ApplyLogEntry struct {
+	ID         int64     `json:"id"`
+	Generation int64     `json:"generation"`
+	Component  Component `json:"component"`
+	Action     string    `json:"action"`
+	OK         bool      `json:"ok"`
+	DurationMs int64     `json:"duration_ms"`
+	Error      string    `json:"error,omitempty"`
+	At         time.Time `json:"ts"`
+}
+
+// EventLevel is the severity of an Event.
+type EventLevel string
+
+const (
+	LevelDebug EventLevel = "debug"
+	LevelInfo  EventLevel = "info"
+	LevelWarn  EventLevel = "warn"
+	LevelError EventLevel = "error"
+)
+
+// Event is a persisted, structured log line shown in the UI.
+type Event struct {
+	ID      int64      `json:"id"`
+	At      time.Time  `json:"ts"`
+	Level   EventLevel `json:"level"`
+	Module  string     `json:"module"`
+	Type    string     `json:"type"`
+	Message string     `json:"message"`
+	TraceID string     `json:"trace_id,omitempty"`
+	Actor   string     `json:"actor,omitempty"`
+	Details string     `json:"details,omitempty"`
 }
