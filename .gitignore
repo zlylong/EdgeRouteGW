@@ -1,0 +1,12 @@
+/bin/
+/dist/
+/coverage/
+*.db
+*.db-wal
+*.db-shm
+*.deb
+*.test
+*.out
+/web/node_modules/
+/internal/web/dist/assets/
+.env

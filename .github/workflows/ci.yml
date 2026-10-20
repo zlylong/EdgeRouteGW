@@ -1,0 +1,85 @@
+name: CI
+
+on:
+  push:
+    branches: [v2]
+  pull_request:
+    branches: [v2]
+
+permissions:
+  contents: read
+
+jobs:
+  backend:
+    name: Backend (vet, test, race, build)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: gofmt
+        run: test -z "$(gofmt -l . | tee /dev/stderr)"
+      - name: Vet
+        run: go vet ./...
+      - name: Test (race)
+        env:
+          CGO_ENABLED: "1"
+        run: go test -race -count=1 ./...
+      - name: Build amd64 (static)
+        env:
+          CGO_ENABLED: "0"
+        run: make build
+      - name: Build arm64 (static, no cross toolchain needed)
+        env:
+          CGO_ENABLED: "0"
+        run: make build-arm64
+      - name: Smoke
+        run: |
+          bin/edgeroutegw version
+          bin/edgeroutegw migrate -data-dir /tmp/ergw
+          bin/edgeroutegw serve -listen 127.0.0.1:18080 -data-dir /tmp/ergw &
+          sleep 1
+          curl -fsS http://127.0.0.1:18080/healthz
+          curl -fsS http://127.0.0.1:18080/api/v2/state | tee /dev/stderr | grep -q '"mode":"A"'
+          kill %1
+
+  package:
+    name: Package (.deb via nfpm)
+    runs-on: ubuntu-latest
+    needs: backend
+    strategy:
+      matrix:
+        arch: [amd64, arm64]
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Build
+        env:
+          CGO_ENABLED: "0"
+          GOARCH: ${{ matrix.arch }}
+        run: |
+          VERSION=$(git describe --tags --always --dirty)
+          go build -trimpath -ldflags "-s -w \
+            -X github.com/zlylong/EdgeRouteGW/internal/version.Version=$VERSION \
+            -X github.com/zlylong/EdgeRouteGW/internal/version.Commit=$(git rev-parse --short=12 HEAD) \
+            -X github.com/zlylong/EdgeRouteGW/internal/version.BuildTime=$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            -o bin/edgeroutegw ./cmd/edgeroutegw
+          echo "VERSION=${VERSION#v}" >> "$GITHUB_ENV"
+      - name: Install nfpm
+        run: go install github.com/goreleaser/nfpm/v2/cmd/nfpm@latest
+      - name: Package
+        env:
+          ARCH: ${{ matrix.arch }}
+        run: |
+          mkdir -p dist
+          nfpm package -f packaging/nfpm.yaml -p deb -t dist/
+          ls -la dist/
+      - uses: actions/upload-artifact@v4
+        with:
+          name: edgeroutegw-${{ matrix.arch }}-deb
+          path: dist/*.deb

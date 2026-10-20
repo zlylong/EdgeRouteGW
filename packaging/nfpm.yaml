@@ -1,0 +1,54 @@
+# nfpm packaging spec. Build the binary first (make build), then:
+#   VERSION=2.0.0 ARCH=amd64 nfpm package -f packaging/nfpm.yaml -p deb -t dist/
+name: edgeroutegw
+arch: ${ARCH}
+platform: linux
+version: ${VERSION}
+section: net
+priority: optional
+maintainer: zlylong <insuencu@zantio.xyz>
+description: |
+  EdgeRouteGW transparent proxy gateway (2.0).
+  Declarative control plane for Xray, Mosdns, nftables and FRR.
+vendor: EdgeRouteGW
+homepage: https://github.com/zlylong/EdgeRouteGW
+license: GPL-3.0
+
+depends:
+  - nftables
+  - frr
+  - ca-certificates
+recommends:
+  - iproute2
+
+contents:
+  - src: bin/edgeroutegw
+    dst: /usr/bin/edgeroutegw
+    file_info:
+      mode: 0755
+  - src: packaging/systemd/edgeroutegw.service
+    dst: /lib/systemd/system/edgeroutegw.service
+    file_info:
+      mode: 0644
+  - src: packaging/sysctl/99-edgeroutegw.conf
+    dst: /etc/sysctl.d/99-edgeroutegw.conf
+    type: config
+    file_info:
+      mode: 0644
+  - src: packaging/env.example
+    dst: /etc/edgeroutegw/edgeroutegw.env
+    type: config|noreplace
+    file_info:
+      mode: 0640
+  - dst: /var/lib/edgeroutegw
+    type: dir
+    file_info:
+      mode: 0750
+  - dst: /etc/edgeroutegw
+    type: dir
+    file_info:
+      mode: 0750
+
+scripts:
+  postinstall: packaging/scripts/postinst.sh
+  preremove: packaging/scripts/prerm.sh

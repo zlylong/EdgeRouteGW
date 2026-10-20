@@ -1,0 +1,35 @@
+[Unit]
+Description=EdgeRouteGW 2.0 control plane
+Documentation=https://github.com/zlylong/EdgeRouteGW
+After=network-online.target nss-lookup.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+EnvironmentFile=-/etc/edgeroutegw/edgeroutegw.env
+ExecStart=/usr/bin/edgeroutegw serve
+Restart=on-failure
+RestartSec=3
+LimitNOFILE=1048576
+
+# 2.0 runs as root (design decision 5); the capability set is bounded so a
+# compromise of the process cannot do more than the network stack needs.
+# CAP_SYS_ADMIN is required to restart units over D-Bus until polkit rules
+# land with the dedicated-user change planned for 2.1.
+CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_RAW CAP_NET_BIND_SERVICE CAP_SYS_ADMIN CAP_DAC_OVERRIDE CAP_CHOWN CAP_FOWNER CAP_KILL
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+RestrictRealtime=yes
+LockPersonality=yes
+ReadWritePaths=/var/lib/edgeroutegw /etc/edgeroutegw /etc/frr /etc/nftables.conf
+RuntimeDirectory=edgeroutegw
+RuntimeDirectoryPreserve=yes
+StateDirectory=edgeroutegw
+
+[Install]
+WantedBy=multi-user.target
