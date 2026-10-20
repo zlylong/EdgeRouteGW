@@ -4,6 +4,8 @@ name: edgeroutegw
 arch: ${ARCH}
 platform: linux
 version: ${VERSION}
+# semver: a pre-release like 2.0.0-rc.1 becomes 2.0.0~rc.1 so dpkg sorts it before 2.0.0.
+version_schema: semver
 section: net
 priority: optional
 maintainer: zlylong <insuencu@zantio.xyz>

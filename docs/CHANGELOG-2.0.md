@@ -1,6 +1,6 @@
 # EdgeRouteGW 2.0 变更记录
 
-## [2.0.0-rc.1] - 未发布
+## [2.0.0-rc.1] - 2026-10-20
 
 从零重写。设计见 `docs/DESIGN-2.0.md`,与 1.x 的差异见 `docs/UPGRADE-FROM-1.x.md`。
 
