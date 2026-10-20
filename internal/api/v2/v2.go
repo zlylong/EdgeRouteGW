@@ -65,6 +65,9 @@ type Deps struct {
 	Provision *provision.Service
 	// Updater installs components; nil disables.
 	Updater *update.Service
+	// Traffic and Latency are the telemetry collectors; nil when not running.
+	Traffic *observe.TrafficSampler
+	Latency *observe.LatencyProber
 }
 
 // Register mounts every v2 route on mux.
@@ -76,6 +79,7 @@ func Register(mux *http.ServeMux, d Deps) {
 	d.registerProvision(r)
 	d.registerComponents(r)
 	d.registerBackup(r)
+	d.registerTelemetry(r)
 	r.handle(http.MethodGet, "/api/v2/state", d.handleState)
 	r.handle(http.MethodGet, "/api/v2/plan", d.handlePlan)
 	r.handle(http.MethodPost, "/api/v2/reconcile", d.handleReconcileNow)

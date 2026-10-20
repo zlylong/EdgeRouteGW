@@ -217,3 +217,35 @@ func TestSchemaConstraints(t *testing.T) {
 	}
 	t.Fatal("second default node should be rejected by nodes_single_default")
 }
+
+func TestRevertToGeneration(t *testing.T) {
+	st := openMigrated(t)
+	ctx := context.Background()
+	mk := func(summary, nodeName string) int64 {
+		gen, err := st.Mutate(ctx, Mutation{Summary: summary}, func(tx *sql.Tx) error {
+			return InsertNode(ctx, tx, NodeRow{Node: model.Node{ID: nodeName, Name: nodeName, Protocol: "vless", Address: "h", Port: 443, Enabled: true}, CredentialEnc: []byte("enc-" + nodeName)})
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return gen
+	}
+	g1 := mk("add a", "a")
+	mk("add b", "b")
+	cs, _ := st.ListChangesets(ctx, 10)
+	if len(cs) != 2 || cs[0].Diff != "snapshot" || cs[1].Generation != g1 {
+		t.Fatalf("changesets %+v", cs)
+	}
+	newGen, restored, err := st.RevertTo(ctx, cs[1].ID, "tester")
+	if err != nil || restored != g1 || newGen != 3 {
+		t.Fatalf("revert %d %d %v", newGen, restored, err)
+	}
+	nodes, _ := st.ListNodes(ctx)
+	if len(nodes) != 1 || nodes[0].ID != "a" || string(nodes[0].CredentialEnc) != "enc-a" {
+		t.Fatalf("after revert %+v", nodes)
+	}
+	cs, _ = st.ListChangesets(ctx, 10)
+	if cs[0].Summary != "revert to generation 1" || cs[1].RevertedBy == "" {
+		t.Fatalf("changesets after revert %+v", cs)
+	}
+}

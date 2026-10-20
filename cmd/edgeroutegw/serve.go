@@ -89,6 +89,7 @@ func cmdServe(args []string, stdout, stderr io.Writer, env config.LookupEnv) int
 		return 1
 	}
 
+	run := execx.Real{Timeout: 60 * time.Second, Log: log}
 	authSvc := auth.New(st, cfg.DataDir, log)
 	if err := authSvc.Bootstrap(ctx); err != nil {
 		log.Error("auth bootstrap failed", "err", err)
@@ -112,11 +113,12 @@ func cmdServe(args []string, stdout, stderr io.Writer, env config.LookupEnv) int
 		log.Warn("geoip.dat not installed; geoip rules will not be published as routes", "path", p.GeoIP())
 	}
 	conns := observe.NewConnTracker(p.XrayAccessLog(), bus, log)
+	latency := observe.NewLatencyProber(st, bus, log)
+	traffic := observe.NewTrafficSampler(st, bus, observe.XrayStats(run, p.XrayBinary()), log)
 
 	var drivers []driver.Driver
 	var frrDriver *frr.Driver
 	var updater *update.Service
-	run := execx.Real{Timeout: 60 * time.Second, Log: log}
 	if !*noReconcile {
 		sd := systemd.NewDBus()
 		frrDriver = frr.New(run, sd, route.New(log), log)
@@ -159,7 +161,7 @@ func cmdServe(args []string, stdout, stderr io.Writer, env config.LookupEnv) int
 	h := api.NewHandler(api.Deps{
 		Store: st, Keyring: kr, Reconciler: rec, Bus: bus, Paths: p, Log: log, StartedAt: time.Now(),
 		Auth: authSvc, GeoSite: geoSite, GeoIP: geoIP, Connections: conns, FRR: frrDriver, ResolverKick: resLoop.Kick,
-		IfaceAddr: render.SystemInterfaceAddr, Provision: prov, Updater: updater,
+		IfaceAddr: render.SystemInterfaceAddr, Provision: prov, Updater: updater, Traffic: traffic, Latency: latency,
 	})
 
 	g, gctx := errgroup.WithContext(ctx)
@@ -167,6 +169,23 @@ func cmdServe(args []string, stdout, stderr io.Writer, env config.LookupEnv) int
 	g.Go(func() error { return conns.Run(gctx) })
 	g.Go(func() error { return resLoop.Run(gctx) })
 	g.Go(func() error { return updater.RunScheduler(gctx) })
+	g.Go(func() error { return latency.Run(gctx) })
+	if !*noReconcile {
+		g.Go(func() error { return traffic.Run(gctx) })
+		g.Go(func() error {
+			// Keep 90 days of per-minute samples.
+			t := time.NewTicker(6 * time.Hour)
+			defer t.Stop()
+			for {
+				select {
+				case <-gctx.Done():
+					return nil
+				case <-t.C:
+					_ = st.PruneTraffic(gctx, 90*24*time.Hour)
+				}
+			}
+		})
+	}
 	g.Go(func() error { return httpserver.Serve(gctx, cfg.ListenAddr, h, log, nil) })
 	if err := g.Wait(); err != nil {
 		log.Error("service failed", "err", err)

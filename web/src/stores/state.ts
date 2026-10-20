@@ -35,7 +35,7 @@ export const useGatewayState = defineStore('gateway-state', () => {
     const relay = (type: string) => es!.addEventListener(type, ev => {
       lastEvent.value = { type, at: new Date().toISOString(), data: JSON.parse((ev as MessageEvent).data) }
     })
-    for (const t of ['state.changed', 'apply.started', 'apply.finished', 'component.health', 'provision.log', 'provision.state', 'provision.host', 'update.progress', 'update.done']) relay(t)
+    for (const t of ['state.changed', 'apply.started', 'apply.finished', 'component.health', 'provision.log', 'provision.state', 'provision.host', 'update.progress', 'update.done', 'traffic.sample', 'nodes.latency']) relay(t)
     es.addEventListener('apply.failed', ev => {
       const d = JSON.parse((ev as MessageEvent).data) as { generation: number; error: string; retry_in_s: number }
       lastEvent.value = { type: 'apply.failed', at: new Date().toISOString(), data: d }

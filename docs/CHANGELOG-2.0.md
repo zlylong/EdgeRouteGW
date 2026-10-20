@@ -16,7 +16,8 @@
 - 前端:总览、节点(含出站组、分享链接导入、托管主机)、分流(实时 Trace)、DNS、网络与模式(OSPF 面板)、观测(实时连接、事件、变更历史、下发记录)、系统(安全、组件更新、生成配置)。
 - 托管主机:SSH 指纹钉定、WireGuard / VLESS-REALITY 一键部署、REALITY 握手自检、实时日志、重新下发。
 - 组件更新:Xray / Mosdns / GeoData / EdgeRouteGW 本体,校验、冒烟、回退、GeoData 定时。
-- `import-v1`:从 1.x 数据库导入。
+- `import-v1`:从 1.x 数据库导入;备份导出/恢复;`doctor`。
+- 变更历史可回滚到任一 generation;流量采样与图表;节点延迟探测;Playwright E2E。
 
 ### 与 1.x 的行为差异
 - strict 故障转移改为拦截而不是直连。

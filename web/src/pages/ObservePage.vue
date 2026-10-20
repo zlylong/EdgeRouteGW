@@ -1,7 +1,11 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import { useQuery, useQueryClient } from '@tanstack/vue-query'
-import { Pause, Play, RefreshCw } from 'lucide-vue-next'
+import { Pause, Play, RefreshCw, RotateCcw } from 'lucide-vue-next'
+import Sparkline from '@/components/ui/Sparkline.vue'
+import ConfirmDialog from '@/components/ui/ConfirmDialog.vue'
+import { useQuery as useQ } from '@tanstack/vue-query'
+import { nodes as nodesApi } from '@/api/endpoints'
 import Tabs from '@/components/ui/Tabs.vue'
 import Button from '@/components/ui/Button.vue'
 import Badge from '@/components/ui/Badge.vue'
@@ -12,7 +16,8 @@ import EmptyState from '@/components/ui/EmptyState.vue'
 import { system } from '@/api/endpoints'
 import type { Connection } from '@/api/types'
 import { useGatewayState } from '@/stores/state'
-import { fmtAgo, fmtTime } from '@/lib/utils'
+import { fmtAgo, fmtBytes, fmtTime } from '@/lib/utils'
+import type { Changeset, TrafficRates } from '@/api/types'
 
 const qc = useQueryClient()
 const gw = useGatewayState()
@@ -49,12 +54,28 @@ watch(() => gw.lastEvent, (e) => {
   if (e?.type === 'apply.finished' || e?.type === 'apply.failed') { qc.invalidateQueries({ queryKey: ['apply-log'] }); qc.invalidateQueries({ queryKey: ['events'] }) }
   if (e?.type === 'state.changed') qc.invalidateQueries({ queryKey: ['changesets'] })
 })
+// Traffic
+const range = ref<'1h' | '24h' | '7d' | '30d'>('24h')
+const trafficQ = useQ({ queryKey: ['traffic', range], queryFn: () => system.traffic(range.value), refetchInterval: 60_000 })
+const nodesQ = useQ({ queryKey: ['nodes'], queryFn: nodesApi.list })
+const liveRates = ref<TrafficRates | null>(null)
+watch(() => gw.lastEvent, e => { if (e?.type === 'traffic.sample') liveRates.value = e.data as TrafficRates })
+const nodeName = (id: string) => nodesQ.data.value?.items.find(n => n.id === id)?.name ?? id.slice(0, 8)
+const rate = (bps: number) => fmtBytes(Math.round(bps)) + '/s'
+// Revert
+const revertTarget = ref<Changeset | null>(null)
+async function doRevert() {
+  if (!revertTarget.value) return
+  await system.revert(revertTarget.value.id)
+  qc.invalidateQueries({ queryKey: ['changesets'] })
+  for (const k of ['nodes', 'groups', 'rule-sets', 'rules', 'device-policies', 'bypass', 'network', 'dns']) qc.invalidateQueries({ queryKey: [k] })
+}
 const actionTone = (a: string) => a.includes('restart') ? 'warn' : a.includes('hot') ? 'ok' : 'info'
 </script>
 
 <template>
   <div class="space-y-4">
-    <Tabs v-model="tab" :tabs="[{ value: 'connections', label: '连接' }, { value: 'events', label: '事件' }, { value: 'changes', label: '变更历史' }, { value: 'apply', label: '下发记录' }]" />
+    <Tabs v-model="tab" :tabs="[{ value: 'connections', label: '连接' }, { value: 'events', label: '事件' }, { value: 'changes', label: '变更历史' }, { value: 'apply', label: '下发记录' }, { value: 'traffic', label: '流量' }]" />
 
     <div v-if="tab === 'connections'">
       <div class="mb-3 flex flex-wrap items-center gap-2">
@@ -93,15 +114,35 @@ const actionTone = (a: string) => a.includes('restart') ? 'warn' : a.includes('h
     </div>
 
     <div v-else-if="tab === 'changes'">
-      <p class="mb-3 text-sm text-fg-muted">每次写操作生成一个 generation。撤销功能将在后续版本提供。</p>
+      <p class="mb-3 text-sm text-fg-muted">每次写操作生成一个 generation,并保存当时的完整配置快照(最近 200 次)。「回滚到此」会把配置恢复成该次变更之后的样子,作为一次新的变更下发。</p>
       <EmptyState v-if="!changesetsQ.data.value?.items.length" title="还没有变更" />
-      <Table v-else :cols="[{ key: 'g', label: 'gen', class: 'w-16' }, { key: 't', label: '时间', class: 'w-40' }, { key: 'a', label: '操作者', class: 'w-32' }, { key: 's', label: '摘要' }, { key: 'st', label: '状态', class: 'w-24' }]" dense>
-        <tr v-for="c in changesetsQ.data.value!.items" :key="c.id" class="text-xs">
+      <Table v-else :cols="[{ key: 'g', label: 'gen', class: 'w-16' }, { key: 't', label: '时间', class: 'w-40' }, { key: 'a', label: '操作者', class: 'w-32' }, { key: 's', label: '摘要' }, { key: 'st', label: '状态', class: 'w-24' }, { key: 'ops', label: '', class: 'w-28' }]" dense>
+        <tr v-for="(c, i) in changesetsQ.data.value!.items" :key="c.id" :class="['text-xs', c.reverted_by && 'text-fg-subtle']">
           <td class="px-3 py-1.5 font-mono">{{ c.generation }}</td>
           <td class="px-3 py-1.5 text-fg-subtle">{{ fmtTime(c.created_at) }}</td>
           <td class="px-3 py-1.5 text-fg-muted">{{ c.actor || '-' }}</td>
-          <td class="px-3 py-1.5">{{ c.summary }}</td>
+          <td class="px-3 py-1.5">{{ c.summary }}<span v-if="c.reverted_by" class="ml-2 text-fg-subtle">(已被回滚)</span></td>
           <td class="px-3 py-1.5"><Badge :tone="(gw.state?.last_applied_generation ?? 0) >= c.generation ? 'ok' : 'warn'">{{ (gw.state?.last_applied_generation ?? 0) >= c.generation ? '已生效' : '待下发' }}</Badge></td>
+          <td class="px-3 py-1.5 text-right"><Button v-if="i > 0 && c.diff === 'snapshot'" variant="ghost" size="sm" @click="revertTarget = c"><RotateCcw class="h-3.5 w-3.5" /> 回滚到此</Button></td>
+        </tr>
+      </Table>
+    </div>
+
+    <div v-else-if="tab === 'traffic'" class="space-y-4">
+      <div class="flex flex-wrap items-center gap-3">
+        <Select v-model="range" class="w-32" :options="[{ value: '1h', label: '近 1 小时' }, { value: '24h', label: '近 24 小时' }, { value: '7d', label: '近 7 天' }, { value: '30d', label: '近 30 天' }]" />
+        <span v-if="liveRates?.available" class="text-sm text-fg-muted">实时 ↓ {{ rate(liveRates.down_bps) }} · ↑ {{ rate(liveRates.up_bps) }}</span>
+        <span v-else class="text-sm text-fg-subtle">Xray 未运行或统计不可用(统计每 10 秒采样,每分钟落库)</span>
+        <span class="ml-auto text-sm">合计 ↓ {{ fmtBytes(trafficQ.data.value?.total_down ?? 0) }} ↑ {{ fmtBytes(trafficQ.data.value?.total_up ?? 0) }}</span>
+      </div>
+      <div class="rounded-lg border border-border bg-surface p-4"><Sparkline :points="trafficQ.data.value?.series ?? []" :height="120" /></div>
+      <EmptyState v-if="!trafficQ.data.value?.nodes.length" title="没有按节点的流量" />
+      <Table v-else :cols="[{ key: 'n', label: '节点' }, { key: 'd', label: '下行' }, { key: 'u', label: '上行' }, { key: 'r', label: '实时' }]" dense>
+        <tr v-for="n in trafficQ.data.value!.nodes" :key="n.node_id" class="text-xs">
+          <td class="px-3 py-1.5 font-medium">{{ nodeName(n.node_id) }}</td>
+          <td class="px-3 py-1.5">{{ fmtBytes(n.down) }}</td>
+          <td class="px-3 py-1.5">{{ fmtBytes(n.up) }}</td>
+          <td class="px-3 py-1.5 text-fg-muted">{{ liveRates?.nodes['node-' + n.node_id] ? `↓ ${rate(liveRates.nodes['node-' + n.node_id].down_bps)} ↑ ${rate(liveRates.nodes['node-' + n.node_id].up_bps)}` : '-' }}</td>
         </tr>
       </Table>
     </div>
@@ -119,5 +160,6 @@ const actionTone = (a: string) => a.includes('restart') ? 'warn' : a.includes('h
         </tr>
       </Table>
     </div>
+    <ConfirmDialog v-if="revertTarget" :open="!!revertTarget" :title="`回滚到 gen ${revertTarget.generation}?`" :description="`配置会恢复成「${revertTarget.summary}」之后的状态,并作为新的变更立即下发。`" confirm-text="回滚" danger :action="doRevert" @update:open="v => { if (!v) revertTarget = null }" />
   </div>
 </template>

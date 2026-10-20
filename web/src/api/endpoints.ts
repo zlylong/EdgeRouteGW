@@ -32,6 +32,8 @@ export const system = {
   applyLog: (generation?: number, limit = 200) => api.get<T.ListResp<T.ApplyLogEntry>>(`${B}/apply-log?limit=${limit}${generation ? `&generation=${generation}` : ''}`),
   connections: (limit = 200, q = '') => api.get<T.ListResp<T.Connection>>(`${B}/connections?limit=${limit}&q=${encodeURIComponent(q)}`),
   trace: (target: string) => api.get<T.TraceResult>(`${B}/trace?target=${encodeURIComponent(target)}`),
+  traffic: (range: '1h' | '24h' | '7d' | '30d') => api.get<T.TrafficResponse>(`${B}/traffic?range=${range}`),
+  revert: (changesetId: string) => api.post<{ generation: number; restored_generation: number }>(`${B}/changesets/${changesetId}/revert`),
 }
 
 export const nodes = {
@@ -42,6 +44,7 @@ export const nodes = {
   setDefault: (id: string) => api.post<T.GenResp>(`${B}/nodes/${id}/default`),
   setEnabled: (id: string, enabled: boolean) => api.post<T.GenResp>(`${B}/nodes/${id}/enabled`, { enabled }),
   import: (links: string[], dry_run: boolean) => api.post<T.ImportResponse>(`${B}/node-imports`, { links, dry_run }),
+  probe: () => api.post<T.ListResp<T.LatencyResult>>(`${B}/node-probes`),
 }
 
 export const groups = {

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import { useQuery, useQueryClient } from '@tanstack/vue-query'
-import { Download, MoreHorizontal, Plus, Star } from 'lucide-vue-next'
+import { Activity, Download, MoreHorizontal, Plus, Star } from 'lucide-vue-next'
 import { DropdownMenuContent, DropdownMenuItem, DropdownMenuPortal, DropdownMenuRoot, DropdownMenuTrigger } from 'reka-ui'
 import Tabs from '@/components/ui/Tabs.vue'
 import Button from '@/components/ui/Button.vue'
@@ -55,6 +55,12 @@ const hostTone = (s: string) => ({ online: 'ok', deploying: 'info', failed: 'dan
 const hostLabel: Record<string, string> = { online: '在线', deploying: '部署中', failed: '失败', offline: '离线', unknown: '未检查' }
 const deployLabel: Record<string, string> = { queued: '排队', running: '进行中', succeeded: '成功', failed: '失败', rolled_back: '已回滚' }
 
+const probing = ref(false)
+async function probeAll() {
+  probing.value = true
+  try { const r = await nodesApi.probe(); const bad = r.items.filter(x => x.ms < 0).length; toast[bad ? 'warn' : 'ok']('测速完成', `${r.items.length} 个节点,${bad} 个不可达`); qc.invalidateQueries({ queryKey: ['nodes'] }) } catch (e) { toast.error('测速失败', (e as Error).message) } finally { probing.value = false }
+}
+watch(() => gw.lastEvent, e => { if (e?.type === 'nodes.latency') qc.invalidateQueries({ queryKey: ['nodes'] }) })
 const nodeDialog = ref(false); const editNode = ref<Node | null>(null)
 const importDialog = ref(false)
 const groupDialog = ref(false); const editGroup = ref<OutboundGroup | null>(null)
@@ -84,6 +90,7 @@ const latency = (n: Node) => n.latency_ms === undefined ? '-' : n.latency_ms < 0
       <Tabs v-model="tab" :tabs="[{ value: 'nodes', label: '出站节点', count: nodes.length }, { value: 'groups', label: '出站组', count: groups.length }, { value: 'hosts', label: '托管主机', count: hosts.length }]" />
       <div class="flex gap-2">
         <template v-if="tab === 'nodes'">
+          <Button variant="ghost" :loading="probing" :disabled="!nodes.length" @click="probeAll"><Activity class="h-4 w-4" /> 测速</Button>
           <Button variant="secondary" @click="importDialog = true"><Download class="h-4 w-4" /> 导入链接</Button>
           <Button @click="editNode = null; nodeDialog = true"><Plus class="h-4 w-4" /> 添加节点</Button>
         </template>

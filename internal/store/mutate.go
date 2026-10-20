@@ -33,6 +33,9 @@ func (s *Store) Mutate(ctx context.Context, m Mutation, fn func(tx *sql.Tx) erro
 			return err
 		}
 		gen = g
+		// The changeset carries the full desired state after this write so
+		// any generation can be restored (RevertTo). Credentials stay in
+		// their encrypted form.
 		diff := "{}"
 		if m.Diff != nil {
 			b, err := json.Marshal(m.Diff)
@@ -40,10 +43,17 @@ func (s *Store) Mutate(ctx context.Context, m Mutation, fn func(tx *sql.Tx) erro
 				return fmt.Errorf("encode changeset diff: %w", err)
 			}
 			diff = string(b)
+		} else if snap, err := captureDesired(ctx, tx); err == nil {
+			if b, err := json.Marshal(snap); err == nil {
+				diff = string(b)
+			}
 		}
-		_, err = tx.ExecContext(ctx, `INSERT INTO changesets (id, generation, actor, summary, diff) VALUES (?,?,?,?,?)`,
-			uuid.NewString(), g, m.Actor, m.Summary, diff)
-		return err
+		if _, err := tx.ExecContext(ctx, `INSERT INTO changesets (id, generation, actor, summary, diff) VALUES (?,?,?,?,?)`,
+			uuid.NewString(), g, m.Actor, m.Summary, diff); err != nil {
+			return err
+		}
+		pruneSnapshots(ctx, tx)
+		return nil
 	})
 	return gen, err
 }
@@ -53,7 +63,7 @@ func (s *Store) ListChangesets(ctx context.Context, limit int) ([]model.Changese
 	if limit <= 0 || limit > 1000 {
 		limit = 100
 	}
-	rows, err := s.db.QueryContext(ctx, `SELECT id, generation, actor, summary, diff, COALESCE(reverted_by,''), created_at
+	rows, err := s.db.QueryContext(ctx, `SELECT id, generation, actor, summary, CASE WHEN diff <> '{}' THEN 'snapshot' ELSE '' END, COALESCE(reverted_by,''), created_at
 		FROM changesets ORDER BY generation DESC LIMIT ?`, limit)
 	if err != nil {
 		return nil, err

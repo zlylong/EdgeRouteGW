@@ -81,6 +81,38 @@ jobs:
           curl -fsS -b /tmp/jar $B/api/v2/artifacts/nftables | grep -q 'table inet edgeroutegw'
           kill %1
 
+  e2e:
+    name: E2E (Playwright)
+    runs-on: ubuntu-latest
+    needs: backend
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/download-artifact@v4
+        with:
+          name: web-dist
+          path: internal/web/dist
+      - uses: actions/setup-go@v6
+        with:
+          go-version: '1.26.x'
+          check-latest: true
+          cache: true
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - name: Build binary
+        env:
+          CGO_ENABLED: "0"
+        run: make build
+      - name: Install Playwright
+        run: cd web && bun install --frozen-lockfile && bunx playwright install --with-deps chromium
+      - name: Run suite
+        run: scripts/e2e.sh
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-traces
+          path: web/test-results
+
   package:
     name: Package (.deb via nfpm)
     runs-on: ubuntu-latest

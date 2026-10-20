@@ -6,12 +6,20 @@ import Card from '@/components/ui/Card.vue'
 import Badge from '@/components/ui/Badge.vue'
 import StatusDot from '@/components/ui/StatusDot.vue'
 import Button from '@/components/ui/Button.vue'
+import Sparkline from '@/components/ui/Sparkline.vue'
 import { nodes as nodesApi, system } from '@/api/endpoints'
 import { useGatewayState } from '@/stores/state'
-import { fmtAgo, fmtTime } from '@/lib/utils'
+import { fmtAgo, fmtBytes, fmtTime } from '@/lib/utils'
+import { watch, ref } from 'vue'
+import type { TrafficRates } from '@/api/types'
 
 const gw = useGatewayState()
 const nodesQ = useQuery({ queryKey: ['nodes'], queryFn: nodesApi.list })
+const trafficQ = useQuery({ queryKey: ['traffic', '1h'], queryFn: () => system.traffic('1h'), refetchInterval: 60_000 })
+const live = ref<TrafficRates | null>(null)
+watch(() => gw.lastEvent, e => { if (e?.type === 'traffic.sample') live.value = e.data as TrafficRates })
+const rate = (bps: number) => fmtBytes(Math.round(bps)) + '/s'
+const nodeName = (id: string) => nodesQ.data.value?.items.find(n => n.id === id)?.name ?? id.slice(0, 8)
 const eventsQ = useQuery({ queryKey: ['events', 'recent'], queryFn: () => system.events({ limit: 10 }), refetchInterval: 15_000 })
 
 const compMeta: Record<string, { label: string; hint: string }> = {
@@ -57,6 +65,19 @@ const levelTone: Record<string, 'danger' | 'warn' | 'info' | 'neutral'> = { erro
         <p v-if="c.last_error" class="mt-2 line-clamp-2 text-xs text-danger" :title="c.last_error">{{ c.last_error }}</p>
       </Card>
     </div>
+
+    <Card title="流量(近 1 小时)">
+      <template #actions>
+        <span v-if="live?.available" class="text-xs text-fg-muted">↓ {{ rate(live.down_bps) }} · ↑ {{ rate(live.up_bps) }}</span>
+        <span v-else class="text-xs text-fg-subtle">Xray 未运行或无统计</span>
+        <RouterLink to="/observe"><Button size="sm" variant="ghost">详情</Button></RouterLink>
+      </template>
+      <Sparkline :points="trafficQ.data.value?.series ?? []" />
+      <div class="mt-2 flex flex-wrap gap-x-6 gap-y-1 text-xs text-fg-muted">
+        <span>本小时 ↓ {{ fmtBytes(trafficQ.data.value?.total_down ?? 0) }} ↑ {{ fmtBytes(trafficQ.data.value?.total_up ?? 0) }}</span>
+        <span v-for="n in (trafficQ.data.value?.nodes ?? []).slice(0, 5)" :key="n.node_id">{{ nodeName(n.node_id) }}: {{ fmtBytes(n.up + n.down) }}</span>
+      </div>
+    </Card>
 
     <div class="grid gap-4 lg:grid-cols-3">
       <Card title="接管模式" class="lg:col-span-1">

@@ -144,6 +144,14 @@ Base URL:`http://<gateway>/api/v2`。所有请求与响应均为 JSON(`/artifact
 
 CLI:`edgeroutegw import-v1 [--old-key aes.key] [--dry-run] [--replace] proxygw.db` 导入 1.x 数据库(映射见 `docs/UPGRADE-FROM-1.x.md`);`edgeroutegw doctor` 检查主机依赖、sysctl、端口与单元状态。
 
+## 遥测与撤销(M6)
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| GET | `/traffic?range=1h|24h|7d|30d` | 按桶聚合的上下行字节序列、区间合计、按节点合计、当前速率(`current.available=false` 表示 Xray 统计不可用)。采样每 10 秒读一次 `xray api statsquery`,每分钟落库,保留 90 天;direct/block 不计入合计。SSE 每次采样推 `traffic.sample` |
+| POST | `/node-probes` | 同步对所有启用节点做一次 TCP 连接测时,写入 `latency_ms`(-1 = 不可达);后台每 5 分钟自动一轮,SSE 推 `nodes.latency` |
+| POST | `/changesets/{id}/revert` | 把配置恢复成该次变更之后的快照,作为新的 generation 下发;中间的变更标记 `reverted_by`。每次写操作保存完整快照,保留最近 200 次 |
+
 ## 失败语义(与 1.x 的差别)
 
 - `node_failover_mode=normal`:规则指向的节点/组没有任何启用成员时,流量走**默认出站**(默认节点 → 全节点 leastPing → 直连);`strict` 时走 `block`,宁断勿漏。

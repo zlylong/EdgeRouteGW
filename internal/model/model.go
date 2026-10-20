@@ -222,10 +222,11 @@ type NetworkConfig struct {
 // Changeset records one desired-state mutation so it can be shown and
 // reverted.
 type Changeset struct {
-	ID         string    `json:"id"`
-	Generation int64     `json:"generation"`
-	Actor      string    `json:"actor,omitempty"`
-	Summary    string    `json:"summary"`
+	ID         string `json:"id"`
+	Generation int64  `json:"generation"`
+	Actor      string `json:"actor,omitempty"`
+	Summary    string `json:"summary"`
+	// Diff is "snapshot" when the generation can be restored, else "".
 	Diff       string    `json:"diff,omitempty"`
 	RevertedBy string    `json:"reverted_by,omitempty"`
 	CreatedAt  time.Time `json:"created_at"`
