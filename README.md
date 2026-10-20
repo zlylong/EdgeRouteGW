@@ -11,7 +11,7 @@
 |---|---|---|
 | M0 骨架 | 完成 | cmd/internal 分层、SQLite 迁移、`/api/v2/state`、CI、.deb 打包 |
 | M1 Reconciler(Mode A) | 完成 | render(xray/mosdns/nft 纯函数渲染)、Reconciler(合并窗口、退避重试、dry-run)、xray/mosdns/nft/systemd Driver、节点/出站组/规则集/规则/设备策略/绕过/DNS/网络 API、SSE 事件流、分享链接导入 |
-| M2 前端 Alpha | 未开始 | Vite 工程、鉴权、总览/节点/分流/观测 |
+| M2 前端 Alpha | 完成 | 鉴权(argon2id、cookie 会话 + CSRF、API token、登录限速、引导密码)、Vite + Vue3 + TS + Tailwind v4 + reka-ui 前端:登录/强制改密、总览、节点(含出站组、分享链接导入)、分流(规则集、拖拽排序、实时 Trace、设备策略、绕过)、观测(实时连接、事件、变更历史、下发记录)、系统(会话、token、生成配置);顶栏变更状态指示器;Xray access log 连接追踪;`/trace` |
 | M3 Mode B/C | 未开始 | netlink 路由、FRR、解析器、模式向导 |
 | M4 托管主机与更新 | 未开始 | |
 | M5 发布 | 未开始 | .deb、1.x 导入、迁移 |
@@ -19,9 +19,12 @@
 ## 开发
 
 ```bash
-make build          # 产出 bin/edgeroutegw(CGO_ENABLED=0 静态二进制)
+make web            # 构建前端到 internal/web/dist(需要 bun)
+make build          # 产出 bin/edgeroutegw(CGO_ENABLED=0 静态二进制,内嵌前端)
 make test           # go vet + go test -race
-make run            # 以 127.0.0.1:18080 与 ./.dev-data 启动
+make web-check      # 前端 typecheck + vitest
+make dev-api        # 后端:127.0.0.1:18080,不驱动组件
+make dev-web        # 前端:Vite 5173,代理 /api 到 18080
 ```
 
 ```bash

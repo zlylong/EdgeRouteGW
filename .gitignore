@@ -10,3 +10,7 @@
 /web/node_modules/
 /internal/web/dist/assets/
 .env
+# Frontend build output is produced by `make web`; only .gitkeep is tracked.
+/internal/web/dist/*
+!/internal/web/dist/.gitkeep
+/web/dist/

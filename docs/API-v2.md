@@ -1,7 +1,30 @@
 # EdgeRouteGW API v2(M1 快照)
 
 Base URL:`http://<gateway>/api/v2`。所有请求与响应均为 JSON(`/artifacts/*` 与 SSE 除外)。
-**M1 阶段尚无鉴权**,会话与 API token 随 M2 前端一并落地;在此之前请只在受信网络监听。
+
+## 鉴权
+
+- 浏览器:`POST /auth/login {"password"}` 设置 `ergw_session`(HttpOnly, SameSite=Strict)与 `ergw_csrf` 两个 cookie;之后所有非 GET 请求必须带 `X-CSRF-Token` 头且与 `ergw_csrf` cookie 一致,否则 403 `CSRF`。空闲 24h / 绝对 7 天过期。
+- 自动化:`Authorization: Bearer ergw_…`,token 在「系统 → 安全」创建,明文只显示一次;`scope=read` 只能发 GET,否则 403 `READ_ONLY`。
+- 未登录访问 API 一律 401 `UNAUTHENTICATED`;`/auth/me` 与 `/auth/login` 例外。
+- 首次启动生成随机密码写入 `<data-dir>/bootstrap_password.txt`(0600),`/auth/me.must_change_password=true` 直到改密,改密后文件删除、其它会话注销。
+- 登录限速:同一来源 5 次失败后每次延迟 2s,10 次后锁 15 分钟(429)。
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| POST | `/auth/login` | `{"password"}` → `MeResponse`(含 `csrf_token`) |
+| POST | `/auth/logout` | 注销当前会话 |
+| GET | `/auth/me` | `{authenticated, kind, name, scope, must_change_password, csrf_token}` |
+| POST | `/auth/password` | `{old_password, new_password}`(≥10 字符),仅浏览器会话 |
+| GET / DELETE | `/auth/sessions`, `/auth/sessions/{idPrefix}` | 会话列表 / 注销某会话 |
+| GET / POST / DELETE | `/auth/tokens`, `/auth/tokens/{id}` | token 列表 / 创建 `{name, scope, expires_in("720h")}` / 撤销 |
+
+## 观测
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| GET | `/trace?target=` | 评估域名或 IP 会命中哪条规则、走哪个出站(Go 侧按渲染语义评估;Xray TestRoute 将在 gRPC 读侧接入后替换) |
+| GET | `/connections?limit=&q=` | 最近连接(来自 Xray access log,环形缓冲 2000 条);SSE 同时推送 `connection` 事件 |
 
 ## 约定
 

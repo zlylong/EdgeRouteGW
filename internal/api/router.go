@@ -2,6 +2,7 @@ package api
 
 import (
 	"net/http"
+	"strings"
 
 	v2 "github.com/zlylong/EdgeRouteGW/internal/api/v2"
 	"github.com/zlylong/EdgeRouteGW/internal/web"
@@ -24,14 +25,23 @@ func NewHandler(d Deps) http.Handler {
 		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 	})
 
-	v2.Register(mux, d)
-
+	apiMux := http.NewServeMux()
+	v2.Register(apiMux, d)
 	// Anything else under /api is a JSON 404, never the SPA fallback.
-	mux.HandleFunc("/api/", func(w http.ResponseWriter, r *http.Request) {
+	apiMux.HandleFunc("/api/", func(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, CodeNotFound, "no such endpoint")
 	})
+	var apiHandler http.Handler = apiMux
+	if d.Auth != nil {
+		apiHandler = d.Auth.Middleware(func(r *http.Request) bool {
+			// Login must be reachable unauthenticated; /me answers for both.
+			return r.URL.Path == "/api/v2/auth/login" || r.URL.Path == "/api/v2/auth/me"
+		})(apiMux)
+	}
+	mux.Handle("/api/", apiHandler)
 
 	mux.Handle("/", web.Handler())
 
+	_ = strings.HasPrefix
 	return chain(mux, requestID, recoverer(d.Log), securityHeaders, accessLog(d.Log))
 }

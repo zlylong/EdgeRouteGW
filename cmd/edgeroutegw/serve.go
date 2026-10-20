@@ -14,6 +14,7 @@ import (
 	"golang.org/x/sync/errgroup"
 
 	"github.com/zlylong/EdgeRouteGW/internal/api"
+	"github.com/zlylong/EdgeRouteGW/internal/auth"
 	"github.com/zlylong/EdgeRouteGW/internal/config"
 	"github.com/zlylong/EdgeRouteGW/internal/driver"
 	"github.com/zlylong/EdgeRouteGW/internal/driver/execx"
@@ -24,6 +25,7 @@ import (
 	"github.com/zlylong/EdgeRouteGW/internal/events"
 	"github.com/zlylong/EdgeRouteGW/internal/geo"
 	"github.com/zlylong/EdgeRouteGW/internal/httpserver"
+	"github.com/zlylong/EdgeRouteGW/internal/observe"
 	"github.com/zlylong/EdgeRouteGW/internal/paths"
 	"github.com/zlylong/EdgeRouteGW/internal/reconcile"
 	"github.com/zlylong/EdgeRouteGW/internal/render"
@@ -80,13 +82,26 @@ func cmdServe(args []string, stdout, stderr io.Writer, env config.LookupEnv) int
 		return 1
 	}
 
+	authSvc := auth.New(st, cfg.DataDir, log)
+	if err := authSvc.Bootstrap(ctx); err != nil {
+		log.Error("auth bootstrap failed", "err", err)
+		return 1
+	}
+
 	bus := events.New(256)
 	deps := render.Deps{Paths: p}
+	var geoSite *geo.Site
+	var geoIP *geo.IP
 	if _, err := os.Stat(p.GeoSite()); err == nil {
-		deps.GeoSite = geo.OpenSite(p.GeoSite())
+		geoSite = geo.OpenSite(p.GeoSite())
+		deps.GeoSite = geoSite
 	} else {
 		log.Warn("geosite.dat not installed; geosite rules will not be expanded for DNS", "path", p.GeoSite())
 	}
+	if _, err := os.Stat(p.GeoIP()); err == nil {
+		geoIP = geo.OpenIP(p.GeoIP())
+	}
+	conns := observe.NewConnTracker(p.XrayAccessLog(), bus, log)
 
 	var drivers []driver.Driver
 	if !*noReconcile {
@@ -104,10 +119,12 @@ func cmdServe(args []string, stdout, stderr io.Writer, env config.LookupEnv) int
 
 	h := api.NewHandler(api.Deps{
 		Store: st, Keyring: kr, Reconciler: rec, Bus: bus, Paths: p, Log: log, StartedAt: time.Now(),
+		Auth: authSvc, GeoSite: geoSite, GeoIP: geoIP, Connections: conns,
 	})
 
 	g, gctx := errgroup.WithContext(ctx)
 	g.Go(func() error { return rec.Run(gctx) })
+	g.Go(func() error { return conns.Run(gctx) })
 	g.Go(func() error { return httpserver.Serve(gctx, cfg.ListenAddr, h, log, nil) })
 	if err := g.Wait(); err != nil {
 		log.Error("service failed", "err", err)

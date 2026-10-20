@@ -17,8 +17,11 @@ import (
 	"strings"
 	"time"
 
+	"github.com/zlylong/EdgeRouteGW/internal/auth"
 	"github.com/zlylong/EdgeRouteGW/internal/driver"
 	"github.com/zlylong/EdgeRouteGW/internal/events"
+	"github.com/zlylong/EdgeRouteGW/internal/geo"
+	"github.com/zlylong/EdgeRouteGW/internal/observe"
 	"github.com/zlylong/EdgeRouteGW/internal/paths"
 	"github.com/zlylong/EdgeRouteGW/internal/reconcile"
 	"github.com/zlylong/EdgeRouteGW/internal/render"
@@ -43,11 +46,19 @@ type Deps struct {
 	Paths      paths.Paths
 	Log        *slog.Logger
 	StartedAt  time.Time
+	// Auth is required: login/logout/me and the middleware come from it.
+	Auth *auth.Service
+	// Optional runtime sources.
+	GeoSite     *geo.Site
+	GeoIP       *geo.IP
+	Connections *observe.ConnTracker
 }
 
 // Register mounts every v2 route on mux.
 func Register(mux *http.ServeMux, d Deps) {
 	r := newRouter(mux)
+	d.registerAuth(r)
+	d.registerObserve(r)
 	r.handle(http.MethodGet, "/api/v2/state", d.handleState)
 	r.handle(http.MethodGet, "/api/v2/plan", d.handlePlan)
 	r.handle(http.MethodPost, "/api/v2/reconcile", d.handleReconcileNow)
@@ -234,9 +245,12 @@ func (d Deps) mutate(ctx context.Context, r *http.Request, summary string, fn fu
 	return gen, nil
 }
 
-// actorOf names who made a change. Until auth lands (M2) this is the remote
-// address; afterwards it becomes the session's principal.
+// actorOf names who made a change: the authenticated principal, or the
+// remote address when the handler runs without the auth middleware (tests).
 func actorOf(r *http.Request) string {
+	if p, ok := auth.FromContext(r.Context()); ok {
+		return p.Actor()
+	}
 	host := r.RemoteAddr
 	if i := strings.LastIndex(host, ":"); i > 0 {
 		host = host[:i]

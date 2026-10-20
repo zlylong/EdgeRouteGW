@@ -7,7 +7,20 @@ LDFLAGS    := -s -w -X $(PKG)/internal/version.Version=$(VERSION) -X $(PKG)/inte
 GOFLAGS    := -trimpath
 export CGO_ENABLED := 0
 
-.PHONY: build build-arm64 test vet run clean deb
+BUN        ?= bun
+WEB_DIST   := internal/web/dist
+
+.PHONY: build build-arm64 test vet run clean deb web web-install web-check
+
+# Frontend: installs deps once, builds into internal/web/dist (embedded by go build).
+web-install:
+	cd web && $(BUN) install --frozen-lockfile
+
+web: web-install
+	cd web && $(BUN) run build
+
+web-check:
+	cd web && $(BUN) run typecheck && $(BUN) run test
 
 build:
 	go build $(GOFLAGS) -ldflags '$(LDFLAGS)' -o $(BIN) ./cmd/edgeroutegw
@@ -24,8 +37,16 @@ test: vet
 run: build
 	$(BIN) serve -listen 127.0.0.1:18080 -data-dir ./.dev-data -log-level debug
 
+# Development: API on 18080 without drivers, Vite dev server on 5173 proxying /api.
+dev-api: build
+	$(BIN) serve -no-reconcile -listen 127.0.0.1:18080 -data-dir ./.dev-data -log-level debug
+
+dev-web:
+	cd web && $(BUN) run dev
+
 deb: build
 	nfpm package -f packaging/nfpm.yaml -p deb -t dist/
 
 clean:
-	rm -rf bin dist .dev-data
+	rm -rf bin dist .dev-data web/dist
+	find $(WEB_DIST) -mindepth 1 ! -name .gitkeep -delete

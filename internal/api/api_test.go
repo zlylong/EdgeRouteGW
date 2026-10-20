@@ -6,13 +6,17 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"net/http/cookiejar"
 	"net/http/httptest"
+	"net/url"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
 	v2 "github.com/zlylong/EdgeRouteGW/internal/api/v2"
+	"github.com/zlylong/EdgeRouteGW/internal/auth"
 	"github.com/zlylong/EdgeRouteGW/internal/events"
 	"github.com/zlylong/EdgeRouteGW/internal/paths"
 	"github.com/zlylong/EdgeRouteGW/internal/reconcile"
@@ -148,4 +152,128 @@ func TestHealthz(t *testing.T) {
 	if res.StatusCode != 200 {
 		t.Fatalf("status %d", res.StatusCode)
 	}
+}
+
+func TestAuthFlowThroughHandler(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	st, err := store.Open(ctx, filepath.Join(dir, "api.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+	if _, err := st.Migrate(ctx); err != nil {
+		t.Fatal(err)
+	}
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	bus := events.New(16)
+	p := paths.New(dir)
+	rec := reconcile.New(st, nil, render.Deps{Paths: p}, nil, bus, log)
+	authSvc := auth.New(st, dir, log)
+	if err := authSvc.Bootstrap(ctx); err != nil {
+		t.Fatal(err)
+	}
+	pwb, _ := os.ReadFile(authSvc.BootstrapPasswordFile())
+	pw := strings.TrimSpace(string(pwb))
+	srv := httptest.NewServer(NewHandler(Deps{Store: st, Reconciler: rec, Bus: bus, Paths: p, Log: log, StartedAt: time.Now(), Auth: authSvc}))
+	t.Cleanup(srv.Close)
+	jar, _ := cookiejar.New(nil)
+	client := &http.Client{Jar: jar}
+
+	// Anonymous: state is 401 JSON, /me says unauthenticated, SPA still served.
+	res, _ := client.Get(srv.URL + "/api/v2/state")
+	if res.StatusCode != 401 {
+		t.Fatalf("anonymous state %d", res.StatusCode)
+	}
+	res.Body.Close()
+	res, _ = client.Get(srv.URL + "/api/v2/auth/me")
+	var me v2.MeResponse
+	_ = json.NewDecoder(res.Body).Decode(&me)
+	res.Body.Close()
+	if me.Authenticated {
+		t.Fatal("anonymous /me must say unauthenticated")
+	}
+	res, _ = client.Get(srv.URL + "/nodes")
+	if res.StatusCode != 200 {
+		t.Fatal("SPA must be served without login")
+	}
+	res.Body.Close()
+
+	// Wrong then right password.
+	res, _ = client.Post(srv.URL+"/api/v2/auth/login", "application/json", strings.NewReader(`{"password":"nope"}`))
+	if res.StatusCode != 401 {
+		t.Fatalf("bad login %d", res.StatusCode)
+	}
+	res.Body.Close()
+	res, _ = client.Post(srv.URL+"/api/v2/auth/login", "application/json", strings.NewReader(`{"password":"`+pw+`"}`))
+	if res.StatusCode != 200 {
+		t.Fatalf("login %d", res.StatusCode)
+	}
+	_ = json.NewDecoder(res.Body).Decode(&me)
+	res.Body.Close()
+	if !me.Authenticated || !me.MustChangePassword || me.CSRFToken == "" {
+		t.Fatalf("login response %+v", me)
+	}
+	var sessionCookie *http.Cookie
+	for _, c := range jar.Cookies(mustURL(srv.URL)) {
+		if c.Name == auth.SessionCookie {
+			sessionCookie = c
+		}
+	}
+	if sessionCookie == nil {
+		t.Fatal("session cookie not set")
+	}
+
+	// /me is exempt from rejection but must still see the session.
+	res, _ = client.Get(srv.URL + "/api/v2/auth/me")
+	_ = json.NewDecoder(res.Body).Decode(&me)
+	res.Body.Close()
+	if !me.Authenticated || me.Kind != "session" || me.CSRFToken == "" {
+		t.Fatalf("/me after login %+v", me)
+	}
+
+	// Read works with the cookie; a write needs the CSRF header.
+	res, _ = client.Get(srv.URL + "/api/v2/state")
+	if res.StatusCode != 200 {
+		t.Fatalf("state after login %d", res.StatusCode)
+	}
+	res.Body.Close()
+	req, _ := http.NewRequest("POST", srv.URL+"/api/v2/rule-sets", strings.NewReader(`{"name":"x"}`))
+	req.Header.Set("Content-Type", "application/json")
+	res, _ = client.Do(req)
+	if res.StatusCode != 403 {
+		t.Fatalf("write without CSRF %d", res.StatusCode)
+	}
+	res.Body.Close()
+	req, _ = http.NewRequest("POST", srv.URL+"/api/v2/rule-sets", strings.NewReader(`{"name":"x"}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set(auth.CSRFHeader, me.CSRFToken)
+	res, _ = client.Do(req)
+	if res.StatusCode != 201 {
+		t.Fatalf("write with CSRF %d", res.StatusCode)
+	}
+	res.Body.Close()
+	cs, _ := st.ListChangesets(ctx, 1)
+	if len(cs) != 1 || cs[0].Actor != "admin" {
+		t.Fatalf("actor should be the session principal: %+v", cs)
+	}
+
+	// Logout clears the session.
+	req, _ = http.NewRequest("POST", srv.URL+"/api/v2/auth/logout", nil)
+	req.Header.Set(auth.CSRFHeader, me.CSRFToken)
+	res, _ = client.Do(req)
+	res.Body.Close()
+	res, _ = client.Get(srv.URL + "/api/v2/state")
+	if res.StatusCode != 401 {
+		t.Fatalf("state after logout %d", res.StatusCode)
+	}
+	res.Body.Close()
+}
+
+func mustURL(s string) *url.URL {
+	u, err := url.Parse(s)
+	if err != nil {
+		panic(err)
+	}
+	return u
 }
