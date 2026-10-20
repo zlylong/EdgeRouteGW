@@ -1,0 +1,70 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v2.*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - name: Build frontend
+        run: cd web && bun install --frozen-lockfile && bun run typecheck && bun run test && bun run build
+      - uses: actions/setup-go@v6
+        with:
+          go-version: '1.26.x'
+          check-latest: true
+          cache: true
+      - name: Test
+        env:
+          CGO_ENABLED: "1"
+        run: go vet ./... && go test -race -count=1 ./...
+      - name: Install nfpm
+        run: go install github.com/goreleaser/nfpm/v2/cmd/nfpm@v2.48.0
+      - name: Build packages
+        env:
+          CGO_ENABLED: "0"
+        run: |
+          set -euo pipefail
+          TAG="${GITHUB_REF_NAME}"
+          export VERSION="${TAG#v}"
+          COMMIT=$(git rev-parse --short=12 HEAD)
+          BUILT=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          mkdir -p dist
+          for ARCH in amd64 arm64; do
+            GOARCH=$ARCH go build -trimpath -ldflags "-s -w \
+              -X github.com/zlylong/EdgeRouteGW/internal/version.Version=$TAG \
+              -X github.com/zlylong/EdgeRouteGW/internal/version.Commit=$COMMIT \
+              -X github.com/zlylong/EdgeRouteGW/internal/version.BuildTime=$BUILT" \
+              -o bin/edgeroutegw ./cmd/edgeroutegw
+            ARCH=$ARCH nfpm package -f packaging/nfpm.yaml -p deb -t dist/
+            cp bin/edgeroutegw "dist/edgeroutegw-linux-$ARCH"
+          done
+          cd dist
+          # nfpm writes 2.0.0~rc.1 style names for pre-releases; normalise to the asset name install.sh expects.
+          for f in edgeroutegw_*~*.deb; do [ -e "$f" ] && mv "$f" "$(echo "$f" | tr '~' '-')"; done || true
+          sha256sum * > SHA256SUMS
+          cat SHA256SUMS
+      - name: Release notes
+        run: |
+          TAG="${GITHUB_REF_NAME#v}"
+          awk -v ver="$TAG" '$0 ~ /^## \[/ { if (found) exit } index($0, "## [" ver "]") == 1 { found=1 } found { print }' docs/CHANGELOG-2.0.md > /tmp/notes.md
+          test -s /tmp/notes.md || printf 'EdgeRouteGW %s\n' "$GITHUB_REF_NAME" > /tmp/notes.md
+      - uses: softprops/action-gh-release@v3
+        with:
+          name: EdgeRouteGW ${{ github.ref_name }}
+          prerelease: ${{ contains(github.ref_name, '-rc') || contains(github.ref_name, '-beta') }}
+          body_path: /tmp/notes.md
+          files: |
+            dist/*.deb
+            dist/edgeroutegw-linux-amd64
+            dist/edgeroutegw-linux-arm64
+            dist/SHA256SUMS

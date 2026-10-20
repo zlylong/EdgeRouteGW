@@ -75,6 +75,7 @@ func Register(mux *http.ServeMux, d Deps) {
 	d.registerNetwork(r)
 	d.registerProvision(r)
 	d.registerComponents(r)
+	d.registerBackup(r)
 	r.handle(http.MethodGet, "/api/v2/state", d.handleState)
 	r.handle(http.MethodGet, "/api/v2/plan", d.handlePlan)
 	r.handle(http.MethodPost, "/api/v2/reconcile", d.handleReconcileNow)

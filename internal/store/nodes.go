@@ -61,9 +61,13 @@ func (s *Store) GetNode(ctx context.Context, id string) (NodeRow, error) {
 
 // InsertNode adds a node inside tx.
 func InsertNode(ctx context.Context, tx *sql.Tx, n NodeRow) error {
-	_, err := tx.ExecContext(ctx, `INSERT INTO nodes (id, name, protocol, address, port, credential_enc, params, enabled, is_default)
-		VALUES (?,?,?,?,?,?,?,?,?)`,
-		n.ID, n.Name, string(n.Protocol), n.Address, n.Port, n.CredentialEnc, n.Params, b2i(n.Enabled), b2i(n.IsDefault))
+	var lat sql.NullInt64
+	if n.LatencyMs != nil {
+		lat = sql.NullInt64{Int64: int64(*n.LatencyMs), Valid: true}
+	}
+	_, err := tx.ExecContext(ctx, `INSERT INTO nodes (id, name, protocol, address, port, credential_enc, params, enabled, is_default, latency_ms)
+		VALUES (?,?,?,?,?,?,?,?,?,?)`,
+		n.ID, n.Name, string(n.Protocol), n.Address, n.Port, n.CredentialEnc, n.Params, b2i(n.Enabled), b2i(n.IsDefault), lat)
 	return err
 }
 

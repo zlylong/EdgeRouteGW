@@ -34,6 +34,10 @@ func run(args []string, stdout, stderr io.Writer, env config.LookupEnv) int {
 		return cmdServe(args, stdout, stderr, env)
 	case "migrate":
 		return cmdMigrate(args, stdout, stderr, env)
+	case "import-v1":
+		return cmdImportV1(args, stdout, stderr, env)
+	case "doctor":
+		return cmdDoctor(args, stdout, stderr, env)
 	case "version":
 		return cmdVersion(stdout)
 	case "help", "-h", "--help":
@@ -54,6 +58,8 @@ func usage(w io.Writer) {
 Commands:
   serve     run the API, UI and reconciler (default)
   migrate   apply pending database migrations and exit
+  import-v1 import a 1.x proxygw.db (nodes, rules, hosts, settings)
+  doctor    check the host for required binaries, sysctls, ports and units
   version   print build information
 
 Flags shared by serve and migrate (environment variable in parentheses):

@@ -14,7 +14,7 @@
 | M2 前端 Alpha | 完成 | 鉴权(argon2id、cookie 会话 + CSRF、API token、登录限速、引导密码)、Vite + Vue3 + TS + Tailwind v4 + reka-ui 前端:登录/强制改密、总览、节点(含出站组、分享链接导入)、分流(规则集、拖拽排序、实时 Trace、设备策略、绕过)、观测(实时连接、事件、变更历史、下发记录)、系统(会话、token、生成配置);顶栏变更状态指示器;Xray access log 连接追踪;`/trace` |
 | M3 Mode B/C | 完成 | 路由发布引擎(候选/策略/受保护端点/剪枝/preflight)、miekg/dns 解析器与 TTL 缓存、netlink 路由驱动(table 100)、FRR 驱动(frr.conf/daemons/生命周期/邻居)、`/ospf` `/routes` `/interfaces` `/network/preflight` 接口、网络与模式页(三模式向导 + 预检、网卡与参数、OSPF 面板)、DNS 页 |
 | M4 托管主机与更新 | 完成 | SSH 一键部署 WireGuard / VLESS-REALITY(指纹钉定、脚本走 stdin、REALITY 握手自检、实时日志、历史与重新下发、自动注册出站节点);Xray/Mosdns/GeoData 校验下载、冒烟、`.prev` 回退、GeoData 定时;systemd 单元 `edgeroutegw-xray/mosdns`;前端托管主机 tab 与组件更新 tab |
-| M5 发布 | 未开始 | .deb、1.x 导入、迁移 |
+| M5 发布 | 完成 | `import-v1` 导入器(用生产库副本干跑验证)、v2.* 标签触发的发布流水线(.deb + SHA256SUMS)、`scripts/install.sh`、自升级、备份导出/恢复、`doctor`、迁移手册 |
 
 ## 开发
 

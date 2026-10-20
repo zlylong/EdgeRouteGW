@@ -111,6 +111,11 @@ export const components = {
   setSchedule: (schedule: string) => api.put<{ schedule: string }>(`${B}/components/geodata-schedule`, { schedule }),
 }
 
+export const backup = {
+  exportUrl: (secrets: boolean) => `${B}/backup${secrets ? '?include_secrets=1' : ''}`,
+  restore: (doc: unknown) => api.post<{ generation: number; nodes: number; rules: number; secrets_restored: boolean }>(`${B}/restore`, doc),
+}
+
 export const config = {
   dns: () => api.get<T.ItemResp<T.DNSConfig>>(`${B}/dns`),
   putDns: (c: T.DNSConfig) => api.put<T.ItemResp<T.DNSConfig>>(`${B}/dns`, stripTs(c)),

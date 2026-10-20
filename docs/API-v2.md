@@ -133,6 +133,17 @@ Base URL:`http://<gateway>/api/v2`。所有请求与响应均为 JSON(`/artifact
 
 校验:Xray 用官方 `.dgst` 的 SHA2-256,Mosdns 用 GitHub 资产 digest,GeoData 用 `rules.zip.sha256sum`;校验失败不安装。二进制替换前跑 `version` 冒烟,单元重启后 2 秒内不在 active 状态则自动恢复上一版本。
 
+## 备份与恢复(M5)
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| GET | `/backup?include_secrets=1` | 导出期望状态 JSON(`format: edgeroutegw-backup/1`);带 `include_secrets` 时含节点凭证 |
+| POST | `/restore` | 用导出文档整体替换节点/出站组/规则集/规则/设备策略/绕过/DNS/网络(保留 id,规则引用不变),作为一个新的 generation 下发 |
+
+组件更新的 `name` 另支持 `edgeroutegw`(本体):从 GitHub 发布下载对应架构的 `.deb`,按 `SHA256SUMS` 校验,`dpkg -i` 后用 `systemd-run` 延迟 3 秒重启自身。本体没有 rollback 接口,回退用上一版 `.deb`。
+
+CLI:`edgeroutegw import-v1 [--old-key aes.key] [--dry-run] [--replace] proxygw.db` 导入 1.x 数据库(映射见 `docs/UPGRADE-FROM-1.x.md`);`edgeroutegw doctor` 检查主机依赖、sysctl、端口与单元状态。
+
 ## 失败语义(与 1.x 的差别)
 
 - `node_failover_mode=normal`:规则指向的节点/组没有任何启用成员时,流量走**默认出站**(默认节点 → 全节点 leastPing → 直连);`strict` 时走 `block`,宁断勿漏。

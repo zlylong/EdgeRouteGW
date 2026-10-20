@@ -146,6 +146,8 @@ func (s *Service) repo(name string) string {
 		return RepoMosdns
 	case Geodata:
 		return RepoGeodata
+	case Self:
+		return RepoSelf
 	}
 	return ""
 }
@@ -153,7 +155,7 @@ func (s *Service) repo(name string) string {
 // Statuses lists every component. With refresh, the latest version is
 // looked up (cached 10 minutes otherwise).
 func (s *Service) Statuses(ctx context.Context, refresh bool) []Status {
-	out := make([]Status, 0, 3)
+	out := make([]Status, 0, 4)
 	for _, name := range []string{Xray, Mosdns, Geodata} {
 		st := Status{Name: name, Installed: s.Installed(ctx, name)}
 		prev := s.binaryPath(name) + ".prev"
@@ -187,6 +189,7 @@ func (s *Service) Statuses(ctx context.Context, refresh bool) []Status {
 		}
 		out = append(out, st)
 	}
+	out = append(out, s.selfStatus(ctx, refresh))
 	return out
 }
 
@@ -221,15 +224,25 @@ func (s *Service) Start(ctx context.Context, name, version, action string) (*Job
 	if action != "rollback" {
 		action = "update"
 		if version == "" || version == "latest" {
-			rel, err := s.GitHub.Latest(ctx, s.repo(name))
-			if err != nil {
-				return nil, err
+			if name == Self {
+				tag, err := s.selfLatest(ctx)
+				if err != nil {
+					return nil, err
+				}
+				version = tag
+			} else {
+				rel, err := s.GitHub.Latest(ctx, s.repo(name))
+				if err != nil {
+					return nil, err
+				}
+				version = rel.Tag
 			}
-			version = rel.Tag
 		}
 		if !ValidVersion(version) {
 			return nil, fmt.Errorf("invalid version %q", version)
 		}
+	} else if name == Self {
+		return nil, fmt.Errorf("edgeroutegw itself has no rollback here; install the previous .deb")
 	}
 	s.mu.Lock()
 	for _, j := range s.jobs {
@@ -269,6 +282,8 @@ func (s *Service) runJob(ctx context.Context, job *Job) {
 		err = s.rollback(ctx, job)
 	case job.Component == Geodata:
 		err = s.installGeodata(ctx, job)
+	case job.Component == Self:
+		err = s.installSelf(ctx, job)
 	default:
 		err = s.installBinary(ctx, job)
 	}
