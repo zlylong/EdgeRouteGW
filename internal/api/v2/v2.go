@@ -24,10 +24,12 @@ import (
 	"github.com/zlylong/EdgeRouteGW/internal/geo"
 	"github.com/zlylong/EdgeRouteGW/internal/observe"
 	"github.com/zlylong/EdgeRouteGW/internal/paths"
+	"github.com/zlylong/EdgeRouteGW/internal/provision"
 	"github.com/zlylong/EdgeRouteGW/internal/reconcile"
 	"github.com/zlylong/EdgeRouteGW/internal/render"
 	"github.com/zlylong/EdgeRouteGW/internal/secret"
 	"github.com/zlylong/EdgeRouteGW/internal/store"
+	"github.com/zlylong/EdgeRouteGW/internal/update"
 )
 
 // Reconciler is the slice of reconcile.Reconciler the API uses.
@@ -59,6 +61,10 @@ type Deps struct {
 	ResolverKick func()
 	// IfaceAddr reads an interface's IPv4 prefix (for the network page).
 	IfaceAddr render.InterfaceAddr
+	// Provision deploys tunnel servers on managed hosts; nil disables.
+	Provision *provision.Service
+	// Updater installs components; nil disables.
+	Updater *update.Service
 }
 
 // Register mounts every v2 route on mux.
@@ -67,6 +73,8 @@ func Register(mux *http.ServeMux, d Deps) {
 	d.registerAuth(r)
 	d.registerObserve(r)
 	d.registerNetwork(r)
+	d.registerProvision(r)
+	d.registerComponents(r)
 	r.handle(http.MethodGet, "/api/v2/state", d.handleState)
 	r.handle(http.MethodGet, "/api/v2/plan", d.handlePlan)
 	r.handle(http.MethodPost, "/api/v2/reconcile", d.handleReconcileNow)

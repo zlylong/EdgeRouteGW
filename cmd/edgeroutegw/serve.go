@@ -30,12 +30,14 @@ import (
 	"github.com/zlylong/EdgeRouteGW/internal/httpserver"
 	"github.com/zlylong/EdgeRouteGW/internal/observe"
 	"github.com/zlylong/EdgeRouteGW/internal/paths"
+	"github.com/zlylong/EdgeRouteGW/internal/provision"
 	"github.com/zlylong/EdgeRouteGW/internal/reconcile"
 	"github.com/zlylong/EdgeRouteGW/internal/render"
 	"github.com/zlylong/EdgeRouteGW/internal/resolver"
 	"github.com/zlylong/EdgeRouteGW/internal/routes"
 	"github.com/zlylong/EdgeRouteGW/internal/secret"
 	"github.com/zlylong/EdgeRouteGW/internal/store"
+	"github.com/zlylong/EdgeRouteGW/internal/update"
 	"github.com/zlylong/EdgeRouteGW/internal/version"
 )
 
@@ -113,8 +115,9 @@ func cmdServe(args []string, stdout, stderr io.Writer, env config.LookupEnv) int
 
 	var drivers []driver.Driver
 	var frrDriver *frr.Driver
+	var updater *update.Service
+	run := execx.Real{Timeout: 60 * time.Second, Log: log}
 	if !*noReconcile {
-		run := execx.Real{Timeout: 60 * time.Second, Log: log}
 		sd := systemd.NewDBus()
 		frrDriver = frr.New(run, sd, route.New(log), log)
 		drivers = []driver.Driver{
@@ -146,16 +149,24 @@ func cmdServe(args []string, stdout, stderr io.Writer, env config.LookupEnv) int
 		return append(arts.ResolveDomains, routes.ProtectedDomains(snap)...), nil
 	}, rec.Notify, log)
 
+	prov := provision.New(st, kr, bus, rec.Notify, log)
+	if !*noReconcile {
+		updater = update.New(p, st, run, systemd.NewDBus(), bus, rec.Notify, log)
+	} else {
+		updater = update.New(p, st, run, systemd.NewFake(), bus, rec.Notify, log)
+	}
+
 	h := api.NewHandler(api.Deps{
 		Store: st, Keyring: kr, Reconciler: rec, Bus: bus, Paths: p, Log: log, StartedAt: time.Now(),
 		Auth: authSvc, GeoSite: geoSite, GeoIP: geoIP, Connections: conns, FRR: frrDriver, ResolverKick: resLoop.Kick,
-		IfaceAddr: render.SystemInterfaceAddr,
+		IfaceAddr: render.SystemInterfaceAddr, Provision: prov, Updater: updater,
 	})
 
 	g, gctx := errgroup.WithContext(ctx)
 	g.Go(func() error { return rec.Run(gctx) })
 	g.Go(func() error { return conns.Run(gctx) })
 	g.Go(func() error { return resLoop.Run(gctx) })
+	g.Go(func() error { return updater.RunScheduler(gctx) })
 	g.Go(func() error { return httpserver.Serve(gctx, cfg.ListenAddr, h, log, nil) })
 	if err := g.Wait(); err != nil {
 		log.Error("service failed", "err", err)

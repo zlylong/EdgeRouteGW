@@ -14,6 +14,7 @@ import CodeBlock from '@/components/ui/CodeBlock.vue'
 import Dialog from '@/components/ui/Dialog.vue'
 import EmptyState from '@/components/ui/EmptyState.vue'
 import { auth as authApi, system } from '@/api/endpoints'
+import ComponentsPanel from '@/components/system/ComponentsPanel.vue'
 import { useGatewayState } from '@/stores/state'
 import { useToast } from '@/stores/toast'
 import { fmtAgo, fmtTime } from '@/lib/utils'
@@ -50,7 +51,7 @@ watch(() => gw.lastEvent, e => { if (e?.type === 'apply.finished') qc.invalidate
 
 <template>
   <div class="space-y-4">
-    <Tabs v-model="tab" :tabs="[{ value: 'security', label: '安全' }, { value: 'configs', label: '生成的配置' }, { value: 'about', label: '关于' }]" />
+    <Tabs v-model="tab" :tabs="[{ value: 'security', label: '安全' }, { value: 'components', label: '组件更新' }, { value: 'configs', label: '生成的配置' }, { value: 'about', label: '关于' }]" />
 
     <div v-if="tab === 'security'" class="grid gap-4 lg:grid-cols-2">
       <Card title="管理员密码">
@@ -86,6 +87,8 @@ watch(() => gw.lastEvent, e => { if (e?.type === 'apply.finished') qc.invalidate
       </Card>
     </div>
 
+    <ComponentsPanel v-else-if="tab === 'components'" />
+
     <div v-else-if="tab === 'configs'">
       <div class="mb-3 flex items-center gap-3">
         <Select v-model="artifact" class="w-56" :options="[{ value: 'xray', label: 'Xray config.json' }, { value: 'mosdns', label: 'Mosdns config.yaml' }, { value: 'mosdns-domains', label: 'Mosdns proxy_domains.txt' }, { value: 'nftables', label: 'nftables ruleset' }]" />
@@ -112,7 +115,7 @@ watch(() => gw.lastEvent, e => { if (e?.type === 'apply.finished') qc.invalidate
             <span class="text-xs text-fg-muted">{{ c.version || c.status }}</span>
           </li>
         </ul>
-        <p class="mt-3 text-xs text-fg-subtle">组件更新、GeoData 定时任务和备份导入将在 M4 提供。</p>
+        <p class="mt-3 text-xs text-fg-subtle">备份导入与 1.x 数据迁移将在 M5 提供。</p>
       </Card>
     </div>
 

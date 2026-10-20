@@ -16,10 +16,10 @@ license: GPL-3.0
 
 depends:
   - nftables
-  - frr
   - ca-certificates
-recommends:
   - iproute2
+recommends:
+  - frr
 
 contents:
   - src: bin/edgeroutegw
@@ -28,6 +28,14 @@ contents:
       mode: 0755
   - src: packaging/systemd/edgeroutegw.service
     dst: /lib/systemd/system/edgeroutegw.service
+    file_info:
+      mode: 0644
+  - src: packaging/systemd/edgeroutegw-xray.service
+    dst: /lib/systemd/system/edgeroutegw-xray.service
+    file_info:
+      mode: 0644
+  - src: packaging/systemd/edgeroutegw-mosdns.service
+    dst: /lib/systemd/system/edgeroutegw-mosdns.service
     file_info:
       mode: 0644
   - src: packaging/sysctl/99-edgeroutegw.conf

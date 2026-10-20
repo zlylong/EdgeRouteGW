@@ -18,6 +18,7 @@ import (
 	"github.com/zlylong/EdgeRouteGW/internal/events"
 	"github.com/zlylong/EdgeRouteGW/internal/model"
 	"github.com/zlylong/EdgeRouteGW/internal/paths"
+	"github.com/zlylong/EdgeRouteGW/internal/provision"
 	"github.com/zlylong/EdgeRouteGW/internal/reconcile"
 	"github.com/zlylong/EdgeRouteGW/internal/render"
 	"github.com/zlylong/EdgeRouteGW/internal/secret"
@@ -47,8 +48,9 @@ func newEnv(t *testing.T) *env {
 	bus := events.New(16)
 	p := paths.New(t.TempDir())
 	rec := reconcile.New(st, kr, render.Deps{Paths: p}, nil, bus, log)
+	prov := &provision.Service{Store: st, Keyring: kr, Dialer: &provision.FakeDialer{Fingerprint: "SHA256:test"}, Bus: bus, Log: log, Notify: rec.Notify, Timeout: time.Minute, MaxConcurrent: 1}
 	mux := http.NewServeMux()
-	Register(mux, Deps{Store: st, Keyring: kr, Reconciler: rec, Bus: bus, Paths: p, Log: log, StartedAt: time.Now()})
+	Register(mux, Deps{Store: st, Keyring: kr, Reconciler: rec, Bus: bus, Paths: p, Log: log, StartedAt: time.Now(), Provision: prov})
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
 	return &env{srv: srv, st: st, rec: rec, t: t}
@@ -402,4 +404,74 @@ func TestNetworkPreflightAndRoutes(t *testing.T) {
 	}
 	e.must("POST", "/api/v2/routes/reset", nil, 200)
 	e.must("POST", "/api/v2/dns/cache-clear", nil, 200)
+}
+
+func TestHostsAndDeploys(t *testing.T) {
+	e := newEnv(t)
+	if code, _ := e.do("POST", "/api/v2/hosts", map[string]any{"name": "SG", "ssh_host": "203.0.113.7", "ssh_auth_kind": "password"}); code != 422 {
+		t.Fatalf("host without credential: %d", code)
+	}
+	out := e.must("POST", "/api/v2/hosts", map[string]any{"name": "SG", "ssh_host": "203.0.113.7", "ssh_auth_kind": "password", "credential": "pw"}, 201)
+	h := item(out)
+	id := h["id"].(string)
+	if h["ssh_port"].(float64) != 22 || h["ssh_user"] != "root" || h["has_credential"] != true {
+		t.Fatalf("host %v", h)
+	}
+	if _, leaked := h["credential"]; leaked {
+		t.Fatal("credential leaked")
+	}
+	out = e.must("POST", "/api/v2/hosts/"+id+"/check", nil, 200)
+	if out["status"] != "online" {
+		t.Fatalf("check %v", out)
+	}
+	out = e.must("GET", "/api/v2/hosts/"+id, nil, 200)
+	if item(out)["host_key"] != "SHA256:test" {
+		t.Fatalf("host key not pinned: %v", item(out))
+	}
+	if code, _ := e.do("POST", "/api/v2/hosts/"+id+"/deploy", map[string]any{"kind": "teleport"}); code != 422 {
+		t.Fatalf("bad kind %d", code)
+	}
+	code, out := e.do("POST", "/api/v2/hosts/"+id+"/deploy", map[string]any{"kind": "wg", "port": 51820})
+	if code != 202 {
+		t.Fatalf("deploy %d %v", code, out)
+	}
+	depID := out["deploy_id"].(string)
+	var dep map[string]any
+	for i := 0; i < 100; i++ {
+		dep = item(e.must("GET", "/api/v2/deploys/"+depID, nil, 200))
+		if dep["state"] == "succeeded" || dep["state"] == "failed" {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if dep["state"] != "succeeded" || dep["node_id"] == nil {
+		t.Fatalf("deploy %v", dep)
+	}
+	params := dep["params"].(map[string]any)
+	if _, leaked := params["server_priv"]; leaked || params["server_pub"] == nil {
+		t.Fatalf("params %v", params)
+	}
+	logs := e.must("GET", "/api/v2/deploys/"+depID+"/logs", nil, 200)["items"].([]any)
+	if len(logs) < 3 {
+		t.Fatalf("logs %v", logs)
+	}
+	nodes := e.must("GET", "/api/v2/nodes", nil, 200)["items"].([]any)
+	if len(nodes) != 1 || nodes[0].(map[string]any)["protocol"] != "wireguard" {
+		t.Fatalf("node not registered: %v", nodes)
+	}
+	hosts := e.must("GET", "/api/v2/hosts", nil, 200)["items"].([]any)
+	if hosts[0].(map[string]any)["last_deploy"].(map[string]any)["state"] != "succeeded" {
+		t.Fatalf("hosts %v", hosts)
+	}
+	e.must("POST", "/api/v2/hosts/"+id+"/hostkey", map[string]any{"fingerprint": ""}, 200)
+	e.must("DELETE", "/api/v2/hosts/"+id, nil, 200)
+	if code, _ := e.do("GET", "/api/v2/hosts/"+id, nil); code != 404 {
+		t.Fatalf("deleted host %d", code)
+	}
+	if got := e.must("GET", "/api/v2/components", nil, 200)["items"].([]any); len(got) != 0 {
+		t.Fatalf("components without updater: %v", got)
+	}
+	if code, _ := e.do("POST", "/api/v2/components/xray/update", nil); code != 503 {
+		t.Fatalf("update without updater: %d", code)
+	}
 }

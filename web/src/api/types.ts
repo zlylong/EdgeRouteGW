@@ -200,3 +200,14 @@ export interface OSPFResponse {
 export interface PublishedRoute { cidr: string; source: string; rule_id?: string; state: string; detail?: string; first_seen: string; last_seen: string }
 export interface InterfaceView { name: string; up: boolean; loopback: boolean; addresses: string[]; mac?: string }
 export interface PreflightResult { ok: boolean; mode: string; routes: number; rejected: number; protected_conflicts: string[] | null; problems: string[] | null; warnings: string[] | null }
+
+export type HostStatus = 'unknown' | 'online' | 'offline' | 'deploying' | 'failed'
+export interface RemoteDeploy { id: string; host_id: string; kind: 'wg' | 'vless'; state: 'queued' | 'running' | 'succeeded' | 'failed' | 'rolled_back'; node_id?: string; started_at?: string; finished_at?: string; error?: string; created_at: string; params?: Record<string, unknown> }
+export interface RemoteHost { id: string; name: string; ssh_host: string; ssh_port: number; ssh_user: string; ssh_auth_kind: 'password' | 'key'; host_key: string; region: string; status: HostStatus; remark: string; created_at: string; updated_at: string; has_credential: boolean; last_deploy?: RemoteDeploy }
+export interface HostInput { name: string; ssh_host: string; ssh_port: number; ssh_user: string; ssh_auth_kind: 'password' | 'key'; credential?: string; region?: string; remark?: string }
+export interface DeployRequest { kind: 'wg' | 'vless'; port?: number; server_name?: string; dest?: string; node_name?: string }
+export interface DeployLogLine { id: number; at: string; stream: 'stdout' | 'stderr' | 'system'; line: string }
+
+export interface UpdateJob { id: string; component: string; version: string; action: 'update' | 'rollback' | 'install'; state: 'running' | 'succeeded' | 'failed'; step: string; percent: number; error?: string; started_at: string; ended_at?: string }
+export interface ComponentInfo { name: 'xray' | 'mosdns' | 'geodata'; installed: string; has_previous: boolean; latest?: string; job?: UpdateJob; last_error?: string; checked_at?: string }
+export interface Release { tag: string; prerelease: boolean; published_at: string }

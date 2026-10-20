@@ -105,6 +105,34 @@ Base URL:`http://<gateway>/api/v2`。所有请求与响应均为 JSON(`/artifact
 - 宣告白名单非空时只发布落在白名单内的前缀。被更广前缀覆盖的前缀会被剪掉。
 - 内核侧:路由写入 table 100(proto 200,dev lo),FRR 用 `ip import-table 100` 导入并 `redistribute table 100`;frr.conf 固定,只随 router-id/LAN 网段变化。
 
+## 托管主机与部署(M4)
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| GET / POST | `/hosts` | `HostInput{name, ssh_host, ssh_port(22), ssh_user(root), ssh_auth_kind(password|key), credential(只写), region, remark}`;响应含 `has_credential`、`host_key`、`last_deploy` |
+| GET / PUT / DELETE | `/hosts/{id}` | DELETE 加 `?cleanup=1` 会先 SSH 上去卸载已部署服务(尽力) |
+| POST | `/hosts/{id}/check` | 连接探测;首次连接记录主机指纹(TOFU),之后指纹不符则拒绝 → `{status, reason}` |
+| POST | `/hosts/{id}/hostkey` | `{"fingerprint":"SHA256:…"}` 重新钉定;空串 = 下次连接重新记录 |
+| POST | `/hosts/{id}/deploy` | `{kind(wg|vless), port?, server_name?, dest?, node_name?}` → 202 `{deploy_id}`;同一主机同时只允许一个部署(409) |
+| GET | `/deploys?host_id=` | 部署历史(不含参数) |
+| GET | `/deploys/{id}` | 含脱敏参数(去掉私钥) |
+| GET | `/deploys/{id}/logs?after_id=` | 安装输出逐行;SSE 同时推送 `provision.log`/`provision.state`/`provision.host` |
+| POST | `/deploys/{id}/rollback` | 用该次成功部署的参数重新下发 → 202 `{deploy_id}` |
+
+脚本经 SSH 标准输入执行、不落盘;REALITY 部署后在远端做一次真实握手自检;成功后自动创建/更新对应出站节点(同一主机复用同一节点 id,规则引用不断)。
+
+## 组件更新(M4)
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| GET | `/components?refresh=1` | `{name(xray|mosdns|geodata), installed, has_previous, latest, job?, last_error, checked_at}`;`refresh` 立即查 GitHub |
+| GET | `/components/{name}/versions` | 最近 20 个发布(含 prerelease 标记) |
+| POST | `/components/{name}/update` | `{"version"}` 可省略 = 最新 → 202 `{item: Job}`;同时只跑一个任务(409);SSE 推送 `update.progress`/`update.done` |
+| POST | `/components/{name}/rollback` | 恢复 `.prev` 版本并重启 |
+| GET / PUT | `/components/geodata-schedule` | `{"schedule": "off" | "daily HH:MM"}` |
+
+校验:Xray 用官方 `.dgst` 的 SHA2-256,Mosdns 用 GitHub 资产 digest,GeoData 用 `rules.zip.sha256sum`;校验失败不安装。二进制替换前跑 `version` 冒烟,单元重启后 2 秒内不在 active 状态则自动恢复上一版本。
+
 ## 失败语义(与 1.x 的差别)
 
 - `node_failover_mode=normal`:规则指向的节点/组没有任何启用成员时,流量走**默认出站**(默认节点 → 全节点 leastPing → 直连);`strict` 时走 `block`,宁断勿漏。

@@ -87,6 +87,30 @@ export const network = {
   clearDnsCache: () => api.post<{ cleared: boolean }>(`${B}/dns/cache-clear`),
 }
 
+export const hosts = {
+  list: () => api.get<T.ListResp<T.RemoteHost>>(`${B}/hosts`),
+  get: (id: string) => api.get<T.ItemResp<T.RemoteHost>>(`${B}/hosts/${id}`),
+  create: (input: T.HostInput) => api.post<T.ItemResp<T.RemoteHost>>(`${B}/hosts`, input),
+  update: (id: string, input: T.HostInput) => api.put<T.ItemResp<T.RemoteHost>>(`${B}/hosts/${id}`, input),
+  remove: (id: string, cleanup: boolean) => api.del<{ deleted: number; remote_cleaned: boolean }>(`${B}/hosts/${id}${cleanup ? '?cleanup=1' : ''}`),
+  check: (id: string) => api.post<{ status: T.HostStatus; reason?: string }>(`${B}/hosts/${id}/check`),
+  deploy: (id: string, req: T.DeployRequest) => api.post<{ deploy_id: string }>(`${B}/hosts/${id}/deploy`, req),
+  rePin: (id: string, fingerprint: string) => api.post<{ host_key: string }>(`${B}/hosts/${id}/hostkey`, { fingerprint }),
+  deploys: (hostId?: string) => api.get<T.ListResp<T.RemoteDeploy>>(`${B}/deploys${hostId ? `?host_id=${hostId}` : ''}`),
+  deploy_get: (id: string) => api.get<T.ItemResp<T.RemoteDeploy>>(`${B}/deploys/${id}`),
+  deployLogs: (id: string, afterId = 0) => api.get<T.ListResp<T.DeployLogLine>>(`${B}/deploys/${id}/logs?after_id=${afterId}`),
+  rollback: (deployId: string) => api.post<{ deploy_id: string }>(`${B}/deploys/${deployId}/rollback`),
+}
+
+export const components = {
+  list: (refresh = false) => api.get<T.ListResp<T.ComponentInfo>>(`${B}/components${refresh ? '?refresh=1' : ''}`),
+  versions: (name: string) => api.get<T.ListResp<T.Release>>(`${B}/components/${name}/versions`),
+  update: (name: string, version?: string) => api.post<T.ItemResp<T.UpdateJob>>(`${B}/components/${name}/update`, version ? { version } : undefined),
+  rollback: (name: string) => api.post<T.ItemResp<T.UpdateJob>>(`${B}/components/${name}/rollback`),
+  schedule: () => api.get<{ schedule: string }>(`${B}/components/geodata-schedule`),
+  setSchedule: (schedule: string) => api.put<{ schedule: string }>(`${B}/components/geodata-schedule`, { schedule }),
+}
+
 export const config = {
   dns: () => api.get<T.ItemResp<T.DNSConfig>>(`${B}/dns`),
   putDns: (c: T.DNSConfig) => api.put<T.ItemResp<T.DNSConfig>>(`${B}/dns`, stripTs(c)),

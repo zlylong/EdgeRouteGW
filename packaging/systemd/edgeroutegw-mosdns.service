@@ -1,0 +1,27 @@
+[Unit]
+Description=Mosdns (managed by EdgeRouteGW)
+Documentation=https://github.com/IrineSistiana/mosdns
+After=network-online.target
+Wants=network-online.target
+PartOf=edgeroutegw.service
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/var/lib/edgeroutegw/mosdns
+ExecStart=/var/lib/edgeroutegw/components/mosdns/mosdns start -d /var/lib/edgeroutegw/mosdns -c config.yaml
+Restart=on-failure
+RestartSec=3
+LimitNOFILE=1048576
+CapabilityBoundingSet=CAP_NET_BIND_SERVICE
+AmbientCapabilities=CAP_NET_BIND_SERVICE
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+ReadWritePaths=/var/lib/edgeroutegw/mosdns /run/edgeroutegw
+RuntimeDirectory=edgeroutegw
+RuntimeDirectoryPreserve=yes
+
+[Install]
+WantedBy=multi-user.target
