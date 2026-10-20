@@ -30,6 +30,17 @@ type GitHub struct {
 	APIBase      string
 	DownloadBase string
 	Client       *http.Client
+	// Mirror, when set, is prefixed before every GitHub URL (API and
+	// downloads), e.g. "https://ghproxy.example/".
+	Mirror string
+}
+
+// via applies the mirror prefix.
+func (g *GitHub) via(u string) string {
+	if g.Mirror == "" {
+		return u
+	}
+	return g.Mirror + u
 }
 
 // NewGitHub returns a client with production endpoints.
@@ -79,7 +90,7 @@ func (r ghRelease) toRelease() Release {
 }
 
 func (g *GitHub) getJSON(ctx context.Context, url string, out any) error {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, g.via(url), nil)
 	if err != nil {
 		return err
 	}
@@ -144,7 +155,7 @@ func (g *GitHub) ReleaseByTag(ctx context.Context, repo, tag string) (Release, e
 
 // Text fetches a small text file (digest files).
 func (g *GitHub) Text(ctx context.Context, url string) (string, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, g.via(url), nil)
 	if err != nil {
 		return "", err
 	}
@@ -161,9 +172,10 @@ func (g *GitHub) Text(ctx context.Context, url string) (string, error) {
 	return string(b), err
 }
 
-// AssetURL builds the download URL of an asset of a tagged release.
+// AssetURL builds the download URL of an asset of a tagged release (through
+// the mirror when one is configured).
 func (g *GitHub) AssetURL(repo, tag, asset string) string {
-	return fmt.Sprintf("%s/%s/releases/download/%s/%s", g.DownloadBase, repo, tag, asset)
+	return g.via(fmt.Sprintf("%s/%s/releases/download/%s/%s", g.DownloadBase, repo, tag, asset))
 }
 
 // XrayAsset is the Xray zip for this machine.

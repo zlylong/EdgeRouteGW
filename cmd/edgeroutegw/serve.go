@@ -45,6 +45,7 @@ func cmdServe(args []string, stdout, stderr io.Writer, env config.LookupEnv) int
 	fs := flag.NewFlagSet("serve", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	noReconcile := fs.Bool("no-reconcile", false, "serve the API without driving Xray/Mosdns/nftables (development)")
+	bundleDir := fs.String("bundle-dir", update.BundleDir, "directory with pre-fetched components (edgeroutegw-components package)")
 	cfg, err := config.Parse(fs, args, env)
 	if err != nil {
 		if errors.Is(err, flag.ErrHelp) {
@@ -157,6 +158,19 @@ func cmdServe(args []string, stdout, stderr io.Writer, env config.LookupEnv) int
 	} else {
 		updater = update.New(p, st, run, systemd.NewFake(), bus, rec.Notify, log)
 	}
+	updater.BundleDir = *bundleDir
+	updater.ApplyDownloadSettings(ctx)
+	if seeded := updater.SeedFromBundle(ctx); len(seeded) > 0 {
+		log.Info("installed bundled components", "components", seeded)
+	}
+	// The components package's postinst sends SIGHUP after it lands.
+	hup := make(chan os.Signal, 1)
+	signal.Notify(hup, syscall.SIGHUP)
+	go func() {
+		for range hup {
+			updater.SeedFromBundle(context.Background())
+		}
+	}()
 
 	h := api.NewHandler(api.Deps{
 		Store: st, Keyring: kr, Reconciler: rec, Bus: bus, Paths: p, Log: log, StartedAt: time.Now(),

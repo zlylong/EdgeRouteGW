@@ -32,6 +32,7 @@ jobs:
       - name: Build packages
         env:
           CGO_ENABLED: "0"
+          GITHUB_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           TAG="${GITHUB_REF_NAME}"
@@ -48,9 +49,24 @@ jobs:
             ARCH=$ARCH nfpm package -f packaging/nfpm.yaml -p deb -t dist/
             cp bin/edgeroutegw "dist/edgeroutegw-linux-$ARCH"
           done
+          # Bundled components (verified against upstream checksums) and the
+          # offline "full" archive for hosts that cannot reach GitHub.
+          for ARCH in amd64 arm64; do
+            scripts/fetch-components.sh "$ARCH" "dist/components/$ARCH"
+            COMPONENTS_DIR="dist/components/$ARCH" ARCH=$ARCH nfpm package -f packaging/nfpm-components.yaml -p deb -t dist/
+          done
+          rm -rf dist/components
           cd dist
           # nfpm writes 2.0.0~rc.1 style names for pre-releases; normalise to the asset name install.sh expects.
-          for f in edgeroutegw_*~*.deb; do [ -e "$f" ] && mv "$f" "$(echo "$f" | tr '~' '-')"; done || true
+          for f in *~*.deb; do [ -e "$f" ] && mv "$f" "$(echo "$f" | tr '~' '-')"; done || true
+          for ARCH in amd64 arm64; do
+            B="edgeroutegw-full_${VERSION}_${ARCH}"
+            mkdir -p "$B"
+            cp "edgeroutegw_${VERSION}_${ARCH}.deb" "edgeroutegw-components_${VERSION}_${ARCH}.deb" "$B/"
+            cp ../packaging/install-offline.sh "$B/"
+            (cd "$B" && sha256sum *.deb > SHA256SUMS)
+            tar czf "$B.tar.gz" "$B" && rm -rf "$B"
+          done
           sha256sum * > SHA256SUMS
           cat SHA256SUMS
       - name: Release notes
@@ -65,6 +81,7 @@ jobs:
           body_path: /tmp/notes.md
           files: |
             dist/*.deb
+            dist/*.tar.gz
             dist/edgeroutegw-linux-amd64
             dist/edgeroutegw-linux-arm64
             dist/SHA256SUMS

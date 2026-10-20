@@ -47,6 +47,12 @@ dev-web:
 deb: build
 	nfpm package -f packaging/nfpm.yaml -p deb -t dist/
 
+# Offline bundle for one architecture (needs network here, none on the target).
+full: build
+	scripts/fetch-components.sh $(or $(ARCH),amd64) dist/components/$(or $(ARCH),amd64)
+	ARCH=$(or $(ARCH),amd64) nfpm package -f packaging/nfpm.yaml -p deb -t dist/
+	COMPONENTS_DIR=dist/components/$(or $(ARCH),amd64) ARCH=$(or $(ARCH),amd64) nfpm package -f packaging/nfpm-components.yaml -p deb -t dist/
+
 clean:
 	rm -rf bin dist .dev-data web/dist
 	find $(WEB_DIST) -mindepth 1 ! -name .gitkeep -delete

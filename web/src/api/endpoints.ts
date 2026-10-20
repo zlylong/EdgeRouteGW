@@ -1,4 +1,4 @@
-import { api } from './client'
+import { api, csrfToken } from './client'
 import type * as T from './types'
 
 const B = '/api/v2'
@@ -110,6 +110,18 @@ export const components = {
   versions: (name: string) => api.get<T.ListResp<T.Release>>(`${B}/components/${name}/versions`),
   update: (name: string, version?: string) => api.post<T.ItemResp<T.UpdateJob>>(`${B}/components/${name}/update`, version ? { version } : undefined),
   rollback: (name: string) => api.post<T.ItemResp<T.UpdateJob>>(`${B}/components/${name}/rollback`),
+  installBundled: (name: string) => api.post<T.ItemResp<T.UpdateJob>>(`${B}/components/${name}/install-bundled`),
+  upload: async (name: string, file: File, sha256: string) => {
+    const fd = new FormData()
+    fd.append('file', file)
+    if (sha256) fd.append('sha256', sha256)
+    const res = await fetch(`${B}/components/${name}/upload`, { method: 'POST', body: fd, credentials: 'same-origin', headers: { 'X-CSRF-Token': csrfToken() } })
+    const body = await res.json().catch(() => ({}))
+    if (!res.ok) throw new Error(body?.error?.message ?? `HTTP ${res.status}`)
+    return body as T.ItemResp<T.UpdateJob>
+  },
+  downloadSettings: () => api.get<T.DownloadSettings>(`${B}/components/download-settings`),
+  setDownloadSettings: (d: T.DownloadSettings) => api.put<T.DownloadSettings>(`${B}/components/download-settings`, d),
   schedule: () => api.get<{ schedule: string }>(`${B}/components/geodata-schedule`),
   setSchedule: (schedule: string) => api.put<{ schedule: string }>(`${B}/components/geodata-schedule`, { schedule }),
 }

@@ -77,9 +77,11 @@ func TestKeysAndScripts(t *testing.T) {
 }
 
 func TestDeploySuccessRegistersNodeAndPinsKey(t *testing.T) {
+	gate := make(chan struct{}) // holds the first deploy open until the busy check ran
 	fd := &FakeDialer{Fingerprint: "SHA256:abc", Handler: func(script string, onLine func(string, string)) error {
 		onLine("stdout", "installing")
 		onLine("stdout", "REALITY smoke test passed")
+		<-gate
 		return nil
 	}}
 	s, st, hostID := newSvc(t, fd)
@@ -91,6 +93,7 @@ func TestDeploySuccessRegistersNodeAndPinsKey(t *testing.T) {
 	if _, err := s.Deploy(ctx, hostID, DeployRequest{Kind: "wg"}); !errors.Is(err, ErrBusy) {
 		t.Fatalf("second deploy should be busy, got %v", err)
 	}
+	close(gate)
 	d := waitDeploy(t, st, id)
 	if d.State != "succeeded" || d.NodeID == "" {
 		t.Fatalf("deploy %+v", d)

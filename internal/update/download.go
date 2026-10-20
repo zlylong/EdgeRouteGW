@@ -82,6 +82,20 @@ func Download(ctx context.Context, client *http.Client, url, dest, sha256hex str
 	return os.Rename(tmpName, dest)
 }
 
+// fileSHA256 hashes a file.
+func fileSHA256(path string) (string, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return "", err
+	}
+	defer f.Close()
+	h := sha256.New()
+	if _, err := io.Copy(h, f); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(h.Sum(nil)), nil
+}
+
 // Unzip extracts the named members of a zip into dir (flat), refusing paths
 // that escape it. Returns the extracted paths keyed by member name.
 func Unzip(zipPath, dir string, members []string) (map[string]string, error) {

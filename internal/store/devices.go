@@ -9,7 +9,7 @@ import (
 
 // ListDevicePolicies returns per-device overrides in creation order.
 func (s *Store) ListDevicePolicies(ctx context.Context) ([]model.DevicePolicy, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT id, kind, value, action, remark, created_at, updated_at FROM device_policies ORDER BY created_at, id`)
+	rows, err := s.db.QueryContext(ctx, `SELECT id, kind, value, action, remark, created_at, updated_at FROM device_policies ORDER BY created_at, rowid`)
 	if err != nil {
 		return nil, err
 	}

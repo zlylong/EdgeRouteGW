@@ -209,7 +209,7 @@ export interface DeployRequest { kind: 'wg' | 'vless'; port?: number; server_nam
 export interface DeployLogLine { id: number; at: string; stream: 'stdout' | 'stderr' | 'system'; line: string }
 
 export interface UpdateJob { id: string; component: string; version: string; action: 'update' | 'rollback' | 'install'; state: 'running' | 'succeeded' | 'failed'; step: string; percent: number; error?: string; started_at: string; ended_at?: string }
-export interface ComponentInfo { name: 'xray' | 'mosdns' | 'geodata'; installed: string; has_previous: boolean; latest?: string; job?: UpdateJob; last_error?: string; checked_at?: string }
+export interface ComponentInfo { name: 'xray' | 'mosdns' | 'geodata' | 'edgeroutegw'; installed: string; has_previous: boolean; bundled?: { version: string }; latest?: string; job?: UpdateJob; last_error?: string; checked_at?: string }
 export interface Release { tag: string; prerelease: boolean; published_at: string }
 
 export interface TrafficPoint { ts: number; up: number; down: number }
@@ -218,3 +218,4 @@ export interface TrafficRate { up_bps: number; down_bps: number }
 export interface TrafficRates { at: string; up_bps: number; down_bps: number; nodes: Record<string, TrafficRate>; available: boolean }
 export interface TrafficResponse { range: string; bucket_s: number; series: TrafficPoint[]; total_up: number; total_down: number; nodes: NodeTraffic[]; current: TrafficRates }
 export interface LatencyResult { node_id: string; ms: number; error?: string }
+export interface DownloadSettings { proxy: string; github_mirror: string }

@@ -1,0 +1,54 @@
+# edgeroutegw-components: Xray, Mosdns and GeoData pre-fetched at build time
+# (verified against their publishers' checksums) for hosts that cannot reach
+# GitHub. Files live under /usr/share and are seeded into the data directory
+# by edgeroutegw on start when a component is not installed yet; in-app
+# updates keep writing to /var/lib and never touch these.
+#   COMPONENTS_DIR=dist/components/amd64 ARCH=amd64 VERSION=... nfpm package -f packaging/nfpm-components.yaml -p deb -t dist/
+name: edgeroutegw-components
+arch: ${ARCH}
+platform: linux
+version: ${VERSION}
+version_schema: semver
+section: net
+priority: optional
+maintainer: zlylong <insuencu@zantio.xyz>
+description: |
+  Bundled Xray-core, Mosdns and GeoData for EdgeRouteGW (offline install).
+vendor: EdgeRouteGW
+homepage: https://github.com/zlylong/EdgeRouteGW
+license: GPL-3.0
+depends:
+  - edgeroutegw
+contents:
+  - src: ${COMPONENTS_DIR}/xray/xray
+    dst: /usr/share/edgeroutegw/components/xray/xray
+    expand: true
+    file_info:
+      mode: 0755
+  - src: ${COMPONENTS_DIR}/mosdns/mosdns
+    dst: /usr/share/edgeroutegw/components/mosdns/mosdns
+    expand: true
+    file_info:
+      mode: 0755
+  - src: ${COMPONENTS_DIR}/geodata/geoip.dat
+    dst: /usr/share/edgeroutegw/components/geodata/geoip.dat
+    expand: true
+    file_info:
+      mode: 0644
+  - src: ${COMPONENTS_DIR}/geodata/geosite.dat
+    dst: /usr/share/edgeroutegw/components/geodata/geosite.dat
+    expand: true
+    file_info:
+      mode: 0644
+  - src: ${COMPONENTS_DIR}/geodata/geodata.ver
+    dst: /usr/share/edgeroutegw/components/geodata/geodata.ver
+    expand: true
+    file_info:
+      mode: 0644
+  - src: ${COMPONENTS_DIR}/VERSIONS
+    dst: /usr/share/edgeroutegw/components/VERSIONS
+    expand: true
+    file_info:
+      mode: 0644
+scripts:
+  postinstall: packaging/scripts/components-postinst.sh

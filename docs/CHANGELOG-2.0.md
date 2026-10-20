@@ -1,5 +1,10 @@
 # EdgeRouteGW 2.0 变更记录
 
+## [2.0.0-rc.2] - 2026-10-20
+
+- 离线安装:发布附带 `edgeroutegw-components`(经上游校验和验证的 Xray / Mosdns / GeoData,版本钉在 `packaging/components.lock`)和 `edgeroutegw-full_<版本>_<架构>.tar.gz`(两个 .deb + `install-offline.sh`)。启动时或收到 SIGHUP 时自动把内置组件种子化到数据目录。
+- 组件下载通道:下载代理(http/socks5,可指向网关自身隧道)、GitHub 镜像前缀、本地上传官方压缩包安装(可选 SHA-256 校验)。
+
 ## [2.0.0-rc.1] - 2026-10-20
 
 从零重写。设计见 `docs/DESIGN-2.0.md`,与 1.x 的差异见 `docs/UPGRADE-FROM-1.x.md`。

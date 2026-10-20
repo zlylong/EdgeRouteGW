@@ -24,10 +24,26 @@ const schedQ = useQuery({ queryKey: ['geodata-schedule'], queryFn: compApi.sched
 const refreshing = ref(false)
 async function refresh() { refreshing.value = true; try { qc.setQueryData(['components'], await compApi.list(true)) } catch (e) { toast.error('检查失败', (e as Error).message) } finally { refreshing.value = false } }
 
+const dlQ = useQuery({ queryKey: ['download-settings'], queryFn: compApi.downloadSettings })
+const dl = ref({ proxy: '', github_mirror: '' })
+watch(() => dlQ.data.value, d => { if (d) dl.value = { ...d } }, { immediate: true })
+async function saveDownload() {
+  try { await compApi.setDownloadSettings(dl.value); toast.ok('下载设置已保存'); qc.invalidateQueries({ queryKey: ['download-settings'] }) } catch (e) { toast.error('保存失败', (e as Error).message) }
+}
+const uploadFor = ref(''); const uploadFile = ref<File | null>(null); const uploadSha = ref(''); const uploadBusy = ref(false)
+async function doUpload() {
+  if (!uploadFile.value) return
+  uploadBusy.value = true
+  try { await compApi.upload(uploadFor.value, uploadFile.value, uploadSha.value.trim()); uploadFor.value = ''; uploadFile.value = null; uploadSha.value = ''; toast.info('开始安装上传的压缩包'); qc.invalidateQueries({ queryKey: ['components'] }) } catch (e) { toast.error('上传失败', (e as Error).message) } finally { uploadBusy.value = false }
+}
+async function installBundled(name: string) {
+  try { await compApi.installBundled(name); toast.info('正在从内置包安装'); qc.invalidateQueries({ queryKey: ['components'] }) } catch (e) { toast.error('无法安装', (e as Error).message) }
+}
 const meta: Record<string, { label: string; hint: string }> = {
   xray: { label: 'Xray-core', hint: '代理核心。按 XTLS 发布的 .dgst 校验,安装前跑 version 冒烟,单元重启失败自动回退。' },
   mosdns: { label: 'Mosdns', hint: 'DNS 分流。按 GitHub 发布资产的 sha256 摘要校验。' },
   geodata: { label: 'GeoData', hint: 'geoip.dat / geosite.dat(Loyalsoldier/v2ray-rules-dat),按 rules.zip.sha256sum 校验。更新后自动重新渲染 DNS 列表与路由。' },
+  edgeroutegw: { label: 'EdgeRouteGW', hint: '网关本体。从 GitHub Release 下载 .deb,按 SHA256SUMS 校验后安装并重启。' },
 }
 const jobs = ref<Record<string, UpdateJob>>({})
 watch(() => gw.lastEvent, (e) => {
@@ -84,12 +100,22 @@ async function saveSchedule() {
         </div>
         <p v-if="c.last_error" class="mt-2 break-words text-xs text-danger">{{ c.last_error }}</p>
         <div class="mt-4 flex flex-wrap gap-2">
-          <Button size="sm" :disabled="!!jobOf(c)" @click="startUpdate(c.name)"><Download class="h-3.5 w-3.5" /> {{ c.installed ? '更新到最新' : '安装' }}</Button>
-          <Button v-if="c.name !== 'geodata'" size="sm" variant="secondary" :disabled="!!jobOf(c)" @click="openPick(c.name)">选择版本</Button>
-          <Button size="sm" variant="ghost" :disabled="!c.has_previous || !!jobOf(c)" @click="rollbackFor = c.name"><RotateCcw class="h-3.5 w-3.5" /> 回退</Button>
+          <Button size="sm" :disabled="!!jobOf(c)" @click="startUpdate(c.name)"><Download class="h-3.5 w-3.5" /> {{ c.installed ? '更新到最新' : '在线安装' }}</Button>
+          <Button v-if="c.bundled" size="sm" variant="secondary" :disabled="!!jobOf(c)" :title="`内置包版本 ${c.bundled.version}`" @click="installBundled(c.name)">从内置包安装 {{ c.bundled.version }}</Button>
+          <Button v-if="c.name !== 'geodata' && c.name !== 'edgeroutegw'" size="sm" variant="secondary" :disabled="!!jobOf(c)" @click="openPick(c.name)">选择版本</Button>
+          <Button v-if="c.name !== 'edgeroutegw'" size="sm" variant="ghost" :disabled="!!jobOf(c)" @click="uploadFor = c.name">本地上传</Button>
+          <Button v-if="c.name !== 'edgeroutegw'" size="sm" variant="ghost" :disabled="!c.has_previous || !!jobOf(c)" @click="rollbackFor = c.name"><RotateCcw class="h-3.5 w-3.5" /> 回退</Button>
         </div>
       </Card>
     </div>
+    <Card title="下载通道">
+      <p class="mb-3 text-sm text-fg-muted">GitHub 不可达时的三条路:装 <code class="rounded bg-surface-2 px-1 font-mono text-xs">edgeroutegw-components</code> 内置包(离线 full 包自带);配置下载代理,例如网关自己的隧道 <code class="rounded bg-surface-2 px-1 font-mono text-xs">socks5://127.0.0.1:10808</code>(先要有一个能用的节点);或者用镜像前缀改写 GitHub 地址。也可以在上面每个组件点「本地上传」直接安装官方压缩包。</p>
+      <div class="grid gap-4 sm:grid-cols-2">
+        <Field label="下载代理" hint="http(s):// 或 socks5://,留空直连"><Input v-model="dl.proxy" class="font-mono" placeholder="socks5://127.0.0.1:10808" /></Field>
+        <Field label="GitHub 镜像前缀" hint="会拼在 GitHub URL 前面,留空不用"><Input v-model="dl.github_mirror" class="font-mono" placeholder="https://ghproxy.example/" /></Field>
+      </div>
+      <div class="mt-3 flex justify-end"><Button variant="secondary" @click="saveDownload">保存</Button></div>
+    </Card>
     <Card title="GeoData 自动更新">
       <div class="flex flex-wrap items-end gap-3">
         <Field label="计划"><Select v-model="schedule" class="w-40" :options="[{ value: 'off', label: '关闭' }, { value: 'daily', label: '每天' }]" /></Field>
@@ -98,6 +124,17 @@ async function saveSchedule() {
       </div>
     </Card>
 
+    <Dialog :open="!!uploadFor" :title="`本地上传安装 ${meta[uploadFor]?.label ?? uploadFor}`" size="sm" @update:open="v => { if (!v) uploadFor = '' }">
+      <p class="mb-3 text-sm text-fg-muted">选择官方发布的压缩包:Xray 的 <code class="font-mono text-xs">Xray-linux-64.zip</code>、Mosdns 的 <code class="font-mono text-xs">mosdns-linux-amd64.zip</code> 或 GeoData 的 <code class="font-mono text-xs">rules.zip</code>。填入从发布页取得的 SHA-256 可在安装前校验;留空则按未校验安装并记录事件。</p>
+      <div class="space-y-3">
+        <input type="file" accept=".zip,application/zip" class="text-sm" @change="uploadFile = ($event.target as HTMLInputElement).files?.[0] ?? null">
+        <Field label="SHA-256(可选)"><Input v-model="uploadSha" class="font-mono text-xs" placeholder="64 位十六进制" /></Field>
+      </div>
+      <template #footer>
+        <Button variant="secondary" @click="uploadFor = ''">取消</Button>
+        <Button :loading="uploadBusy" :disabled="!uploadFile" @click="doUpload">安装</Button>
+      </template>
+    </Dialog>
     <Dialog v-model:open="pickDialog" :title="`选择 ${meta[pickFor]?.label ?? pickFor} 版本`" size="sm">
       <p v-if="loadingVersions" class="text-sm text-fg-muted">读取 GitHub 发布列表…</p>
       <Field v-else label="版本"><Select v-model="pickVersion" :options="versions.map(v => ({ value: v.tag, label: v.tag + (v.prerelease ? '(预发布)' : '') }))" /></Field>

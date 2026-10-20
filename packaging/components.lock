@@ -1,0 +1,6 @@
+# Pinned upstream components bundled into edgeroutegw-components and the
+# offline "full" archive. Bump deliberately; the release workflow downloads
+# and verifies exactly these.
+XRAY_VERSION=v26.3.27
+MOSDNS_VERSION=v5.3.4
+GEODATA_VERSION=202610192206

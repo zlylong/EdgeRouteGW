@@ -17,6 +17,12 @@
 | M6 收尾 | 完成 | 按 generation 快照的变更回滚、Xray 流量采样与总览/观测图表、节点延迟探测与测速、Playwright E2E(登录→改密→节点→规则→Trace→注销)并入 CI |
 | M5 发布 | 完成 | `import-v1` 导入器(用生产库副本干跑验证)、v2.* 标签触发的发布流水线(.deb + SHA256SUMS)、`scripts/install.sh`、自升级、备份导出/恢复、`doctor`、迁移手册 |
 
+## 安装
+
+- 在线:`bash <(curl -fsSL https://raw.githubusercontent.com/zlylong/EdgeRouteGW/v2/scripts/install.sh)`(rc 版本加 `ERGW_VERSION=v2.0.0-rc.2`)。
+- 离线 / GitHub 不可达:从发布页取 `edgeroutegw-full_<版本>_<架构>.tar.gz`,解包后 `bash install-offline.sh`。包内含经上游校验和验证的 Xray、Mosdns、GeoData(版本钉在 `packaging/components.lock`),首次启动自动种子化。
+- 之后的组件更新支持下载代理(可指向网关自身隧道 `socks5://127.0.0.1:10808`)、GitHub 镜像前缀,或本地上传官方压缩包。
+
 ## 开发
 
 ```bash

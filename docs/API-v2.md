@@ -131,6 +131,12 @@ Base URL:`http://<gateway>/api/v2`。所有请求与响应均为 JSON(`/artifact
 | POST | `/components/{name}/rollback` | 恢复 `.prev` 版本并重启 |
 | GET / PUT | `/components/geodata-schedule` | `{"schedule": "off" | "daily HH:MM"}` |
 
+| POST | `/components/{name}/install-bundled` | 从 `/usr/share/edgeroutegw/components`(edgeroutegw-components 包)安装;`GET /components` 的 `bundled.version` 显示可用版本 |
+| POST | `/components/{name}/upload` | multipart:`file`(官方 zip)+ 可选 `sha256`;无 sha256 时按未校验安装并记事件 |
+| GET / PUT | `/components/download-settings` | `{proxy, github_mirror}`:下载代理(http/socks5)与 GitHub 镜像前缀,对 API 与下载都生效 |
+
+启动时和收到 SIGHUP 时,若某组件未安装而内置包里有,则自动种子化。
+
 校验:Xray 用官方 `.dgst` 的 SHA2-256,Mosdns 用 GitHub 资产 digest,GeoData 用 `rules.zip.sha256sum`;校验失败不安装。二进制替换前跑 `version` 冒烟,单元重启后 2 秒内不在 active 状态则自动恢复上一版本。
 
 ## 备份与恢复(M5)

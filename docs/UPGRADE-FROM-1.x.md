@@ -21,9 +21,19 @@ ip rule del fwmark 1 lookup tproxy 2>/dev/null || true
 
 ## 2. 安装 2.0
 
+能访问 GitHub 的网关:
+
 ```bash
 bash <(curl -fsSL https://raw.githubusercontent.com/zlylong/EdgeRouteGW/v2/scripts/install.sh)
 ```
+
+**不能访问 GitHub 的网关(国内常见)**:在任何能下载的机器上取发布页的 `edgeroutegw-full_<版本>_<架构>.tar.gz`,scp 到网关后:
+
+```bash
+tar xzf edgeroutegw-full_*.tar.gz && cd edgeroutegw-full_* && bash install-offline.sh
+```
+
+full 包里带了经校验的 Xray、Mosdns 和 GeoData(`edgeroutegw-components` 包),首次启动自动装进数据目录,不需要联网。之后的组件更新可以在「系统 → 组件更新 → 下载通道」配置代理(例如网关自己的隧道 `socks5://127.0.0.1:10808`)或 GitHub 镜像前缀,也可以本地上传官方压缩包安装。
 
 安装后先**不要**登录 UI 做配置,直接导入。
 
@@ -53,7 +63,7 @@ systemctl start edgeroutegw
 ## 4. 首次登录
 
 - 初始密码:`cat /var/lib/edgeroutegw/bootstrap_password.txt`,登录后强制改密。
-- 系统 → 组件更新:安装 Xray、Mosdns、GeoData(2.0 不再把这些二进制放在仓库里)。安装完成后 Reconciler 会自动启动它们并下发配置。
+- 系统 → 组件更新:在线安装 Xray、Mosdns、GeoData;用 full 包安装的话它们已经在了。安装完成后 Reconciler 会自动启动它们并下发配置。
 - 总览页四个组件都变绿后,用「分流」页顶部的 Trace 框验证几个域名的去向;Mode B/C 看「网络与模式 → OSPF 状态」的邻居和已宣告路由数。
 
 ## 5. 回退到 1.x

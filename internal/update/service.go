@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -38,10 +39,12 @@ type Status struct {
 	Name      string `json:"name"`
 	Installed string `json:"installed"` // version or "" when absent
 	Previous  bool   `json:"has_previous"`
-	Latest    string `json:"latest,omitempty"`
-	Running   *Job   `json:"job,omitempty"`
-	LastError string `json:"last_error,omitempty"`
-	CheckedAt string `json:"checked_at,omitempty"`
+	// Bundled is the version shipped by edgeroutegw-components, if present.
+	Bundled   *Bundled `json:"bundled,omitempty"`
+	Latest    string   `json:"latest,omitempty"`
+	Running   *Job     `json:"job,omitempty"`
+	LastError string   `json:"last_error,omitempty"`
+	CheckedAt string   `json:"checked_at,omitempty"`
 }
 
 // Job is an in-flight or finished update.
@@ -73,6 +76,8 @@ type Service struct {
 	Notify func()
 	// Units are the systemd units to restart after a binary swap.
 	XrayUnit, MosdnsUnit string
+	// BundleDir overrides the components bundle location (tests).
+	BundleDir string
 
 	mu      sync.Mutex
 	jobs    map[string]*Job // by component
@@ -111,7 +116,7 @@ func (s *Service) Installed(ctx context.Context, name string) string {
 		if err != nil {
 			return "unknown"
 		}
-		return strings.TrimSpace(firstLine(string(res.Output)))
+		return parseMosdnsVersion(string(res.Output))
 	case Geodata:
 		b, err := os.ReadFile(filepath.Join(s.Paths.GeoDir(), "geodata.ver"))
 		if err != nil {
@@ -132,6 +137,18 @@ func parseXrayVersion(out string) string {
 	}
 	return strings.TrimSpace(firstLine(out))
 }
+
+// parseMosdnsVersion turns mosdns's git-describe output ("v5.3.4-0-gb732318")
+// into the release tag when it is exactly a tag.
+func parseMosdnsVersion(out string) string {
+	v := strings.TrimSpace(firstLine(out))
+	if m := mosdnsDescribe.FindStringSubmatch(v); m != nil {
+		return m[1]
+	}
+	return v
+}
+
+var mosdnsDescribe = regexp.MustCompile(`^(v?\d+\.\d+\.\d+)-0-g[0-9a-f]+$`)
 
 func firstLine(s string) string {
 	l, _, _ := strings.Cut(s, "\n")
@@ -165,6 +182,7 @@ func (s *Service) Statuses(ctx context.Context, refresh bool) []Status {
 		if _, err := os.Stat(prev); err == nil {
 			st.Previous = true
 		}
+		st.Bundled = s.bundled(name)
 		s.mu.Lock()
 		if j, ok := s.jobs[name]; ok {
 			c := *j
@@ -215,13 +233,20 @@ func (s *Service) binaryPath(name string) string {
 // ErrBusy means a job is already running.
 var ErrBusy = errors.New("another update is already running")
 
-// Start launches an update (version "" = latest) or rollback in the
-// background and returns the job.
+// Start launches an update (version "" = latest), a rollback, or
+// "bundled" (install from the components package) in the background and
+// returns the job.
 func (s *Service) Start(ctx context.Context, name, version, action string) (*Job, error) {
 	if s.repo(name) == "" {
 		return nil, fmt.Errorf("unknown component %q", name)
 	}
-	if action != "rollback" {
+	if action == "bundled" {
+		b := s.bundled(name)
+		if b == nil {
+			return nil, fmt.Errorf("no bundled %s available", name)
+		}
+		version = b.Version
+	} else if action != "rollback" {
 		action = "update"
 		if version == "" || version == "latest" {
 			if name == Self {
@@ -278,6 +303,8 @@ func (s *Service) progress(job *Job, step string, pct int) {
 func (s *Service) runJob(ctx context.Context, job *Job) {
 	var err error
 	switch {
+	case job.Action == "bundled":
+		err = s.installBundled(ctx, job)
 	case job.Action == "rollback":
 		err = s.rollback(ctx, job)
 	case job.Component == Geodata:
