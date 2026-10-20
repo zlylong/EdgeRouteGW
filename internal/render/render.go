@@ -16,6 +16,7 @@ import (
 	"github.com/zlylong/EdgeRouteGW/internal/geo"
 	"github.com/zlylong/EdgeRouteGW/internal/model"
 	"github.com/zlylong/EdgeRouteGW/internal/paths"
+	"github.com/zlylong/EdgeRouteGW/internal/routes"
 )
 
 // SiteSource is the geosite lookup the renderer needs. nil means "no
@@ -25,10 +26,18 @@ type SiteSource interface {
 	Entries(tag string) ([]geo.Entry, error)
 }
 
+// IPSource is the geoip lookup for Mode B/C route publishing; nil means
+// not installed.
+type IPSource = routes.IPSource
+
 // Deps are the renderer's inputs besides the Snapshot.
 type Deps struct {
 	Paths   paths.Paths
 	GeoSite SiteSource
+	GeoIP   IPSource
+	// IfaceAddr resolves the service interface's address for the FRR
+	// config; nil disables the OSPF network statement.
+	IfaceAddr InterfaceAddr
 }
 
 // Artifacts is everything the drivers apply for one generation.
@@ -53,6 +62,14 @@ type Artifacts struct {
 
 	Nft []byte
 
+	// Routes is the IPv4 prefix set to publish (Mode B/C; empty in A), with
+	// the candidates policy rejected and the domains the resolver must keep
+	// fresh. FRR is the frr.conf for the OSPF side (nil in Mode A).
+	Routes         []routes.Route
+	RouteRejected  []routes.Route
+	ResolveDomains []string
+	FRR            []byte
+
 	// Warnings are non-fatal findings (a rule skipped, a group with one live
 	// member) surfaced to the UI alongside the apply.
 	Warnings []string
@@ -72,6 +89,9 @@ func Render(snap *desired.Snapshot, d Deps) (*Artifacts, error) {
 	}
 	if err := renderNft(snap, d, a); err != nil {
 		return nil, fmt.Errorf("render nftables: %w", err)
+	}
+	if err := renderRoutes(snap, d, a); err != nil {
+		return nil, fmt.Errorf("render routes: %w", err)
 	}
 	if a.Warnings == nil {
 		a.Warnings = []string{}

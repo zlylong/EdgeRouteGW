@@ -247,9 +247,9 @@ func TestDNSAndNetworkValidation(t *testing.T) {
 		t.Fatalf("empty upstream list accepted: %d", code)
 	}
 
-	out = e.must("PUT", "/api/v2/network", map[string]any{"mode": "c", "tproxy_port": 0, "ospf_push_batch": 99999, "ospf_publish_allowlist": []string{"1.2.3.4"}}, 200)
+	out = e.must("PUT", "/api/v2/network", map[string]any{"mode": "a", "tproxy_port": 0, "ospf_push_batch": 99999, "ospf_publish_allowlist": []string{"1.2.3.4"}}, 200)
 	n := item(out)
-	if n["mode"] != "C" || n["tproxy_port"].(float64) != 12345 || n["ospf_push_batch"].(float64) != 5000 || n["ospf_publish_allowlist"].([]any)[0] != "1.2.3.4/32" || n["fakeip_pool"] != "198.18.0.0/16" {
+	if n["mode"] != "A" || n["tproxy_port"].(float64) != 12345 || n["ospf_push_batch"].(float64) != 5000 || n["ospf_publish_allowlist"].([]any)[0] != "1.2.3.4/32" || n["fakeip_pool"] != "198.18.0.0/16" {
 		t.Fatalf("network %v", n)
 	}
 	for _, bad := range []map[string]any{{"mode": "D"}, {"mode": "A", "tproxy_port": 80}, {"mode": "A", "fakeip_pool": "fd00::/64"}, {"mode": "A", "lan_default_policy": "block"}} {
@@ -257,9 +257,9 @@ func TestDNSAndNetworkValidation(t *testing.T) {
 			t.Fatalf("expected 422 for %v, got %d", bad, code)
 		}
 	}
-	// A state read reflects the mode.
+	// A state read reflects the write.
 	st := e.must("GET", "/api/v2/state", nil, 200)
-	if st["mode"] != "C" || st["pending"] != true {
+	if st["mode"] != "A" || st["pending"] != true {
 		t.Fatalf("state %v", st)
 	}
 }
@@ -363,4 +363,43 @@ func TestSSEStreamSendsStateThenEvents(t *testing.T) {
 		t.Fatalf("third event %s %s", typ, data)
 	}
 	_ = fmt.Sprint(model.ModeA)
+}
+
+func TestNetworkPreflightAndRoutes(t *testing.T) {
+	e := newEnv(t)
+	// No nodes, no service iface: switching to B is refused with problems.
+	code, out := e.do("PUT", "/api/v2/network", map[string]any{"mode": "B"})
+	if code != 422 {
+		t.Fatalf("mode switch without prerequisites: %d %v", code, out)
+	}
+	details := out["error"].(map[string]any)["details"].(map[string]any)
+	pf := details["preflight"].(map[string]any)
+	if pf["ok"] != false || len(pf["problems"].([]any)) < 2 {
+		t.Fatalf("preflight details %v", pf)
+	}
+	out = e.must("POST", "/api/v2/network/preflight", map[string]any{"mode": "C"}, 200)
+	if out["ok"] != false {
+		t.Fatalf("preflight %v", out)
+	}
+	// Add a node and an interface name; lo always exists.
+	e.must("POST", "/api/v2/nodes", map[string]any{"name": "n", "protocol": "trojan", "address": "203.0.113.9", "port": 443, "credential": "x"}, 201)
+	out = e.must("PUT", "/api/v2/network", map[string]any{"mode": "B", "service_iface": "lo"}, 200)
+	if item(out)["mode"] != "B" {
+		t.Fatalf("switch %v", out)
+	}
+	o := e.must("GET", "/api/v2/ospf", nil, 200)
+	if o["enabled"] != true || o["service_iface"] != "lo" {
+		t.Fatalf("ospf %v", o)
+	}
+	ifs := e.must("GET", "/api/v2/interfaces", nil, 200)["items"].([]any)
+	if len(ifs) == 0 {
+		t.Fatal("no interfaces")
+	}
+	e.must("POST", "/api/v2/reconcile", nil, 200)
+	rs := e.must("GET", "/api/v2/routes", nil, 200)["items"].([]any)
+	if len(rs) != 1 || rs[0].(map[string]any)["cidr"] != "198.18.0.0/16" || rs[0].(map[string]any)["state"] != "pending" {
+		t.Fatalf("routes without drivers: %v", rs)
+	}
+	e.must("POST", "/api/v2/routes/reset", nil, 200)
+	e.must("POST", "/api/v2/dns/cache-clear", nil, 200)
 }

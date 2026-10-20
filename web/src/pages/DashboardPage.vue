@@ -63,7 +63,7 @@ const levelTone: Record<string, 'danger' | 'warn' | 'info' | 'neutral'> = { erro
         <template v-if="gw.state">
           <p class="text-base font-semibold">{{ modeText[gw.state.mode]?.name }}</p>
           <p class="mt-1 text-sm text-fg-muted">{{ modeText[gw.state.mode]?.desc }}</p>
-          <RouterLink to="/system" class="mt-4 inline-flex items-center gap-1 text-sm text-accent hover:underline">网络与模式设置 <ArrowRight class="h-3.5 w-3.5" /></RouterLink>
+          <RouterLink to="/network" class="mt-4 inline-flex items-center gap-1 text-sm text-accent hover:underline">网络与模式设置 <ArrowRight class="h-3.5 w-3.5" /></RouterLink>
         </template>
       </Card>
 

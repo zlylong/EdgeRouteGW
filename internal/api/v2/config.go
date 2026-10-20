@@ -6,7 +6,9 @@ import (
 	"net/netip"
 	"strings"
 
+	"github.com/zlylong/EdgeRouteGW/internal/desired"
 	"github.com/zlylong/EdgeRouteGW/internal/model"
+	"github.com/zlylong/EdgeRouteGW/internal/routes"
 	"github.com/zlylong/EdgeRouteGW/internal/rulespec"
 	"github.com/zlylong/EdgeRouteGW/internal/store"
 )
@@ -84,12 +86,25 @@ func (d Deps) putDNS(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ctx := r.Context()
+	cur, err := d.Store.DNSConfig(ctx)
+	if err != nil {
+		d.fail(w, r, err)
+		return
+	}
 	gen, err := d.mutate(ctx, r, "update DNS settings", func(tx *sql.Tx) error {
 		return store.UpdateDNSConfig(ctx, tx, c)
 	})
 	if err != nil {
 		d.fail(w, r, err)
 		return
+	}
+	// Answers depend on the upstreams; a different resolver path means the
+	// cached routes may no longer match what clients get.
+	if strings.Join(cur.LocalUpstreams, ",") != strings.Join(c.LocalUpstreams, ",") || strings.Join(cur.RemoteUpstreams, ",") != strings.Join(c.RemoteUpstreams, ",") {
+		_ = d.Store.ClearResolveCache(ctx)
+		if d.ResolverKick != nil {
+			d.ResolverKick()
+		}
 	}
 	saved, _ := d.Store.DNSConfig(ctx)
 	writeJSON(w, http.StatusOK, itemResp[model.DNSConfig]{Item: saved, Generation: gen})
@@ -214,21 +229,19 @@ func (d Deps) putNetwork(w http.ResponseWriter, r *http.Request) {
 		d.fail(w, r, err)
 		return
 	}
-	if c.Mode != model.ModeA {
-		// Wildcard domain rules cannot be expressed as routes; refuse the
-		// switch rather than silently dropping them.
-		rules, err := d.Store.ListRules(ctx, "")
+	if c.Mode != model.ModeA && c.Mode != cur.Mode {
+		// A switch into B/C runs the same preflight the UI shows; the
+		// candidate routes are computed with the new settings.
+		snap, err := desired.Load(ctx, d.Store, nil)
 		if err != nil {
 			d.fail(w, r, err)
 			return
 		}
-		for _, rule := range rules {
-			if rule.MatchKind == model.MatchDomain {
-				if p, err := rulespec.ParseDomain(rule.MatchValue); err == nil && p.Wildcard {
-					d.fail(w, r, invalid("mode", "Mode %s does not support wildcard domain rules; remove %q first", c.Mode, rule.MatchValue))
-					return
-				}
-			}
+		snap.Network = c
+		pr := routes.Preflight(snap, d.sources(), c.Mode)
+		if !pr.OK {
+			writeErr(w, http.StatusUnprocessableEntity, codeValidation, "mode switch blocked: "+strings.Join(pr.Problems, "; "), map[string]any{"field": "mode", "preflight": pr})
+			return
 		}
 	}
 	summary := "update network settings"

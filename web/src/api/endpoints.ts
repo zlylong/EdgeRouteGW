@@ -72,6 +72,21 @@ export const routing = {
   removeBypass: (id: string) => api.del<T.GenResp>(`${B}/bypass/${id}`),
 }
 
+export const network = {
+  ospf: () => api.get<T.OSPFResponse>(`${B}/ospf`),
+  routes: (q: { state?: string; q?: string; limit?: number } = {}) => {
+    const p = new URLSearchParams()
+    if (q.state) p.set('state', q.state)
+    if (q.q) p.set('q', q.q)
+    if (q.limit) p.set('limit', String(q.limit))
+    return api.get<T.ListResp<T.PublishedRoute>>(`${B}/routes?${p}`)
+  },
+  resetRoutes: () => api.post<{ cleared: boolean }>(`${B}/routes/reset`),
+  interfaces: () => api.get<T.ListResp<T.InterfaceView>>(`${B}/interfaces`),
+  preflight: (mode: T.Mode) => api.post<T.PreflightResult>(`${B}/network/preflight`, { mode }),
+  clearDnsCache: () => api.post<{ cleared: boolean }>(`${B}/dns/cache-clear`),
+}
+
 export const config = {
   dns: () => api.get<T.ItemResp<T.DNSConfig>>(`${B}/dns`),
   putDns: (c: T.DNSConfig) => api.put<T.ItemResp<T.DNSConfig>>(`${B}/dns`, stripTs(c)),

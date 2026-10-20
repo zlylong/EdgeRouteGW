@@ -112,7 +112,7 @@ watch(() => gw.lastEvent, e => { if (e?.type === 'apply.finished') qc.invalidate
             <span class="text-xs text-fg-muted">{{ c.version || c.status }}</span>
           </li>
         </ul>
-        <p class="mt-3 text-xs text-fg-subtle">组件更新、GeoData 定时任务和备份导入将在 M4 提供;DNS 与网络/模式设置页面随 M3 提供。</p>
+        <p class="mt-3 text-xs text-fg-subtle">组件更新、GeoData 定时任务和备份导入将在 M4 提供。</p>
       </Card>
     </div>
 

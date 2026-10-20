@@ -3,6 +3,7 @@ package render
 import (
 	"bytes"
 	"encoding/json"
+	"net/netip"
 	"strings"
 	"testing"
 
@@ -330,5 +331,35 @@ func TestNftSets(t *testing.T) {
 	b, _ := Render(s, deps())
 	if !strings.Contains(string(b.Nft), `comment "default_direct"`) {
 		t.Fatal("default_direct missing")
+	}
+}
+
+func TestRoutesAndFRR(t *testing.T) {
+	s := baseSnap()
+	s.Network.Mode = model.ModeB
+	s.Network.ServiceIface = "lan0"
+	d := deps()
+	d.IfaceAddr = func(iface string) (netip.Prefix, error) {
+		if iface != "lan0" {
+			t.Fatalf("iface %s", iface)
+		}
+		return netip.MustParsePrefix("192.168.10.2/24"), nil
+	}
+	a, err := Render(s, d)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := RouteSet(a.Routes); len(got) != 2 || got[0] != "198.18.0.0/16" || got[1] != "8.8.8.8/32" {
+		t.Fatalf("routes %v", got)
+	}
+	frr := string(a.FRR)
+	for _, want := range []string{"ip import-table 100 distance 20", "ospf router-id 192.168.10.2", "network 192.168.10.0/24 area 0", "redistribute table 100", "no passive-interface lan0"} {
+		if !strings.Contains(frr, want) {
+			t.Fatalf("frr.conf missing %q:\n%s", want, frr)
+		}
+	}
+	b, _ := Render(baseSnap(), d)
+	if b.FRR != nil || len(b.Routes) != 0 {
+		t.Fatal("Mode A must produce no routes and no FRR config")
 	}
 }

@@ -12,7 +12,7 @@
 | M0 骨架 | 完成 | cmd/internal 分层、SQLite 迁移、`/api/v2/state`、CI、.deb 打包 |
 | M1 Reconciler(Mode A) | 完成 | render(xray/mosdns/nft 纯函数渲染)、Reconciler(合并窗口、退避重试、dry-run)、xray/mosdns/nft/systemd Driver、节点/出站组/规则集/规则/设备策略/绕过/DNS/网络 API、SSE 事件流、分享链接导入 |
 | M2 前端 Alpha | 完成 | 鉴权(argon2id、cookie 会话 + CSRF、API token、登录限速、引导密码)、Vite + Vue3 + TS + Tailwind v4 + reka-ui 前端:登录/强制改密、总览、节点(含出站组、分享链接导入)、分流(规则集、拖拽排序、实时 Trace、设备策略、绕过)、观测(实时连接、事件、变更历史、下发记录)、系统(会话、token、生成配置);顶栏变更状态指示器;Xray access log 连接追踪;`/trace` |
-| M3 Mode B/C | 未开始 | netlink 路由、FRR、解析器、模式向导 |
+| M3 Mode B/C | 完成 | 路由发布引擎(候选/策略/受保护端点/剪枝/preflight)、miekg/dns 解析器与 TTL 缓存、netlink 路由驱动(table 100)、FRR 驱动(frr.conf/daemons/生命周期/邻居)、`/ospf` `/routes` `/interfaces` `/network/preflight` 接口、网络与模式页(三模式向导 + 预检、网卡与参数、OSPF 面板)、DNS 页 |
 | M4 托管主机与更新 | 未开始 | |
 | M5 发布 | 未开始 | .deb、1.x 导入、迁移 |
 
@@ -50,4 +50,4 @@ bin/edgeroutegw serve -no-reconcile -listen 127.0.0.1:18080 -data-dir ./.dev-dat
 /run/edgeroutegw/             Xray access log、mosdns log
 ```
 
-Xray 与 Mosdns 以 `edgeroutegw-xray.service` / `edgeroutegw-mosdns.service` 运行,后端经 D-Bus 控制;nftables 只操作 `table inet edgeroutegw`,不会 `flush ruleset`。
+Xray 与 Mosdns 以 `edgeroutegw-xray.service` / `edgeroutegw-mosdns.service` 运行,后端经 D-Bus 控制;nftables 只操作 `table inet edgeroutegw`,不会 `flush ruleset`。Mode B/C 的路由写进内核 table 100(proto 200),FRR(`frr.service`,需 `apt install frr`)通过 `/etc/frr/frr.conf` 的 `ip import-table 100` 与 `redistribute table 100` 宣告;语法已在 FRR 8.4 上用 `vtysh -C` 验证。

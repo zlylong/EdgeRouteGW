@@ -9,6 +9,8 @@ export const router = createRouter({
     { path: '/', name: 'dashboard', component: () => import('@/pages/DashboardPage.vue'), meta: { title: '总览' } },
     { path: '/nodes', name: 'nodes', component: () => import('@/pages/NodesPage.vue'), meta: { title: '节点' } },
     { path: '/routing', name: 'routing', component: () => import('@/pages/RoutingPage.vue'), meta: { title: '分流' } },
+    { path: '/dns', name: 'dns', component: () => import('@/pages/DnsPage.vue'), meta: { title: 'DNS' } },
+    { path: '/network', name: 'network', component: () => import('@/pages/NetworkPage.vue'), meta: { title: '网络与模式' } },
     { path: '/observe', name: 'observe', component: () => import('@/pages/ObservePage.vue'), meta: { title: '观测' } },
     { path: '/system', name: 'system', component: () => import('@/pages/SystemPage.vue'), meta: { title: '系统' } },
     { path: '/:pathMatch(.*)*', redirect: '/' },

@@ -16,10 +16,13 @@ import (
 	"github.com/zlylong/EdgeRouteGW/internal/api"
 	"github.com/zlylong/EdgeRouteGW/internal/auth"
 	"github.com/zlylong/EdgeRouteGW/internal/config"
+	"github.com/zlylong/EdgeRouteGW/internal/desired"
 	"github.com/zlylong/EdgeRouteGW/internal/driver"
 	"github.com/zlylong/EdgeRouteGW/internal/driver/execx"
+	"github.com/zlylong/EdgeRouteGW/internal/driver/frr"
 	"github.com/zlylong/EdgeRouteGW/internal/driver/mosdns"
 	"github.com/zlylong/EdgeRouteGW/internal/driver/nft"
+	"github.com/zlylong/EdgeRouteGW/internal/driver/route"
 	"github.com/zlylong/EdgeRouteGW/internal/driver/systemd"
 	"github.com/zlylong/EdgeRouteGW/internal/driver/xray"
 	"github.com/zlylong/EdgeRouteGW/internal/events"
@@ -29,6 +32,8 @@ import (
 	"github.com/zlylong/EdgeRouteGW/internal/paths"
 	"github.com/zlylong/EdgeRouteGW/internal/reconcile"
 	"github.com/zlylong/EdgeRouteGW/internal/render"
+	"github.com/zlylong/EdgeRouteGW/internal/resolver"
+	"github.com/zlylong/EdgeRouteGW/internal/routes"
 	"github.com/zlylong/EdgeRouteGW/internal/secret"
 	"github.com/zlylong/EdgeRouteGW/internal/store"
 	"github.com/zlylong/EdgeRouteGW/internal/version"
@@ -89,7 +94,7 @@ func cmdServe(args []string, stdout, stderr io.Writer, env config.LookupEnv) int
 	}
 
 	bus := events.New(256)
-	deps := render.Deps{Paths: p}
+	deps := render.Deps{Paths: p, IfaceAddr: render.SystemInterfaceAddr}
 	var geoSite *geo.Site
 	var geoIP *geo.IP
 	if _, err := os.Stat(p.GeoSite()); err == nil {
@@ -100,31 +105,57 @@ func cmdServe(args []string, stdout, stderr io.Writer, env config.LookupEnv) int
 	}
 	if _, err := os.Stat(p.GeoIP()); err == nil {
 		geoIP = geo.OpenIP(p.GeoIP())
+		deps.GeoIP = geoIP
+	} else {
+		log.Warn("geoip.dat not installed; geoip rules will not be published as routes", "path", p.GeoIP())
 	}
 	conns := observe.NewConnTracker(p.XrayAccessLog(), bus, log)
 
 	var drivers []driver.Driver
+	var frrDriver *frr.Driver
 	if !*noReconcile {
 		run := execx.Real{Timeout: 60 * time.Second, Log: log}
 		sd := systemd.NewDBus()
+		frrDriver = frr.New(run, sd, route.New(log), log)
 		drivers = []driver.Driver{
 			xray.New(p, run, sd, log),
 			mosdns.New(p, sd, log),
 			nft.New(p, run, log),
+			frrDriver,
 		}
 	} else {
 		log.Warn("reconciliation disabled (-no-reconcile): desired state is stored but never applied")
 	}
 	rec := reconcile.New(st, kr, deps, drivers, bus, log)
 
+	// Mode C resolution goes through the local Mosdns so published routes
+	// match what LAN clients resolve.
+	res := resolver.New(st, "127.0.0.1:53", 8, log)
+	resLoop := resolver.NewLoop(res, func(ctx context.Context) ([]string, error) {
+		_, arts, err := rec.PlanOnly(ctx)
+		if err != nil {
+			return nil, err
+		}
+		if arts.Mode == "A" {
+			return nil, nil
+		}
+		snap, err := desired.Load(ctx, st, nil)
+		if err != nil {
+			return nil, err
+		}
+		return append(arts.ResolveDomains, routes.ProtectedDomains(snap)...), nil
+	}, rec.Notify, log)
+
 	h := api.NewHandler(api.Deps{
 		Store: st, Keyring: kr, Reconciler: rec, Bus: bus, Paths: p, Log: log, StartedAt: time.Now(),
-		Auth: authSvc, GeoSite: geoSite, GeoIP: geoIP, Connections: conns,
+		Auth: authSvc, GeoSite: geoSite, GeoIP: geoIP, Connections: conns, FRR: frrDriver, ResolverKick: resLoop.Kick,
+		IfaceAddr: render.SystemInterfaceAddr,
 	})
 
 	g, gctx := errgroup.WithContext(ctx)
 	g.Go(func() error { return rec.Run(gctx) })
 	g.Go(func() error { return conns.Run(gctx) })
+	g.Go(func() error { return resLoop.Run(gctx) })
 	g.Go(func() error { return httpserver.Serve(gctx, cfg.ListenAddr, h, log, nil) })
 	if err := g.Wait(); err != nil {
 		log.Error("service failed", "err", err)

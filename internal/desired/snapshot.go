@@ -23,6 +23,12 @@ type Snapshot struct {
 	Rules          []model.Rule // ordered by set position, rule position
 	DevicePolicies []model.DevicePolicy
 	Bypass         []model.BypassDestination
+	// Resolved is the DNS cache the Mode C route engine reads; it is derived
+	// state maintained by the resolver, not something the user edits.
+	Resolved []store.ResolvedEntry
+	// ProtectedHosts are managed remote hosts whose addresses must never be
+	// published as routes.
+	ProtectedHosts []string
 }
 
 // Load reads a consistent snapshot. SQLite WAL gives each statement a stable
@@ -86,6 +92,12 @@ func load(ctx context.Context, st *store.Store, kr *secret.Keyring) (*Snapshot, 
 		return nil, err
 	}
 	if s.Bypass, err = st.ListBypassDestinations(ctx); err != nil {
+		return nil, err
+	}
+	if s.Resolved, err = st.ListResolveCache(ctx); err != nil {
+		return nil, err
+	}
+	if s.ProtectedHosts, err = st.ListRemoteHostAddrs(ctx); err != nil {
 		return nil, err
 	}
 	return &s, nil

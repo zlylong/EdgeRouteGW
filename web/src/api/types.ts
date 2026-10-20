@@ -185,3 +185,18 @@ export interface ItemResp<T> { item: T; generation?: number }
 export interface GenResp { generation: number; deleted?: number; retargeted_rules?: number }
 
 export interface SseEvent<T = unknown> { type: string; at: string; data: T }
+
+export interface OSPFNeighbor { router_id: string; address: string; interface: string; state: string; priority: number; dead_time: string }
+export interface OSPFResponse {
+  mode: Mode
+  enabled: boolean
+  service_iface: string
+  lan_prefix?: string
+  neighbors: OSPFNeighbor[]
+  neighbors_error?: string
+  routes: Record<'published' | 'pending' | 'failed' | 'protected', number>
+  resolver: { cached: number; expired: number; failing: number }
+}
+export interface PublishedRoute { cidr: string; source: string; rule_id?: string; state: string; detail?: string; first_seen: string; last_seen: string }
+export interface InterfaceView { name: string; up: boolean; loopback: boolean; addresses: string[]; mac?: string }
+export interface PreflightResult { ok: boolean; mode: string; routes: number; rejected: number; protected_conflicts: string[] | null; problems: string[] | null; warnings: string[] | null }

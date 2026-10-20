@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Activity, Gauge, LayoutDashboard, Network, Route, Settings2 } from 'lucide-vue-next'
+import { Activity, Gauge, Globe, LayoutDashboard, Network, Route, Settings2, Waypoints } from 'lucide-vue-next'
 import { useGatewayState } from '@/stores/state'
 
 defineProps<{ open: boolean }>()
@@ -10,6 +10,8 @@ const items = [
   { to: '/', label: '总览', icon: LayoutDashboard },
   { to: '/nodes', label: '节点', icon: Network },
   { to: '/routing', label: '分流', icon: Route },
+  { to: '/dns', label: 'DNS', icon: Globe },
+  { to: '/network', label: '网络与模式', icon: Waypoints },
   { to: '/observe', label: '观测', icon: Activity },
   { to: '/system', label: '系统', icon: Settings2 },
 ]

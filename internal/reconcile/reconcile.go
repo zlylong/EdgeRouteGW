@@ -17,6 +17,7 @@ import (
 	"github.com/zlylong/EdgeRouteGW/internal/events"
 	"github.com/zlylong/EdgeRouteGW/internal/model"
 	"github.com/zlylong/EdgeRouteGW/internal/render"
+	"github.com/zlylong/EdgeRouteGW/internal/routes"
 	"github.com/zlylong/EdgeRouteGW/internal/secret"
 	"github.com/zlylong/EdgeRouteGW/internal/store"
 )
@@ -249,9 +250,15 @@ func (r *Reconciler) pass(ctx context.Context) error {
 	}
 
 	health := make([]model.ComponentHealth, 0, len(r.Drivers))
+	frrOK := true
 	for _, d := range r.Drivers {
-		health = append(health, d.Health(ctx))
+		h := d.Health(ctx)
+		health = append(health, h)
+		if h.Name == model.ComponentFRR && (h.Status == model.StatusDegraded || h.Status == model.StatusDown) {
+			frrOK = false
+		}
 	}
+	r.persistRoutes(ctx, arts, frrOK)
 
 	r.mu.Lock()
 	r.status.Components = health
@@ -316,4 +323,19 @@ func (r *Reconciler) fail(ctx context.Context, gen int64, err error, plans []dri
 		Message: fmt.Sprintf("generation %d: %v", gen, err), Details: fmt.Sprintf(`{"retry_in_s":%d}`, int(backoff.Seconds()))})
 	r.Bus.Publish(events.ApplyFailed, map[string]any{"generation": gen, "error": err.Error(), "retry_in_s": int(backoff.Seconds())})
 	return err
+}
+
+// persistRoutes records the route engine's decisions so the UI can show
+// what is announced and why candidates were refused. Published state is
+// only claimed when the FRR component is healthy.
+func (r *Reconciler) persistRoutes(ctx context.Context, arts *render.Artifacts, frrOK bool) {
+	rows := routes.ToPublished(routes.Result{Publish: arts.Routes, Rejected: arts.RouteRejected})
+	for i := range rows {
+		if rows[i].State == routes.StatePending && frrOK && len(r.Drivers) > 0 {
+			rows[i].State = routes.StatePublished
+		}
+	}
+	if err := r.Store.ReplacePublishedRoutes(ctx, rows); err != nil {
+		r.Log.Warn("persist routes failed", "err", err)
+	}
 }

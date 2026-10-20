@@ -83,6 +83,28 @@ Base URL:`http://<gateway>/api/v2`。所有请求与响应均为 JSON(`/artifact
 | GET / PUT | `/dns` | `local_upstreams[]`、`remote_upstreams[]`(1~8 个;公网远端上游自动经 127.0.0.1:10808 SOCKS 并强制 TCP)、`cache_size`、`lazy_cache`、`lazy_cache_ttl`、`log_level` |
 | GET / PUT | `/network` | `mode(A|B|C)`、`management_iface`、`service_iface`、`fakeip_pool`(IPv4,≥/24)、`tproxy_port`(1024~65535)、`lan_default_policy(proxy|direct)`、`ospf_push_batch`、`ospf_push_interval_s`、`ospf_resolve_workers`、`ospf_publish_allowlist[]`、`node_failover_mode(normal|strict)`。切到 B/C 时若存在通配域名规则则拒绝;B/C 的受保护端点 preflight 在 M3 加入 |
 
+## 网络、模式与 OSPF(M3)
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| GET | `/interfaces` | 主机网卡列表 `{name, up, loopback, addresses[], mac}`,供选择服务/管理网卡 |
+| POST | `/network/preflight` | `{"mode"}` → `PreflightResult{ok, routes, rejected, protected_conflicts[], problems[], warnings[]}`;不改任何东西 |
+| GET | `/ospf` | 模式是否启用 OSPF、服务网卡与 LAN 前缀、邻居列表(vtysh JSON)、路由计数(published/pending/failed/protected)、解析缓存统计 |
+| GET | `/routes?state=&q=&limit=` | 路由引擎的决定:前缀、来源(fakeip/rule/geo/domain)、状态与原因 |
+| POST | `/routes/reset` | 清空记录,下一轮 reconcile 重新计算并对齐内核表 100 |
+| POST | `/dns/cache-clear` | 清空解析缓存并立即重新解析 |
+
+`PUT /network` 把模式从 A 切到 B/C 时会跑同一套 preflight,`problems` 非空则 422,`details.preflight` 带完整结果。
+
+### 路由发布规则
+
+- 只发布动作为代理(proxy/node/group)的规则;direct 规则不宣告(主路由不该把这部分流量送来)。
+- Mode B:Fake-IP 池 + ip/geoip 规则。Mode C:ip/geoip + 域名规则解析出的 /32 + geosite(同名 geoip 存在则取其 CIDR,否则展开可解析域名,每个标签最多 2000 个)。
+- 拒绝:默认路由、环回、链路本地、组播/保留、RFC1918 超网(10/8、172.16/12、192.168/16 及更大)。`geoip:!xx` 取反标签无法表达为路由,跳过。
+- 受保护端点:所有节点地址与托管主机(域名会先解析)所在的候选前缀标记 `protected` 不发布,避免 OSPF 把去节点的流量踢回本机。
+- 宣告白名单非空时只发布落在白名单内的前缀。被更广前缀覆盖的前缀会被剪掉。
+- 内核侧:路由写入 table 100(proto 200,dev lo),FRR 用 `ip import-table 100` 导入并 `redistribute table 100`;frr.conf 固定,只随 router-id/LAN 网段变化。
+
 ## 失败语义(与 1.x 的差别)
 
 - `node_failover_mode=normal`:规则指向的节点/组没有任何启用成员时,流量走**默认出站**(默认节点 → 全节点 leastPing → 直连);`strict` 时走 `block`,宁断勿漏。

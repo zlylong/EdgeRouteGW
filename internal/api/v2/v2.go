@@ -19,6 +19,7 @@ import (
 
 	"github.com/zlylong/EdgeRouteGW/internal/auth"
 	"github.com/zlylong/EdgeRouteGW/internal/driver"
+	"github.com/zlylong/EdgeRouteGW/internal/driver/frr"
 	"github.com/zlylong/EdgeRouteGW/internal/events"
 	"github.com/zlylong/EdgeRouteGW/internal/geo"
 	"github.com/zlylong/EdgeRouteGW/internal/observe"
@@ -52,6 +53,12 @@ type Deps struct {
 	GeoSite     *geo.Site
 	GeoIP       *geo.IP
 	Connections *observe.ConnTracker
+	// FRR exposes OSPF neighbours; nil without drivers.
+	FRR *frr.Driver
+	// ResolverKick wakes the resolver after writes that may add domains.
+	ResolverKick func()
+	// IfaceAddr reads an interface's IPv4 prefix (for the network page).
+	IfaceAddr render.InterfaceAddr
 }
 
 // Register mounts every v2 route on mux.
@@ -59,6 +66,7 @@ func Register(mux *http.ServeMux, d Deps) {
 	r := newRouter(mux)
 	d.registerAuth(r)
 	d.registerObserve(r)
+	d.registerNetwork(r)
 	r.handle(http.MethodGet, "/api/v2/state", d.handleState)
 	r.handle(http.MethodGet, "/api/v2/plan", d.handlePlan)
 	r.handle(http.MethodPost, "/api/v2/reconcile", d.handleReconcileNow)
@@ -242,6 +250,9 @@ func (d Deps) mutate(ctx context.Context, r *http.Request, summary string, fn fu
 	}
 	d.Bus.Publish(events.StateChanged, map[string]any{"generation": gen, "summary": summary})
 	d.Reconciler.Notify()
+	if d.ResolverKick != nil {
+		d.ResolverKick()
+	}
 	return gen, nil
 }
 
