@@ -91,15 +91,11 @@ func Import(ctx context.Context, st *store.Store, kr *secret.Keyring, opts Optio
 	}
 
 	if !opts.Replace {
-		existing, err := st.ListNodes(ctx)
+		has, err := st.HasUserData(ctx)
 		if err != nil {
 			return nil, err
 		}
-		rules, err := st.ListRules(ctx, "")
-		if err != nil {
-			return nil, err
-		}
-		if len(existing) > 0 || len(rules) > 0 {
+		if has {
 			return nil, errors.New("target already has nodes or rules; use --replace to import anyway")
 		}
 	}
@@ -163,14 +159,24 @@ func Import(ctx context.Context, st *store.Store, kr *secret.Keyring, opts Optio
 	var setOrder []string
 	sets := map[string]model.RuleSet{}
 	var newRules []model.Rule
+	// Ungrouped 1.x rules land in the built-in default set, which exists
+	// after migration (or is recreated below when --replace wiped it).
+	builtinID, _ := st.BuiltinRuleSet(ctx)
+	if builtinID == "" {
+		builtinID = uuid.NewString()
+	}
 	for _, r := range v1Rules {
 		setKey := r.GroupID
 		name := r.GroupName
 		if name == "" {
-			name = "默认"
+			name = store.BuiltinRuleSetName
 		}
 		if _, ok := sets[setKey]; !ok {
-			sets[setKey] = model.RuleSet{ID: uuid.NewString(), Name: name, Position: len(setOrder), Enabled: true}
+			id := uuid.NewString()
+			if name == store.BuiltinRuleSetName && r.GroupID == "" {
+				id = builtinID
+			}
+			sets[setKey] = model.RuleSet{ID: id, Name: name, Position: len(setOrder), Enabled: true, Builtin: id == builtinID}
 			setOrder = append(setOrder, setKey)
 		}
 		nr := model.Rule{ID: uuid.NewString(), SetID: sets[setKey].ID, Enabled: true}
@@ -481,15 +487,78 @@ func Import(ctx context.Context, st *store.Store, kr *secret.Keyring, opts Optio
 				return err
 			}
 		}
+		if opts.Replace {
+			if err := store.InsertBuiltinRuleSet(ctx, tx, builtinID); err != nil {
+				return err
+			}
+		}
 		for _, k := range setOrder {
 			s := sets[k]
+			if s.Builtin {
+				var n int
+				if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM rule_sets WHERE id=?`, s.ID).Scan(&n); err != nil {
+					return err
+				}
+				if n > 0 {
+					continue
+				}
+				if err := store.InsertBuiltinRuleSet(ctx, tx, s.ID); err != nil {
+					return err
+				}
+				continue
+			}
 			if err := store.InsertRuleSet(ctx, tx, s.ID, s.Name); err != nil {
 				return err
 			}
 		}
+		// Rules seeded in the built-in set must not shadow imported ones (a
+		// 1.x "geosite:cn -> HA group" must beat the seeded "geosite:cn ->
+		// direct"), so imported rules go first and the seeded ones follow.
+		var seededIDs []string
+		if rows, err := tx.QueryContext(ctx, `SELECT id FROM rules WHERE set_id=? ORDER BY position, created_at`, builtinID); err == nil {
+			for rows.Next() {
+				var id string
+				if err := rows.Scan(&id); err == nil {
+					seededIDs = append(seededIDs, id)
+				}
+			}
+			rows.Close()
+		}
+		var importedBuiltin []string
 		for _, r := range newRules {
 			if err := store.InsertRule(ctx, tx, r); err != nil {
 				return fmt.Errorf("rule %s: %w", r.MatchValue, err)
+			}
+			if r.SetID == builtinID {
+				importedBuiltin = append(importedBuiltin, r.ID)
+			}
+		}
+		if err := store.SeedBuiltinRules(ctx, tx, builtinID); err != nil {
+			return err
+		}
+		if rows, err := tx.QueryContext(ctx, `SELECT id FROM rules WHERE set_id=? ORDER BY position, created_at`, builtinID); err == nil {
+			var all []string
+			for rows.Next() {
+				var id string
+				if err := rows.Scan(&id); err == nil {
+					all = append(all, id)
+				}
+			}
+			rows.Close()
+			isImported := map[string]bool{}
+			for _, id := range importedBuiltin {
+				isImported[id] = true
+			}
+			order := append([]string{}, importedBuiltin...)
+			for _, id := range all {
+				if !isImported[id] {
+					order = append(order, id)
+				}
+			}
+			if len(order) > 0 {
+				if err := store.ReorderRules(ctx, tx, builtinID, order); err != nil {
+					return fmt.Errorf("order built-in rules: %w", err)
+				}
 			}
 		}
 		for _, d := range devices {

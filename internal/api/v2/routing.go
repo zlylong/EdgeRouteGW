@@ -2,6 +2,7 @@ package v2
 
 import (
 	"database/sql"
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -91,6 +92,10 @@ func (d Deps) updateRuleSet(w http.ResponseWriter, r *http.Request) {
 	}
 	name := cur.Name
 	if strings.TrimSpace(in.Name) != "" {
+		if cur.Builtin && strings.TrimSpace(in.Name) != cur.Name {
+			d.fail(w, r, invalid("name", "the built-in default rule set keeps its name"))
+			return
+		}
 		name = strings.TrimSpace(in.Name)
 	}
 	if len(name) > 64 {
@@ -116,7 +121,11 @@ func (d Deps) deleteRuleSet(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	id := r.PathValue("id")
 	gen, err := d.mutate(ctx, r, "delete rule set "+id, func(tx *sql.Tx) error {
-		return store.DeleteRuleSet(ctx, tx, id)
+		if err := store.DeleteRuleSet(ctx, tx, id); errors.Is(err, store.ErrBuiltinRuleSet) {
+			return invalid("id", "%v", err)
+		} else {
+			return err
+		}
 	})
 	if err != nil {
 		d.fail(w, r, err)

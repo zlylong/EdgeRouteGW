@@ -75,6 +75,9 @@ func (s *Store) Migrate(ctx context.Context) ([]string, error) {
 		}
 		ran = append(ran, m.Version)
 	}
+	if err := s.EnsureBuiltinRuleSet(ctx); err != nil {
+		return ran, fmt.Errorf("built-in rule set: %w", err)
+	}
 	return ran, nil
 }
 

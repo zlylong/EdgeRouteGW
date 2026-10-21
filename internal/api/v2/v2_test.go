@@ -151,7 +151,7 @@ func TestNodeLifecycleAndGeneration(t *testing.T) {
 	if out["retargeted_rules"].(float64) != 1 {
 		t.Fatalf("delete %v", out)
 	}
-	rules := e.must("GET", "/api/v2/rules", nil, 200)["items"].([]any)
+	rules := e.must("GET", "/api/v2/rules?set_id="+setID, nil, 200)["items"].([]any)
 	if rules[0].(map[string]any)["action_kind"] != "proxy" {
 		t.Fatalf("rule not retargeted: %v", rules[0])
 	}
@@ -355,7 +355,7 @@ func TestSSEStreamSendsStateThenEvents(t *testing.T) {
 		}
 	}
 	typ, data := readEvent()
-	if typ != "state" || !strings.Contains(data, `"schema_version":"0001_init"`) {
+	if typ != "state" || !strings.Contains(data, `"schema_version":"0002_builtin_ruleset"`) {
 		t.Fatalf("first event %s %s", typ, data)
 	}
 	// A write produces state.changed followed by a fresh state snapshot.

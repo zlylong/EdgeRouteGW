@@ -90,7 +90,8 @@ export interface OutboundGroup {
 }
 export interface GroupInput { name: string; kind: GroupKind; member_ids: string[]; strategy?: string }
 
-export interface RuleSet { id: string; name: string; position: number; enabled: boolean; created_at: string; updated_at: string }
+export interface RuleSet {
+  id: string; name: string; position: number; enabled: boolean; builtin?: boolean; created_at: string; updated_at: string }
 
 export type MatchKind = 'domain' | 'ip' | 'geosite' | 'geoip'
 export type RuleAction = 'direct' | 'proxy' | 'block' | 'node' | 'group'

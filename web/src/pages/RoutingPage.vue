@@ -72,6 +72,7 @@ function removeSet(s: RuleSet) { confirm.value = { title: `删除规则集「${s
 async function moveSet(i: number, d: number) {
   const ids = sets.value.map(s => s.id); const j = i + d
   if (j < 0 || j >= ids.length) return
+  if (sets.value[i].builtin || sets.value[j].builtin) { toast.warn('内置默认规则集永远排在第一位'); return }
   ;[ids[i], ids[j]] = [ids[j], ids[i]]
   try { await routing.reorderSets(ids); refresh() } catch (e) { toast.error('排序失败', (e as Error).message) }
 }
@@ -137,9 +138,9 @@ const deviceActionTone = (a: string) => ({ proxy: 'accent', direct: 'ok', reject
           <li v-for="(s, i) in sets" :key="s.id"
               :class="['group flex items-center gap-1.5 rounded-md px-2 py-1.5 text-sm cursor-pointer', s.id === selectedSet ? 'bg-accent-soft text-accent' : 'hover:bg-surface-2']"
               @click="selectedSet = s.id">
-            <span class="truncate flex-1" :class="!s.enabled && 'line-through text-fg-subtle'">{{ s.name }}</span>
+            <span class="truncate flex-1" :class="!s.enabled && 'line-through text-fg-subtle'">{{ s.name }}<span v-if="s.builtin" class="ml-1 rounded bg-surface-2 px-1 text-[10px] font-normal text-fg-muted" title="内置默认规则集:永远第一个匹配,不能删除或移动;其中的规则可以编辑">内置</span></span>
             <span class="text-[10px] text-fg-subtle">{{ countBySet[s.id] ?? 0 }}</span>
-            <span class="hidden gap-0.5 group-hover:flex">
+            <span v-if="!s.builtin" class="hidden gap-0.5 group-hover:flex">
               <button class="rounded p-0.5 hover:bg-surface" aria-label="上移" @click.stop="moveSet(i, -1)"><ChevronUp class="h-3.5 w-3.5" /></button>
               <button class="rounded p-0.5 hover:bg-surface" aria-label="下移" @click.stop="moveSet(i, 1)"><ChevronDown class="h-3.5 w-3.5" /></button>
             </span>
@@ -156,7 +157,7 @@ const deviceActionTone = (a: string) => ({ proxy: 'accent', direct: 'ok', reject
             <template v-if="selectedSet">「{{ sets.find(s => s.id === selectedSet)?.name }}」· {{ rules.length }} 条,拖动行或用箭头调整顺序</template>
           </div>
           <div class="flex gap-2">
-            <Button v-if="selectedSet" variant="ghost" size="sm" class="text-danger" @click="removeSet(sets.find(s => s.id === selectedSet)!)"><Trash2 class="h-4 w-4" /> 删除规则集</Button>
+            <Button v-if="selectedSet && !sets.find(s => s.id === selectedSet)?.builtin" variant="ghost" size="sm" class="text-danger" @click="removeSet(sets.find(s => s.id === selectedSet)!)"><Trash2 class="h-4 w-4" /> 删除规则集</Button>
             <Button :disabled="!selectedSet" @click="editRule = null; ruleDialog = true"><Plus class="h-4 w-4" /> 添加规则</Button>
           </div>
         </div>

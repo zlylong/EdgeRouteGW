@@ -110,10 +110,12 @@ type OutboundGroup struct {
 
 // RuleSet is an ordered, toggleable group of rules.
 type RuleSet struct {
-	ID        string    `json:"id"`
-	Name      string    `json:"name"`
-	Position  int       `json:"position"`
-	Enabled   bool      `json:"enabled"`
+	ID       string `json:"id"`
+	Name     string `json:"name"`
+	Position int    `json:"position"`
+	Enabled  bool   `json:"enabled"`
+	// Builtin marks the pinned default set: always first, never deleted.
+	Builtin   bool      `json:"builtin"`
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
 }

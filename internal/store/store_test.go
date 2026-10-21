@@ -199,7 +199,7 @@ func TestSchemaConstraints(t *testing.T) {
 		t.Fatal(err)
 	}
 	var n int
-	if err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM rules`).Scan(&n); err != nil {
+	if err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM rules WHERE set_id='s1'`).Scan(&n); err != nil {
 		t.Fatal(err)
 	}
 	if n != 0 {

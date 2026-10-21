@@ -143,7 +143,9 @@ func TestImportProductionShape(t *testing.T) {
 	for _, r := range rules {
 		kinds = append(kinds, string(r.MatchKind)+":"+r.MatchValue+"->"+string(r.ActionKind))
 	}
-	want := "geosite:category-ads-all->block ip:192.168.100.0/24->direct geosite:netflix->group geoip:telegram->group geosite:cn->group ip:1.1.1.1/32->node ip:2.2.2.2/32->proxy domain:**.youtube.com->proxy"
+	// Imported rules keep their order and precedence; the seeded built-in
+	// direct rules follow them inside the built-in (first) set.
+	want := "geosite:category-ads-all->block ip:192.168.100.0/24->direct geosite:netflix->group geoip:telegram->group geosite:cn->group ip:1.1.1.1/32->node ip:2.2.2.2/32->proxy geoip:private->direct geosite:cn->direct geoip:cn->direct domain:**.youtube.com->proxy"
 	if got := strings.Join(kinds, " "); got != want {
 		t.Fatalf("rules\n got %s\nwant %s", got, want)
 	}
