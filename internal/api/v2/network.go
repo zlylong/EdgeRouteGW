@@ -59,6 +59,11 @@ func (d Deps) sources() routes.Sources {
 	if d.GeoIP != nil {
 		src.GeoIP = d.GeoIP
 	}
+	if d.DefaultIface != nil {
+		if di, err := d.DefaultIface(); err == nil {
+			src.DefaultIface = di
+		}
+	}
 	if d.GeoSite != nil {
 		src.GeoSite = d.GeoSite
 	}

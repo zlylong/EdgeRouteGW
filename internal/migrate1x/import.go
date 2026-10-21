@@ -22,6 +22,7 @@ import (
 	_ "modernc.org/sqlite"
 
 	"github.com/zlylong/EdgeRouteGW/internal/model"
+	"github.com/zlylong/EdgeRouteGW/internal/netinfo"
 	"github.com/zlylong/EdgeRouteGW/internal/rulespec"
 	"github.com/zlylong/EdgeRouteGW/internal/secret"
 	"github.com/zlylong/EdgeRouteGW/internal/store"
@@ -334,6 +335,12 @@ func Import(ctx context.Context, st *store.Store, kr *secret.Keyring, opts Optio
 	rep.Mode = string(net.Mode)
 	net.ManagementIface = strings.TrimSpace(settings["management_iface"])
 	net.ServiceIface = strings.TrimSpace(settings["service_iface"])
+	if net.ServiceIface == "" {
+		// 1.x derived the OSPF network from the default-route interface.
+		if di, err := netinfo.DefaultIface(); err == nil {
+			net.ServiceIface = di
+		}
+	}
 	if v := strings.ToLower(settings["lan_default_policy"]); v == "proxy" || v == "direct" {
 		net.LANDefaultPolicy = v
 	}

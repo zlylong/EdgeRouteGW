@@ -8,7 +8,7 @@
   ```bash
   mkdir -p /root/v1-backup && cp /root/proxygw/config/proxygw.db /root/proxygw/config/aes.key /root/v1-backup/
   ```
-- 记下当前模式(UI 顶栏)。Mode B/C 的用户:主路由侧的 OSPF 配置不用改;2.0 的 FRR 配置形态变了(内核 table 100 导入),但对主路由只是同一个邻居重新宣告。
+- 记下当前模式(UI 顶栏)。Mode B/C 的用户:主路由侧的 OSPF 配置不用改;2.0 的 FRR 配置形态变了(内核 table 200 导入),但对主路由只是同一个邻居重新宣告。
 - 2.0 不再 `git pull` 升级,也不再使用 `/root/proxygw` 下的任何东西。
 
 ## 1. 停掉 1.x
@@ -71,7 +71,7 @@ systemctl start edgeroutegw
 ```bash
 systemctl disable --now edgeroutegw edgeroutegw-xray edgeroutegw-mosdns
 nft delete table inet edgeroutegw 2>/dev/null || true
-ip route flush table 100 2>/dev/null || true
+ip route flush table 200 2>/dev/null || true
 systemctl enable --now proxygw xray mosdns
 ```
 
@@ -87,5 +87,5 @@ systemctl enable --now proxygw xray mosdns
 | Xray/Mosdns | `core/xray`、`core/mosdns`(git 提交) | `/var/lib/edgeroutegw/components/`(UI 安装) |
 | 服务 | `proxygw` `xray` `mosdns` | `edgeroutegw` `edgeroutegw-xray` `edgeroutegw-mosdns` |
 | nft 表 | `inet proxygw` | `inet edgeroutegw` |
-| OSPF 路由 | FRR 静态路由 tag 100 | 内核 table 100 + `ip import-table` |
+| OSPF 路由 | FRR 静态路由 tag 100 | 内核 table 200 + `ip import-table` |
 | 升级 | `update.sh`(git pull) | 系统 → 组件更新 → EdgeRouteGW,或 `apt install ./edgeroutegw_x.deb` |

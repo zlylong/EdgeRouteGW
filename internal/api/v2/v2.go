@@ -61,6 +61,8 @@ type Deps struct {
 	ResolverKick func()
 	// IfaceAddr reads an interface's IPv4 prefix (for the network page).
 	IfaceAddr render.InterfaceAddr
+	// DefaultIface names the default-route interface (preflight fallback).
+	DefaultIface func() (string, error)
 	// Provision deploys tunnel servers on managed hosts; nil disables.
 	Provision *provision.Service
 	// Updater installs components; nil disables.

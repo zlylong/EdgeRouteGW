@@ -85,3 +85,12 @@ func TestFailureKeepsStaleAnswer(t *testing.T) {
 		t.Fatalf("stale handling: changed=%d %+v", changed, entries)
 	}
 }
+
+func TestFailRetryBackoff(t *testing.T) {
+	want := []time.Duration{10 * time.Second, 10 * time.Second, 20 * time.Second, 40 * time.Second, 80 * time.Second, 160 * time.Second, MinTTL, MinTTL}
+	for i, w := range want {
+		if got := FailRetry(i); got != w {
+			t.Errorf("fails=%d got %v want %v", i, got, w)
+		}
+	}
+}

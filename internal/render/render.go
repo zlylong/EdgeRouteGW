@@ -38,6 +38,9 @@ type Deps struct {
 	// IfaceAddr resolves the service interface's address for the FRR
 	// config; nil disables the OSPF network statement.
 	IfaceAddr InterfaceAddr
+	// DefaultIface names the interface with the default route; used when
+	// the service interface is not configured. nil means no fallback.
+	DefaultIface func() (string, error)
 }
 
 // Artifacts is everything the drivers apply for one generation.

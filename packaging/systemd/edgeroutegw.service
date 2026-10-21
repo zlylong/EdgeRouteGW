@@ -8,8 +8,11 @@ Wants=network-online.target
 Type=simple
 EnvironmentFile=-/etc/edgeroutegw/edgeroutegw.env
 ExecStart=/usr/bin/edgeroutegw serve
-Restart=on-failure
-RestartSec=3
+# always: systemd counts death by SIGHUP as a clean exit, and a HUP that
+# lands in the exec window (before the Go runtime installs handlers) must
+# not leave the gateway without its control plane.
+Restart=always
+RestartSec=1
 LimitNOFILE=1048576
 
 # 2.0 runs as root (design decision 5); the capability set is bounded so a

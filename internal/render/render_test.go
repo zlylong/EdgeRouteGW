@@ -353,7 +353,7 @@ func TestRoutesAndFRR(t *testing.T) {
 		t.Fatalf("routes %v", got)
 	}
 	frr := string(a.FRR)
-	for _, want := range []string{"ip import-table 100 distance 20", "ospf router-id 192.168.10.2", "network 192.168.10.0/24 area 0", "redistribute table 100", "no passive-interface lan0"} {
+	for _, want := range []string{"ip import-table 200 distance 20", "ospf router-id 192.168.10.2", "network 192.168.10.0/24 area 0", "redistribute table 200", "no passive-interface lan0"} {
 		if !strings.Contains(frr, want) {
 			t.Fatalf("frr.conf missing %q:\n%s", want, frr)
 		}
@@ -361,5 +361,29 @@ func TestRoutesAndFRR(t *testing.T) {
 	b, _ := Render(baseSnap(), d)
 	if b.FRR != nil || len(b.Routes) != 0 {
 		t.Fatal("Mode A must produce no routes and no FRR config")
+	}
+}
+
+func TestFRRFallsBackToDefaultInterface(t *testing.T) {
+	snap := &desired.Snapshot{Network: model.NetworkConfig{Mode: model.ModeC}}
+	d := Deps{
+		IfaceAddr:    func(iface string) (netip.Prefix, error) { return netip.MustParsePrefix("192.168.100.199/24"), nil },
+		DefaultIface: func() (string, error) { return "eth0", nil },
+	}
+	a := &Artifacts{}
+	if err := renderRoutes(snap, d, a); err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"network 192.168.100.0/24 area 0", "no passive-interface eth0", "ospf router-id 192.168.100.199"} {
+		if !strings.Contains(string(a.FRR), want) {
+			t.Fatalf("missing %q in\n%s", want, a.FRR)
+		}
+	}
+	if len(a.Warnings) != 1 || !strings.Contains(a.Warnings[0], "using eth0") {
+		t.Fatalf("warnings %v", a.Warnings)
+	}
+	// TPROXY table and route table must never coincide.
+	if RouteTable == TProxyRouteTbl {
+		t.Fatal("route table collides with the TPROXY table")
 	}
 }

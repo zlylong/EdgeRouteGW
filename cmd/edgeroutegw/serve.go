@@ -28,6 +28,7 @@ import (
 	"github.com/zlylong/EdgeRouteGW/internal/events"
 	"github.com/zlylong/EdgeRouteGW/internal/geo"
 	"github.com/zlylong/EdgeRouteGW/internal/httpserver"
+	"github.com/zlylong/EdgeRouteGW/internal/netinfo"
 	"github.com/zlylong/EdgeRouteGW/internal/observe"
 	"github.com/zlylong/EdgeRouteGW/internal/paths"
 	"github.com/zlylong/EdgeRouteGW/internal/provision"
@@ -58,6 +59,11 @@ func cmdServe(args []string, stdout, stderr io.Writer, env config.LookupEnv) int
 	v := version.Get()
 	log.Info("edgeroutegw starting", "version", v.Version, "commit", v.Commit, "data_dir", cfg.DataDir, "listen", cfg.ListenAddr)
 
+	// SIGHUP means "re-seed components from the bundle" (the components
+	// package's postinst sends one). Register before anything else so an
+	// early HUP never hits Go's default handler and kills the process.
+	hup := make(chan os.Signal, 1)
+	signal.Notify(hup, syscall.SIGHUP)
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
@@ -98,7 +104,22 @@ func cmdServe(args []string, stdout, stderr io.Writer, env config.LookupEnv) int
 	}
 
 	bus := events.New(256)
-	deps := render.Deps{Paths: p, IfaceAddr: render.SystemInterfaceAddr}
+
+	// Components first: an offline install has them only in the bundle, and
+	// the geo readers below need the files on disk.
+	var updater *update.Service
+	if !*noReconcile {
+		updater = update.New(p, st, run, systemd.NewDBus(), bus, nil, log)
+	} else {
+		updater = update.New(p, st, run, systemd.NewFake(), bus, nil, log)
+	}
+	updater.BundleDir = *bundleDir
+	updater.ApplyDownloadSettings(ctx)
+	if seeded := updater.SeedFromBundle(ctx); len(seeded) > 0 {
+		log.Info("installed bundled components", "components", seeded)
+	}
+
+	deps := render.Deps{Paths: p, IfaceAddr: render.SystemInterfaceAddr, DefaultIface: netinfo.DefaultIface}
 	var geoSite *geo.Site
 	var geoIP *geo.IP
 	if _, err := os.Stat(p.GeoSite()); err == nil {
@@ -119,7 +140,6 @@ func cmdServe(args []string, stdout, stderr io.Writer, env config.LookupEnv) int
 
 	var drivers []driver.Driver
 	var frrDriver *frr.Driver
-	var updater *update.Service
 	if !*noReconcile {
 		sd := systemd.NewDBus()
 		frrDriver = frr.New(run, sd, route.New(log), log)
@@ -153,19 +173,7 @@ func cmdServe(args []string, stdout, stderr io.Writer, env config.LookupEnv) int
 	}, rec.Notify, log)
 
 	prov := provision.New(st, kr, bus, rec.Notify, log)
-	if !*noReconcile {
-		updater = update.New(p, st, run, systemd.NewDBus(), bus, rec.Notify, log)
-	} else {
-		updater = update.New(p, st, run, systemd.NewFake(), bus, rec.Notify, log)
-	}
-	updater.BundleDir = *bundleDir
-	updater.ApplyDownloadSettings(ctx)
-	if seeded := updater.SeedFromBundle(ctx); len(seeded) > 0 {
-		log.Info("installed bundled components", "components", seeded)
-	}
-	// The components package's postinst sends SIGHUP after it lands.
-	hup := make(chan os.Signal, 1)
-	signal.Notify(hup, syscall.SIGHUP)
+	updater.Notify = rec.Notify
 	go func() {
 		for range hup {
 			updater.SeedFromBundle(context.Background())
@@ -175,7 +183,7 @@ func cmdServe(args []string, stdout, stderr io.Writer, env config.LookupEnv) int
 	h := api.NewHandler(api.Deps{
 		Store: st, Keyring: kr, Reconciler: rec, Bus: bus, Paths: p, Log: log, StartedAt: time.Now(),
 		Auth: authSvc, GeoSite: geoSite, GeoIP: geoIP, Connections: conns, FRR: frrDriver, ResolverKick: resLoop.Kick,
-		IfaceAddr: render.SystemInterfaceAddr, Provision: prov, Updater: updater, Traffic: traffic, Latency: latency,
+		IfaceAddr: render.SystemInterfaceAddr, DefaultIface: netinfo.DefaultIface, Provision: prov, Updater: updater, Traffic: traffic, Latency: latency,
 	})
 
 	g, gctx := errgroup.WithContext(ctx)

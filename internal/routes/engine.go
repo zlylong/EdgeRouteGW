@@ -38,6 +38,9 @@ type SiteSource interface {
 type Sources struct {
 	GeoIP   IPSource
 	GeoSite SiteSource
+	// DefaultIface is the host's default-route interface, the fallback when
+	// the service interface is not configured ("" = no fallback).
+	DefaultIface string
 }
 
 // State of a candidate route.
@@ -428,8 +431,10 @@ func Preflight(snap *desired.Snapshot, src Sources, mode model.Mode) PreflightRe
 	if len(snap.EnabledNodes()) == 0 {
 		pr.Problems = append(pr.Problems, "no enabled node: in Mode B/C every steered flow needs a proxy outbound")
 	}
-	if snap.Network.ServiceIface == "" {
+	if snap.Network.ServiceIface == "" && src.DefaultIface == "" {
 		pr.Problems = append(pr.Problems, "service interface not set: OSPF must know which LAN network to join (network <subnet> area 0)")
+	} else if snap.Network.ServiceIface == "" {
+		pr.Warnings = append(pr.Warnings, "service interface not set; "+src.DefaultIface+" (default route) will be used")
 	}
 	for _, rule := range snap.Rules {
 		if rule.MatchKind == model.MatchDomain {

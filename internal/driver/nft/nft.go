@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"regexp"
 	"strings"
 	"time"
 
@@ -125,11 +126,23 @@ func (d *Driver) ensurePolicyRouting(ctx context.Context) error {
 		if fam == "-6" && ipv6Disabled() {
 			continue
 		}
-		res, err := d.Run.Run(ctx, d.IPBinary, fam, "rule", "show")
+		// -N keeps table numbers numeric: /etc/iproute2/rt_tables may name
+		// table 100 (1.x called it "tproxy"), which broke the match and
+		// added a duplicate rule on every apply.
+		res, err := d.Run.Run(ctx, d.IPBinary, "-N", fam, "rule", "show")
 		if err != nil {
-			return fmt.Errorf("ip %s rule show: %w", fam, err)
+			res, err = d.Run.Run(ctx, d.IPBinary, fam, "rule", "show")
+			if err != nil {
+				return fmt.Errorf("ip %s rule show: %w", fam, err)
+			}
 		}
-		if !strings.Contains(string(res.Output), "fwmark 0x"+mark+" lookup "+table) {
+		n := countRules(string(res.Output), mark, table)
+		for ; n > 1; n-- { // collapse duplicates left by older versions
+			if _, err := d.Run.Run(ctx, d.IPBinary, fam, "rule", "del", "fwmark", mark, "lookup", table); err != nil {
+				break
+			}
+		}
+		if n == 0 {
 			if _, err := d.Run.Run(ctx, d.IPBinary, fam, "rule", "add", "fwmark", mark, "lookup", table); err != nil {
 				return fmt.Errorf("ip %s rule add: %w", fam, err)
 			}
@@ -146,6 +159,13 @@ func (d *Driver) ensurePolicyRouting(ctx context.Context) error {
 		}
 	}
 	return nil
+}
+
+// countRules counts "fwmark 0x<mark> lookup <table>" rules in ip rule
+// output, tolerating a named table and a mask suffix.
+func countRules(out, mark, table string) int {
+	re := regexp.MustCompile(`(?m)fwmark 0x` + mark + `(?:/0x[0-9a-f]+)? lookup (?:` + table + `|tproxy)\b`)
+	return len(re.FindAllStringIndex(out, -1))
 }
 
 func ipv6Disabled() bool {

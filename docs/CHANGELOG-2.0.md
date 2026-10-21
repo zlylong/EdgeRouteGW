@@ -1,5 +1,15 @@
 # EdgeRouteGW 2.0 变更记录
 
+## [2.0.0-rc.3] - 2026-10-21
+
+在 PVE 实验环境(ROS CHR 7.23 主路由 + VLESS Reality 上游 + 1.x v1.8.0 Mode C 网关)做离线包升级验收时发现并修复:
+
+- OSPF 发布路由改写内核 table 200:原先与 TPROXY 的 `local default dev lo`(table 100)同表,更具体的 /32 unicast 路由会把打标流量从本地 socket 上抢走。升级自 rc.2 的网关会自动清空旧表并换到新表。
+- 服务网卡未配置时(1.x 库里没有这项),FRR 配置缺 `network ... area 0`,OSPF 邻居建不起来。现在导入时按默认路由网卡补齐,渲染时也有同样的兜底并在状态里给出提示。
+- `ip rule` 查重改用 `ip -N` 的数字输出:`/etc/iproute2/rt_tables` 把 100 命名为 tproxy 时每次 apply 都会重复加一条规则;旧的重复规则会被收敛。
+- `edgeroutegw-components` 的 postinst 发 SIGHUP 时主进程可能还没注册处理器,导致首启被杀(靠 systemd 重启兜底)。处理器现在在启动最早注册,unit 改为 `Restart=always`(systemd 把死于 SIGHUP 算作正常退出,`on-failure` 不会拉起),postinst 也会兜底启动;内置包种子化提前到 geo 读取之前,不再有"geosite.dat not installed"的误报。
+- 解析器:域名在 Mosdns 重启瞬间解析失败且尚无旧答案时,改为 10s 起指数退避重试,不再等 5 分钟。
+
 ## [2.0.0-rc.2] - 2026-10-20
 
 - 离线安装:发布附带 `edgeroutegw-components`(经上游校验和验证的 Xray / Mosdns / GeoData,版本钉在 `packaging/components.lock`)和 `edgeroutegw-full_<版本>_<架构>.tar.gz`(两个 .deb + `install-offline.sh`)。启动时或收到 SIGHUP 时自动把内置组件种子化到数据目录。
@@ -13,7 +23,7 @@
 - 声明式下发:写操作只改期望状态,单一 Reconciler 渲染 Xray / Mosdns / nftables / 路由四类产物并按组件做最小动作(热更新、写文件、重启、原子换表),300ms 合并窗口,失败退避重试,30s 周期对齐。
 - 出站组取代 `bal-ha-a-b` 字串;规则集、规则、设备策略、绕过目标分表;版本化 SQL 迁移;凭证 AES-256-GCM 加密,主密钥永不进仓库。
 - 纯 Go 静态二进制(modernc sqlite),.deb 发布,前端内嵌;仓库不再提交 Xray/Mosdns 二进制,组件在 UI 内校验下载。
-- systemd 走 D-Bus;OSPF 路由用 netlink 写内核 table 100,FRR `ip import-table` 导入;DNS 用 miekg/dns 查本机 Mosdns。
+- systemd 走 D-Bus;OSPF 路由用 netlink 写内核 table 200,FRR `ip import-table` 导入;DNS 用 miekg/dns 查本机 Mosdns。
 
 ### 功能
 - 三种模式、模式向导与切换预检(受保护端点、通配规则、网卡、节点)。

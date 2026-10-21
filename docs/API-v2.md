@@ -103,7 +103,7 @@ Base URL:`http://<gateway>/api/v2`。所有请求与响应均为 JSON(`/artifact
 - 拒绝:默认路由、环回、链路本地、组播/保留、RFC1918 超网(10/8、172.16/12、192.168/16 及更大)。`geoip:!xx` 取反标签无法表达为路由,跳过。
 - 受保护端点:所有节点地址与托管主机(域名会先解析)所在的候选前缀标记 `protected` 不发布,避免 OSPF 把去节点的流量踢回本机。
 - 宣告白名单非空时只发布落在白名单内的前缀。被更广前缀覆盖的前缀会被剪掉。
-- 内核侧:路由写入 table 100(proto 200,dev lo),FRR 用 `ip import-table 100` 导入并 `redistribute table 100`;frr.conf 固定,只随 router-id/LAN 网段变化。
+- 内核侧:路由写入 table 200(proto 200,dev lo;与 TPROXY 用的 table 100 分开),FRR 用 `ip import-table 200` 导入并 `redistribute table 200`;frr.conf 固定,只随 router-id/LAN 网段变化。
 
 ## 托管主机与部署(M4)
 

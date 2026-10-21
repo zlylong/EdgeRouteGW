@@ -88,3 +88,39 @@ func TestRejectedRulesetIsNotLoaded(t *testing.T) {
 		t.Fatal("must not load a ruleset that failed the check")
 	}
 }
+
+func TestCountRulesToleratesNamedTableAndDedupes(t *testing.T) {
+	out := "0:\tfrom all lookup local\n32764:\tfrom all fwmark 0x1 lookup tproxy\n32765:\tfrom all fwmark 0x1 lookup 100\n32766:\tfrom all lookup main\n"
+	if n := countRules(out, "1", "100"); n != 2 {
+		t.Fatalf("count %d", n)
+	}
+	if n := countRules("32765:\tfrom all fwmark 0x1/0xff lookup 100\n", "1", "100"); n != 1 {
+		t.Fatalf("masked count %d", n)
+	}
+	if n := countRules("32765:\tfrom all fwmark 0x1 lookup 1000\n", "1", "100"); n != 0 {
+		t.Fatalf("prefix match %d", n)
+	}
+	// Driver collapses the duplicates and adds nothing.
+	dels := 0
+	run := &execx.Fake{Handler: func(name string, args []string) (execx.Result, error) {
+		joined := strings.Join(args, " ")
+		switch {
+		case name == "ip" && strings.Contains(joined, "-6"):
+			return execx.Result{Output: []byte("0:\tfrom all lookup local\n32766:\tfrom all fwmark 0x1 lookup 100\n")}, nil
+		case name == "ip" && strings.Contains(joined, "rule show"):
+			return execx.Result{Output: []byte(out)}, nil
+		case name == "ip" && strings.Contains(joined, "rule del"):
+			dels++
+		case name == "ip" && strings.Contains(joined, "route show table"):
+			return execx.Result{Output: []byte("local default dev lo scope host\n")}, nil
+		}
+		return execx.Result{}, nil
+	}}
+	d := New(paths.New(t.TempDir()), run, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	if err := d.ensurePolicyRouting(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if dels != 1 || run.Count("ip", "-4", "rule", "add") != 0 || run.Count("ip", "-4", "route", "replace") != 0 {
+		t.Fatalf("dels=%d calls=%+v", dels, run.Calls)
+	}
+}

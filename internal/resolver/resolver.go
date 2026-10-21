@@ -157,6 +157,19 @@ func (r *Resolver) Refresh(ctx context.Context, want []string) (changed int, err
 	return changed, nil
 }
 
+// FailRetry is the retry delay after the n-th consecutive failure without
+// an answer to keep serving.
+func FailRetry(fails int) time.Duration {
+	d := 10 * time.Second
+	for i := 1; i < fails && d < MinTTL; i++ {
+		d *= 2
+	}
+	if d > MinTTL {
+		d = MinTTL
+	}
+	return d
+}
+
 func (r *Resolver) refreshOne(ctx context.Context, domain string, old store.ResolvedEntry) bool {
 	now := time.Now()
 	addrs, ttl, err := r.Lookup(ctx, domain)
@@ -171,6 +184,12 @@ func (r *Resolver) refreshOne(ctx context.Context, domain string, old store.Reso
 			e.IPs = []string{}
 		}
 		e.ExpiresAt = now.Add(MinTTL)
+		if len(e.IPs) == 0 {
+			// Nothing to serve: retry soon with backoff (10s, 20s, ... 5m).
+			// A lookup that fails only because Mosdns is restarting must
+			// not leave routes unpublished for five minutes.
+			e.ExpiresAt = now.Add(FailRetry(e.FailCount))
+		}
 		if uerr := r.Store.UpsertResolveCache(ctx, e); uerr != nil && r.Log != nil {
 			r.Log.Warn("resolve cache write failed", "domain", domain, "err", uerr)
 		}

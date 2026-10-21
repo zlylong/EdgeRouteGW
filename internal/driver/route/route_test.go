@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/zlylong/EdgeRouteGW/internal/model"
 	"github.com/zlylong/EdgeRouteGW/internal/render"
 	"github.com/zlylong/EdgeRouteGW/internal/routes"
 )
@@ -32,7 +33,7 @@ func TestDiffAndBatches(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !plan.Changes() || plan.Actions[0].Detail != "routes +4 -1 (table 100)" {
+	if !plan.Changes() || plan.Actions[0].Detail != "routes +4 -1 (table 200)" {
 		t.Fatalf("plan %+v", plan.Actions)
 	}
 	if err := d.Apply(ctx, plan, next); err != nil {
@@ -59,5 +60,28 @@ func TestDiffAndBatches(t *testing.T) {
 	}
 	if have, _ := k.List(render.RouteTable, render.RouteProtocol); len(have) != 0 {
 		t.Fatalf("routes not withdrawn: %v", have)
+	}
+}
+
+func TestLegacyTableCleanup(t *testing.T) {
+	k := NewFake()
+	legacy := netip.MustParsePrefix("1.1.1.1/32")
+	_ = k.Add(100, render.RouteProtocol, []netip.Prefix{legacy})
+	d := New(slog.New(slog.NewTextHandler(io.Discard, nil)))
+	d.Kernel = k
+	ctx := context.Background()
+	a := &render.Artifacts{Mode: model.ModeC, Routes: []routes.Route{{Prefix: netip.MustParsePrefix("8.8.8.8/32")}}}
+	plan, err := d.Plan(ctx, nil, a)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := d.Apply(ctx, plan, a); err != nil {
+		t.Fatal(err)
+	}
+	if have, _ := k.List(100, render.RouteProtocol); len(have) != 0 {
+		t.Fatalf("legacy routes still present: %v", have)
+	}
+	if have, _ := k.List(render.RouteTable, render.RouteProtocol); len(have) != 1 {
+		t.Fatalf("new table %v", have)
 	}
 }

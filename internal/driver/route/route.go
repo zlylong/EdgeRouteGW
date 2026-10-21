@@ -29,6 +29,7 @@ type Driver struct {
 
 	lastErr   string
 	lastApply time.Time
+	cleaned   bool
 	// counts for Health
 	installed int
 }
@@ -115,8 +116,27 @@ func routeDiff(add, del []netip.Prefix, max int) string {
 }
 
 // Apply implements driver.Driver.
+// LegacyTables held published routes in earlier 2.0 builds; whatever is
+// still there (our protocol only) is removed on the first apply.
+var LegacyTables = []int{100}
+
 func (d *Driver) Apply(ctx context.Context, plan driver.Plan, _ *render.Artifacts) error {
 	d.lastApply = time.Now()
+	if !d.cleaned {
+		d.cleaned = true
+		for _, t := range LegacyTables {
+			if t == render.RouteTable {
+				continue
+			}
+			if old, err := d.Kernel.List(t, render.RouteProtocol); err == nil && len(old) > 0 {
+				if err := d.Kernel.Del(t, render.RouteProtocol, old); err != nil {
+					d.Log.Warn("legacy route table cleanup failed", "table", t, "err", err)
+				} else {
+					d.Log.Info("removed routes left in legacy table", "table", t, "count", len(old))
+				}
+			}
+		}
+	}
 	st, _ := plan.State.(*planState)
 	if st == nil {
 		return nil
