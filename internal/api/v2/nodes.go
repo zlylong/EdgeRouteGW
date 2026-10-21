@@ -10,6 +10,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/zlylong/EdgeRouteGW/internal/model"
+	"github.com/zlylong/EdgeRouteGW/internal/observe"
 	"github.com/zlylong/EdgeRouteGW/internal/sharelink"
 	"github.com/zlylong/EdgeRouteGW/internal/store"
 )
@@ -19,6 +20,8 @@ import (
 type NodeView struct {
 	model.Node
 	HasCredential bool `json:"has_credential"`
+	// Probe is the latest end-to-end check (nil before the first round).
+	Probe *observe.LatencyResult `json:"probe,omitempty"`
 }
 
 func viewNode(n store.NodeRow) NodeView {
@@ -103,8 +106,17 @@ func (d Deps) listNodes(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	items := make([]NodeView, 0, len(rows))
+	var probes map[string]observe.LatencyResult
+	if d.Latency != nil {
+		probes = d.Latency.Results()
+	}
 	for _, n := range rows {
-		items = append(items, viewNode(n))
+		v := viewNode(n)
+		if pr, ok := probes[n.ID]; ok {
+			pr := pr
+			v.Probe = &pr
+		}
+		items = append(items, v)
 	}
 	writeJSON(w, http.StatusOK, listResp[NodeView]{Items: items})
 }

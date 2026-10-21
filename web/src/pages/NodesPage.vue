@@ -105,6 +105,7 @@ function removeGroup(g: OutboundGroup) {
 }
 const nodeName = (id: string) => nodes.value.find(n => n.id === id)?.name ?? id.slice(0, 8)
 const latency = (n: Node) => n.latency_ms === undefined ? '-' : n.latency_ms < 0 ? '不可达' : `${n.latency_ms} ms`
+const probeTitle = (n: Node) => n.probe ? `${n.probe.via === 'xray' ? '经该节点出站实测 HTTP 连通' : 'TCP 连接节点端口'} · ${fmtAgo(n.probe.checked_at)}${n.probe.error ? '\n' + n.probe.error : ''}` : '尚未探测'
 </script>
 
 <template>
@@ -136,7 +137,7 @@ const latency = (n: Node) => n.latency_ms === undefined ? '-' : n.latency_ms < 0
           </td>
           <td class="px-3 py-2 text-xs uppercase text-fg-muted">{{ n.protocol }}</td>
           <td class="px-3 py-2 font-mono text-xs text-fg-muted">{{ n.address }}:{{ n.port }}</td>
-          <td class="px-3 py-2 text-xs text-fg-muted">{{ latency(n) }}</td>
+          <td class="px-3 py-2 text-xs" :title="probeTitle(n)"><span :class="n.latency_ms !== undefined && n.latency_ms < 0 ? 'text-danger' : 'text-fg-muted'">{{ latency(n) }}</span><span v-if="n.probe?.via === 'xray'" class="ml-1 text-[10px] text-fg-subtle">e2e</span></td>
           <td class="px-3 py-2"><Switch :model-value="n.enabled" :label="`启用 ${n.name}`" @update:model-value="v => toggle(n, v)" /></td>
           <td class="px-3 py-2 text-right">
             <DropdownMenuRoot>

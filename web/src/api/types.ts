@@ -59,6 +59,7 @@ export interface Node {
   enabled: boolean
   is_default: boolean
   latency_ms?: number
+  probe?: { node_id: string; ms: number; error?: string; via: 'xray' | 'tcp'; checked_at: string }
   has_credential: boolean
   created_at: string
   updated_at: string

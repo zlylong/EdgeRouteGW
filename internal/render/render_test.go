@@ -136,19 +136,23 @@ func TestXrayContent(t *testing.T) {
 	for _, r := range cfg.Routing.Rules {
 		tags = append(tags, r["ruleTag"].(string))
 	}
-	want := []string{"sys-api", "rule-r1", "rule-r2", "rule-r3", "rule-r4", "rule-r5", "rule-r7", "default"}
+	want := []string{"sys-api", "probe-n1", "probe-n2", "probe-none", "rule-r1", "rule-r2", "rule-r3", "rule-r4", "rule-r5", "rule-r7", "default"}
 	if strings.Join(tags, ",") != strings.Join(want, ",") {
 		t.Fatalf("rule order %v, want %v", tags, want)
 	}
-	r1 := cfg.Routing.Rules[1]
+	byTag := map[string]map[string]any{}
+	for _, r := range cfg.Routing.Rules {
+		byTag[r["ruleTag"].(string)] = r
+	}
+	r1 := byTag["rule-r1"]
 	if r1["balancerTag"] != "group-g1" || r1["domain"].([]any)[0] != "domain:youtube.com" {
 		t.Fatalf("r1 %v", r1)
 	}
-	r4 := cfg.Routing.Rules[4]
+	r4 := byTag["rule-r4"]
 	if r4["outboundTag"] != "node-n2" || !strings.HasPrefix(r4["domain"].([]any)[0].(string), "regexp:") {
 		t.Fatalf("r4 %v", r4)
 	}
-	r5 := cfg.Routing.Rules[5]
+	r5 := byTag["rule-r5"]
 	if r5["outboundTag"] != "node-n1" || r5["ip"].([]any)[0] != "8.8.8.8/32" {
 		t.Fatalf("r5 should go to default node: %v", r5)
 	}
@@ -385,5 +389,75 @@ func TestFRRFallsBackToDefaultInterface(t *testing.T) {
 	// TPROXY table and route table must never coincide.
 	if RouteTable == TProxyRouteTbl {
 		t.Fatal("route table collides with the TPROXY table")
+	}
+}
+
+func TestXrayProbeChannel(t *testing.T) {
+	snap := baseSnap()
+	a := &Artifacts{}
+	if err := renderXray(snap, Deps{Paths: paths.New(t.TempDir())}, a); err != nil {
+		t.Fatal(err)
+	}
+	var cfg map[string]any
+	if err := json.Unmarshal(a.Xray, &cfg); err != nil {
+		t.Fatal(err)
+	}
+	var probeIn map[string]any
+	for _, ib := range cfg["inbounds"].([]any) {
+		m := ib.(map[string]any)
+		if m["tag"] == TagProbeIn {
+			probeIn = m
+		}
+	}
+	if probeIn == nil || probeIn["listen"] != "127.0.0.1" || probeIn["port"] != float64(ProbePort) {
+		t.Fatalf("probe inbound %v", probeIn)
+	}
+	if accts := probeIn["settings"].(map[string]any)["accounts"].([]any); len(accts) != ProbeSlotCount {
+		t.Fatalf("%d accounts", len(accts))
+	}
+	// Enabled nodes n1, n2 get slots 0 and 1 (sorted by id); n3 is disabled.
+	slots := ProbeSlots(snap.Nodes)
+	if slots["n1"] != 0 || slots["n2"] != 1 {
+		t.Fatalf("slots %v", slots)
+	}
+	if _, ok := slots["n3"]; ok {
+		t.Fatal("disabled node must not get a slot")
+	}
+	var rules []map[string]any
+	json.Unmarshal(a.XrayRules, &rules)
+	want := map[string]string{"probe-n1": "node-n1", "probe-n2": "node-n2", "probe-none": TagBlock}
+	seenCatch := false
+	for i, r := range rules {
+		if tag, _ := r["ruleTag"].(string); want[tag] != "" {
+			if r["outboundTag"] != want[tag] {
+				t.Fatalf("rule %s -> %v", tag, r["outboundTag"])
+			}
+			if ibs := r["inboundTag"].([]any); len(ibs) != 1 || ibs[0] != TagProbeIn {
+				t.Fatalf("rule %s inboundTag %v", tag, r["inboundTag"])
+			}
+			delete(want, tag)
+			if tag == "probe-none" {
+				seenCatch = true
+			}
+		} else if seenCatch && i < len(rules)-1 {
+			// user rules may follow; fine
+		}
+	}
+	if len(want) != 0 {
+		t.Fatalf("missing probe rules %v", want)
+	}
+	// Probe rules precede the first user rule.
+	firstUser, lastProbe := -1, -1
+	for i, r := range rules {
+		tag, _ := r["ruleTag"].(string)
+		switch {
+		case strings.HasPrefix(tag, "probe-"):
+			lastProbe = i
+		case tag != RuleTagAPI && tag != RuleTagDNS && firstUser < 0:
+			firstUser = i
+		}
+	}
+	if firstUser >= 0 && lastProbe > firstUser {
+		t.Fatalf("probe rules must come before user rules (probe %d, user %d)", lastProbe, firstUser)
 	}
 }

@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"path/filepath"
+	"sort"
+	"sync"
 	"testing"
 	"time"
 
@@ -103,6 +105,55 @@ func TestLatencyRound(t *testing.T) {
 			if n.LatencyMs != nil {
 				t.Fatal("disabled node must not be probed")
 			}
+		}
+	}
+}
+
+func TestLatencyRoundViaXrayUsesSlots(t *testing.T) {
+	ctx := context.Background()
+	st, err := store.Open(ctx, filepath.Join(t.TempDir(), "l2.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	_, _ = st.Migrate(ctx)
+	db := st.DB()
+	// IDs sort as a < b: a gets slot 0, b slot 1.
+	_, _ = db.Exec(`INSERT INTO nodes (id,name,protocol,address,port,enabled) VALUES ('b','wg','wireguard','9.9.9.9',51820,1),('a','vl','vless','1.1.1.1',443,1)`)
+	_ = st.SetSetting(ctx, ProbeURLKey, "http://example.test/204")
+	p := NewLatencyProber(st, events.New(4), nil)
+	p.EnableXray("127.0.0.1:1")
+	var seen []string
+	var mu sync.Mutex
+	p.Probe = func(_ context.Context, user, pass, url string) (time.Duration, error) {
+		mu.Lock()
+		seen = append(seen, user+"|"+pass+"|"+url)
+		mu.Unlock()
+		if user == "probe-1" { // the WireGuard node answers
+			return 30 * time.Millisecond, nil
+		}
+		return 0, errors.New("socks: dial failed")
+	}
+	p.Dial = func(context.Context, string) (time.Duration, error) {
+		t.Fatal("tcp fallback must not be used when a slot exists")
+		return 0, nil
+	}
+	res := p.Round(ctx)
+	if len(res) != 2 {
+		t.Fatalf("results %+v", res)
+	}
+	sort.Strings(seen)
+	if len(seen) != 2 || seen[0] != "probe-0|probe|http://example.test/204" || seen[1] != "probe-1|probe|http://example.test/204" {
+		t.Fatalf("probe calls %v", seen)
+	}
+	last := p.Results()
+	if last["b"].Ms != 30 || last["b"].Via != "xray" || last["a"].Ms != -1 || last["a"].Error == "" {
+		t.Fatalf("results %+v", last)
+	}
+	nodes, _ := st.ListNodes(ctx)
+	for _, n := range nodes {
+		if n.ID == "b" && (n.LatencyMs == nil || *n.LatencyMs != 30) {
+			t.Fatalf("wg latency %v", n.LatencyMs)
 		}
 	}
 }

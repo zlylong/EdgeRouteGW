@@ -14,9 +14,13 @@ import (
 // Fixed tags. Changing any of these is a config-structure change that forces
 // an Xray restart, so they are constants rather than configuration.
 const (
-	TagTProxyIn   = "tproxy_in"
-	TagAPIIn      = "api_inbound"
-	TagSocksIn    = "socks_in"
+	TagTProxyIn = "tproxy_in"
+	TagAPIIn    = "api_inbound"
+	TagSocksIn  = "socks_in"
+	// TagProbeIn is a loopback SOCKS inbound with one account per probe
+	// slot; routing rules map each account to one node outbound so the
+	// latency prober can test every node end to end (WireGuard included).
+	TagProbeIn    = "probe_in"
 	TagHTTPIn     = "http_in"
 	TagDNSIn      = "dns-in"
 	TagDirect     = "direct"
@@ -29,9 +33,14 @@ const (
 	RuleTagCatch  = "default"
 	APIListenAddr = "127.0.0.1:10085"
 	SocksPort     = 10808
-	HTTPPort      = 10809
-	FakeDNSPort   = 5353
-	OutboundMark  = 2
+	ProbePort     = 10810
+	// ProbeSlotCount bounds the fixed account list so the inbound never
+	// changes (inbound changes force an Xray restart; rules hot-update).
+	ProbeSlotCount = 64
+	ProbePassword  = "probe"
+	HTTPPort       = 10809
+	FakeDNSPort    = 5353
+	OutboundMark   = 2
 )
 
 // NodeTag is the outbound tag for a node.
@@ -102,6 +111,21 @@ func renderXray(snap *desired.Snapshot, d Deps, a *Artifacts) error {
 	if mode == model.ModeB {
 		rules = append(rules, map[string]any{"type": "field", "inboundTag": []string{TagDNSIn}, "outboundTag": TagDNSOut, "ruleTag": RuleTagDNS})
 	}
+	// Probe channel: account probe-<slot> -> that node; anything else on the
+	// probe inbound is dropped. Restricted by inboundTag, so LAN traffic is
+	// never affected.
+	slots := ProbeSlots(snap.Nodes)
+	bySlot := make([]string, ProbeSlotCount)
+	for id, slot := range slots {
+		bySlot[slot] = id
+	}
+	for slot, id := range bySlot {
+		if id == "" {
+			continue
+		}
+		rules = append(rules, map[string]any{"type": "field", "inboundTag": []string{TagProbeIn}, "user": []string{ProbeUser(slot)}, "outboundTag": "node-" + id, "ruleTag": "probe-" + id})
+	}
+	rules = append(rules, map[string]any{"type": "field", "inboundTag": []string{TagProbeIn}, "outboundTag": TagBlock, "ruleTag": "probe-none"})
 	for _, rule := range snap.ActiveRules() {
 		xr, ok := r.rule(rule)
 		if ok {
@@ -201,6 +225,10 @@ func (r *xrayRenderer) base(d Deps, mode model.Mode) map[string]any {
 		map[string]any{
 			"tag": TagHTTPIn, "listen": "127.0.0.1", "port": HTTPPort, "protocol": "http",
 			"settings": map[string]any{"allowTransparent": false}, "sniffing": sniff(),
+		},
+		map[string]any{
+			"tag": TagProbeIn, "listen": "127.0.0.1", "port": ProbePort, "protocol": "socks",
+			"settings": map[string]any{"udp": false, "auth": "password", "accounts": probeAccounts()},
 		},
 	}
 	outbounds := []any{
@@ -505,4 +533,36 @@ func injectEndpoint(settings map[string]any, n model.Node) {
 			first["port"] = n.Port
 		}
 	}
+}
+
+// ProbeUser is the SOCKS account name of a probe slot.
+func ProbeUser(slot int) string { return fmt.Sprintf("probe-%d", slot) }
+
+// ProbeSlots assigns probe slots to enabled nodes: sorted by ID so the
+// renderer and the prober agree without talking to each other. Nodes past
+// ProbeSlotCount get no slot (and fall back to a TCP probe).
+func ProbeSlots(nodes []model.Node) map[string]int {
+	ids := make([]string, 0, len(nodes))
+	for _, n := range nodes {
+		if n.Enabled {
+			ids = append(ids, n.ID)
+		}
+	}
+	sort.Strings(ids)
+	out := make(map[string]int, len(ids))
+	for i, id := range ids {
+		if i >= ProbeSlotCount {
+			break
+		}
+		out[id] = i
+	}
+	return out
+}
+
+func probeAccounts() []any {
+	out := make([]any, 0, ProbeSlotCount)
+	for i := 0; i < ProbeSlotCount; i++ {
+		out = append(out, map[string]any{"user": ProbeUser(i), "pass": ProbePassword})
+	}
+	return out
 }

@@ -136,6 +136,9 @@ func cmdServe(args []string, stdout, stderr io.Writer, env config.LookupEnv) int
 	}
 	conns := observe.NewConnTracker(p.XrayAccessLog(), bus, log)
 	latency := observe.NewLatencyProber(st, bus, log)
+	if !*noReconcile {
+		latency.EnableXray(fmt.Sprintf("127.0.0.1:%d", render.ProbePort))
+	}
 	traffic := observe.NewTrafficSampler(st, bus, observe.XrayStats(run, p.XrayBinary()), log)
 
 	var drivers []driver.Driver
