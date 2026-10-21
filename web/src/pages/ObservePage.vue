@@ -51,12 +51,16 @@ const outboundTone = (o: string) => o === 'direct' ? 'ok' : o === 'block' ? 'dan
 // System-originated connections: the gateway's own stats/API calls and the
 // end-to-end node probes. Hidden unless asked for.
 const systemInbounds = new Set(['api_inbound', 'probe_in'])
+// Mosdns sends remote-upstream DNS queries through the local SOCKS inbound.
+const isRemoteDNS = (c: Connection) => c.inbound === 'socks_in' && c.source.startsWith('127.0.0.1:') && /:53$/.test(c.target)
+const isSystem = (c: Connection) => systemInbounds.has(c.inbound) || isRemoteDNS(c)
+const inboundOf = (c: Connection) => isRemoteDNS(c) ? 'DNS 远程上游' : (inboundLabel[c.inbound] ?? c.inbound)
 const inboundLabel: Record<string, string> = { tproxy_in: 'LAN', socks_in: '本机 SOCKS', http_in: '本机 HTTP', api_inbound: '内部 API', probe_in: '节点探测', 'dns-in': 'Fake-IP DNS' }
 const showSystem = ref(false)
 const connections = computed(() => {
   const q = filter.value.trim().toLowerCase()
-  return live.value.filter(c => (showSystem.value || !systemInbounds.has(c.inbound))
-    && (!q || (c.source + ' ' + c.target + ' ' + c.outbound + ' ' + outboundLabel(c.outbound) + ' ' + (inboundLabel[c.inbound] ?? c.inbound)).toLowerCase().includes(q)))
+  return live.value.filter(c => (showSystem.value || !isSystem(c))
+    && (!q || (c.source + ' ' + c.target + ' ' + c.outbound + ' ' + outboundLabel(c.outbound) + ' ' + inboundOf(c)).toLowerCase().includes(q)))
 })
 
 // Events
@@ -100,14 +104,14 @@ const actionTone = (a: string) => a.includes('restart') ? 'warn' : a.includes('h
         <Button variant="secondary" size="sm" @click="paused = !paused">
           <Pause v-if="!paused" class="h-3.5 w-3.5" /><Play v-else class="h-3.5 w-3.5" /> {{ paused ? '继续' : '暂停' }}
         </Button>
-        <label class="flex items-center gap-1.5 text-xs text-fg-muted"><input v-model="showSystem" type="checkbox" class="accent-accent"> 显示系统连接(探测、内部 API)</label>
+        <label class="flex items-center gap-1.5 text-xs text-fg-muted"><input v-model="showSystem" type="checkbox" class="accent-accent"> 显示系统连接(探测、内部 API、远程 DNS 上游)</label>
         <span class="text-xs text-fg-subtle">{{ connections.length }} 条 · 来自 Xray access log,实时推送</span>
       </div>
       <EmptyState v-if="!connections.length" title="还没有连接记录" hint="Xray 启动并有流量经过后,这里会实时显示每条连接的来源、目标和出站。" />
       <Table v-else :cols="[{ key: 't', label: '时间', class: 'w-24' }, { key: 's', label: '客户端' }, { key: 'd', label: '目标' }, { key: 'o', label: '出站' }]" dense>
         <tr v-for="(c, i) in connections" :key="c.at + c.source + i" :class="['font-mono text-xs', !c.accepted && 'text-fg-subtle']">
           <td class="px-3 py-1 text-fg-subtle" :title="fmtTime(c.at)">{{ fmtAgo(c.at) }}</td>
-          <td class="px-3 py-1" :title="`入站:${c.inbound}`">{{ c.source }}<span v-if="c.inbound !== 'tproxy_in'" class="ml-1 rounded bg-surface-2 px-1 text-[10px] text-fg-muted">{{ inboundLabel[c.inbound] ?? c.inbound }}</span></td>
+          <td class="px-3 py-1" :title="`入站:${c.inbound}`">{{ c.source }}<span v-if="c.inbound !== 'tproxy_in'" class="ml-1 rounded bg-surface-2 px-1 text-[10px] text-fg-muted">{{ inboundOf(c) }}</span></td>
           <td class="px-3 py-1"><span class="mr-1 rounded bg-surface-2 px-1 text-[10px] uppercase text-fg-muted">{{ c.network }}</span>{{ c.target }}</td>
           <td class="px-3 py-1"><Badge :tone="outboundTone(c.outbound)" :title="c.outbound">{{ outboundLabel(c.outbound) }}</Badge><span v-if="!c.accepted" class="ml-1 text-[10px] text-danger">已拒绝</span></td>
         </tr>
