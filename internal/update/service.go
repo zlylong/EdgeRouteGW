@@ -78,6 +78,8 @@ type Service struct {
 	XrayUnit, MosdnsUnit string
 	// BundleDir overrides the components bundle location (tests).
 	BundleDir string
+	// SkipRootCheck lets tests exercise the self-update path unprivileged.
+	SkipRootCheck bool
 
 	mu      sync.Mutex
 	jobs    map[string]*Job // by component

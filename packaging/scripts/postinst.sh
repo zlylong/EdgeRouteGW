@@ -16,7 +16,9 @@ fi
 if [ -d /run/systemd/system ]; then
     systemctl daemon-reload || true
     systemctl enable edgeroutegw.service >/dev/null 2>&1 || true
-    if systemctl is-active --quiet edgeroutegw.service; then
+    if [ "${EDGEROUTEGW_SELFUPDATE:-}" = "1" ]; then
+        : # the running service installed us and restarts itself shortly
+    elif systemctl is-active --quiet edgeroutegw.service; then
         systemctl restart edgeroutegw.service || true
     else
         systemctl start edgeroutegw.service || true

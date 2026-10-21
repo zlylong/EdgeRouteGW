@@ -1,5 +1,10 @@
 # EdgeRouteGW 2.0 变更记录
 
+## [2.0.0-rc.4] - 2026-10-21
+
+- 自升级(系统 → 组件更新 → EdgeRouteGW):`dpkg -i` 原先在服务进程内执行,被 unit 的 `ProtectSystem=strict` 挡在只读的 /var/lib/dpkg 外;现在交给 `systemd-run` 瞬态 unit 执行,postinst 在该场景下不再自行重启,仍由延迟任务重启服务。
+- 跑 pre-release 的网关在检查新版本时也会看到 pre-release,不再报"no 2.x release found"。
+
 ## [2.0.0-rc.3] - 2026-10-21
 
 在 PVE 实验环境(ROS CHR 7.23 主路由 + VLESS Reality 上游 + 1.x v1.8.0 Mode C 网关)做离线包升级验收时发现并修复:

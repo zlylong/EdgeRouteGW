@@ -28,14 +28,16 @@ func SelfDebAsset(tag string) (string, error) {
 }
 
 // selfLatest returns the latest 2.x release tag (1.x tags are skipped: the
-// repository's "latest" may still point at a v1 release).
+// repository's "latest" may still point at a v1 release). Pre-releases are
+// offered only to a gateway that already runs one.
 func (s *Service) selfLatest(ctx context.Context) (string, error) {
 	rels, err := s.GitHub.Releases(ctx, RepoSelf, 30)
 	if err != nil {
 		return "", err
 	}
+	allowPre := strings.Contains(version.Get().Version, "-")
 	for _, r := range rels {
-		if r.Prerelease {
+		if r.Prerelease && !allowPre {
 			continue
 		}
 		if strings.HasPrefix(r.Tag, "v2.") {
@@ -77,7 +79,7 @@ func (s *Service) selfStatus(ctx context.Context, refresh bool) Status {
 // installs it with dpkg and schedules a detached restart of the unit: the
 // process cannot restart itself from inside the request that asked for it.
 func (s *Service) installSelf(ctx context.Context, job *Job) error {
-	if os.Geteuid() != 0 {
+	if os.Geteuid() != 0 && !s.SkipRootCheck {
 		return fmt.Errorf("self-update needs root (dpkg); run edgeroutegw as the system service")
 	}
 	tag := job.Version
@@ -115,13 +117,19 @@ func (s *Service) installSelf(ctx context.Context, job *Job) error {
 		return err
 	}
 	s.progress(job, "installing package", 75)
-	if res, err := s.Run.Run(ctx, "dpkg", "-i", deb); err != nil {
+	// dpkg runs in a transient unit: our own unit has ProtectSystem=strict,
+	// which makes /var/lib/dpkg read-only. EDGEROUTEGW_SELFUPDATE tells the
+	// postinst not to restart the service from inside the install; the
+	// delayed restart below does it once this request has finished.
+	if res, err := s.Run.Run(ctx, "systemd-run", "--wait", "--pipe", "--collect", "--quiet",
+		"--setenv=EDGEROUTEGW_SELFUPDATE=1", "--setenv=DEBIAN_FRONTEND=noninteractive",
+		fmt.Sprintf("--unit=edgeroutegw-selfupdate-%d", time.Now().Unix()),
+		"dpkg", "-i", deb); err != nil {
 		return fmt.Errorf("dpkg -i: %s", strings.TrimSpace(string(res.Output)))
 	}
 	s.progress(job, "scheduling service restart", 95)
-	// postinst already restarted the unit when installed via apt; when it
-	// did not (we are still the old process), restart in a few seconds from
-	// a transient unit so this request can finish.
+	// Restart in a few seconds from a transient unit so this request can
+	// finish and the client sees the job succeed.
 	if res, err := s.Run.Run(ctx, "systemd-run", "--on-active=3", "--unit=edgeroutegw-selfrestart", "--collect", "systemctl", "restart", "edgeroutegw.service"); err != nil {
 		s.Log.Warn("could not schedule restart; restart edgeroutegw.service manually", "err", err, "out", strings.TrimSpace(string(res.Output)))
 	}

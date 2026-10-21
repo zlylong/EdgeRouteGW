@@ -2,7 +2,9 @@ package update
 
 import (
 	"context"
+	"fmt"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -158,5 +160,55 @@ func TestParseMosdnsVersion(t *testing.T) {
 		if got := parseMosdnsVersion(in); got != want {
 			t.Errorf("%q -> %q, want %q", in, got, want)
 		}
+	}
+}
+
+func TestInstallSelfRunsDpkgInTransientUnit(t *testing.T) {
+	s, _, run := newSvc(t)
+	s.SkipRootCheck = true
+	ctx := context.Background()
+	asset, err := SelfDebAsset("v2.0.0-rc.9")
+	if err != nil {
+		t.Fatal(err)
+	}
+	deb := []byte("not really a deb")
+	// Serve the release assets from a dedicated server (fakeUpstream keys blobs by basename).
+	mux := http.NewServeMux()
+	mux.HandleFunc("/zlylong/EdgeRouteGW/releases/download/v2.0.0-rc.9/SHA256SUMS", func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprintf(w, "%s  %s\n", sum(deb), asset)
+	})
+	mux.HandleFunc("/zlylong/EdgeRouteGW/releases/download/v2.0.0-rc.9/"+asset, func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write(deb)
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+	s.GitHub = &GitHub{APIBase: srv.URL, DownloadBase: srv.URL, Client: srv.Client()}
+	s.HTTP = srv.Client()
+
+	if _, err := s.Start(ctx, Self, "v2.0.0-rc.9", "update"); err != nil {
+		t.Fatal(err)
+	}
+	j := waitJob(t, s, Self)
+	if j.State != "succeeded" {
+		t.Fatalf("job %+v", j)
+	}
+	var sawDpkg, sawRestart bool
+	for _, c := range run.Calls {
+		if c.Name != "systemd-run" {
+			if c.Name == "dpkg" {
+				t.Fatalf("dpkg must not run inside the service: %+v", c)
+			}
+			continue
+		}
+		joined := strings.Join(c.Args, " ")
+		if strings.Contains(joined, "--wait") && strings.Contains(joined, "--setenv=EDGEROUTEGW_SELFUPDATE=1") && strings.Contains(joined, "dpkg -i ") {
+			sawDpkg = true
+		}
+		if strings.Contains(joined, "--on-active=3") && strings.Contains(joined, "systemctl restart edgeroutegw.service") {
+			sawRestart = true
+		}
+	}
+	if !sawDpkg || !sawRestart {
+		t.Fatalf("dpkg=%v restart=%v calls=%+v", sawDpkg, sawRestart, run.Calls)
 	}
 }
