@@ -106,8 +106,13 @@ func (s *Service) installSelf(ctx context.Context, job *Job) error {
 	if err != nil {
 		return err
 	}
-	defer os.RemoveAll(work)
 	deb := filepath.Join(work, asset)
+	cleanup := true
+	defer func() {
+		if cleanup {
+			os.RemoveAll(work)
+		}
+	}()
 	s.progress(job, "downloading "+asset, 10)
 	if err := Download(ctx, s.HTTP, s.GitHub.AssetURL(RepoSelf, tag, asset), deb, want, func(done, total int64) {
 		if total > 0 {
@@ -118,20 +123,31 @@ func (s *Service) installSelf(ctx context.Context, job *Job) error {
 	}
 	s.progress(job, "installing package", 75)
 	// dpkg runs in a transient unit: our own unit has ProtectSystem=strict,
-	// which makes /var/lib/dpkg read-only. EDGEROUTEGW_SELFUPDATE tells the
-	// postinst not to restart the service from inside the install; the
-	// delayed restart below does it once this request has finished.
-	if res, err := s.Run.Run(ctx, "systemd-run", "--wait", "--pipe", "--collect", "--quiet",
+	// which makes /var/lib/dpkg read-only. EDGEROUTEGW_SELFUPDATE=1 tells
+	// prerm and postinst to leave the running service alone (prerm would
+	// otherwise stop us mid-job); its output goes to a file, not a pipe to
+	// this process, so nothing breaks if we are restarted early.
+	logPath := filepath.Join(work, "dpkg.log")
+	if res, err := s.Run.Run(ctx, "systemd-run", "--wait", "--collect", "--quiet",
 		"--setenv=EDGEROUTEGW_SELFUPDATE=1", "--setenv=DEBIAN_FRONTEND=noninteractive",
 		fmt.Sprintf("--unit=edgeroutegw-selfupdate-%d", time.Now().Unix()),
-		"dpkg", "-i", deb); err != nil {
-		return fmt.Errorf("dpkg -i: %s", strings.TrimSpace(string(res.Output)))
+		"/bin/sh", "-c", "dpkg -i "+shellQuote(deb)+" >"+shellQuote(logPath)+" 2>&1"); err != nil {
+		out, _ := os.ReadFile(logPath)
+		if len(out) == 0 {
+			out = res.Output
+		}
+		return fmt.Errorf("dpkg -i: %s", strings.TrimSpace(string(out)))
 	}
 	s.progress(job, "scheduling service restart", 95)
 	// Restart in a few seconds from a transient unit so this request can
-	// finish and the client sees the job succeed.
-	if res, err := s.Run.Run(ctx, "systemd-run", "--on-active=3", "--unit=edgeroutegw-selfrestart", "--collect", "systemctl", "restart", "edgeroutegw.service"); err != nil {
+	// finish and the client sees the job succeed. The stage directory is
+	// removed by the same unit once the restart has been issued.
+	cleanup = false
+	if res, err := s.Run.Run(ctx, "systemd-run", "--on-active=3", "--unit=edgeroutegw-selfrestart", "--collect",
+		"/bin/sh", "-c", "systemctl daemon-reload; systemctl restart edgeroutegw.service; rm -rf "+shellQuote(work)); err != nil {
 		s.Log.Warn("could not schedule restart; restart edgeroutegw.service manually", "err", err, "out", strings.TrimSpace(string(res.Output)))
 	}
 	return nil
 }
+
+func shellQuote(s string) string { return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'" }

@@ -204,7 +204,7 @@ func TestInstallSelfRunsDpkgInTransientUnit(t *testing.T) {
 		if strings.Contains(joined, "--wait") && strings.Contains(joined, "--setenv=EDGEROUTEGW_SELFUPDATE=1") && strings.Contains(joined, "dpkg -i ") {
 			sawDpkg = true
 		}
-		if strings.Contains(joined, "--on-active=3") && strings.Contains(joined, "systemctl restart edgeroutegw.service") {
+		if strings.Contains(joined, "--on-active=3") && strings.Contains(joined, "systemctl restart edgeroutegw.service") && strings.Contains(joined, "rm -rf") {
 			sawRestart = true
 		}
 	}
