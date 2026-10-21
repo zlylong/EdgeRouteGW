@@ -132,3 +132,15 @@ func TestParseNeighbors(t *testing.T) {
 		t.Fatal("empty")
 	}
 }
+
+func TestHealthAfterNoopPlanReflectsMode(t *testing.T) {
+	d, sd, _ := newDriver(t)
+	sd.Units["frr.service"] = systemd.UnitState{ActiveState: "active", SubState: "running"}
+	next := &render.Artifacts{Mode: model.ModeC, FRR: []byte("router ospf\n redistribute table 200\n")}
+	if _, err := d.Plan(context.Background(), next, next); err != nil {
+		t.Fatal(err)
+	}
+	if h := d.Health(context.Background()); h.Status == model.StatusDisabled {
+		t.Fatalf("health after plan in Mode C must not be disabled: %+v", h)
+	}
+}

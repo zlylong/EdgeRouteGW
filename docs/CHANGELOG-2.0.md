@@ -1,5 +1,9 @@
 # EdgeRouteGW 2.0 变更记录
 
+## [2.0.0-rc.6] - 2026-10-21
+
+- 控制面重启后若 FRR 配置与路由都无需变更,总览会把 FRR 显示为"已禁用"(模式只在 Apply 时记录);现在 Plan 阶段也记录模式。
+
 ## [2.0.0-rc.5] - 2026-10-21
 
 - 自升级第二处修正:旧包的 prerm 在升级时 stop 服务,把正在等 dpkg 的进程杀掉,服务升级后停着不起;dpkg 输出接在进程管道上也随之失败,包停在 half-configured。现在 prerm/postinst 在 `EDGEROUTEGW_SELFUPDATE=1` 下都不碰服务,dpkg 输出写文件,升级目录由延迟重启任务清理。**从 rc.4 及更早版本用页面自升级到本版时仍会碰到旧 prerm,升级后需手动 `systemctl start edgeroutegw`;之后的版本不再有此问题。**

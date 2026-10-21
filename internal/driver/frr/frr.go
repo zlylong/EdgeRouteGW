@@ -61,6 +61,10 @@ func (d *Driver) Plan(ctx context.Context, prev, next *render.Artifacts) (driver
 	st := &planState{}
 	plan.State = st
 	installed := d.installed()
+	// Health reports by mode; record it here too, since a restart with
+	// nothing to apply never reaches Apply and would show "disabled" while
+	// OSPF is running.
+	d.mode = next.Mode
 
 	if next.Mode == model.ModeA {
 		// Withdraw routes, stop FRR if it is running.
