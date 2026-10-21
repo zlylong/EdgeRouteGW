@@ -59,11 +59,16 @@ table inet {{.Table}} {
         # Mode A: reject QUIC so browsers fall back to TCP immediately.
         meta l4proto udp th dport 443 counter reject with icmpx type port-unreachable comment "quic_reject"
 {{end}}
-        # Default policy.
-{{if eq .DefaultPolicy "proxy"}}        meta l4proto { tcp, udp } meta nfproto ipv4 mark set {{.TProxyMark}} tproxy ip to 127.0.0.1:{{.TProxyPort}} counter accept comment "default_proxy_v4"
-        meta l4proto { tcp, udp } meta nfproto ipv6 mark set {{.TProxyMark}} tproxy ip6 to [::1]:{{.TProxyPort}} counter accept comment "default_proxy_v6"
-{{else}}        counter return comment "default_direct"
-{{end}}    }
+        # Everything else enters Xray, whose routing applies the rules and
+        # then the LAN default policy ({{.DefaultPolicy}}) as the catch-all
+        # outbound. Interception must not depend on that policy: domain
+        # rules need the packet in Xray to be matched at all, and in Mode
+        # B/C the steered destinations (Fake-IP pool, published routes) are
+        # looped back here by the main router and would otherwise be
+        # delivered to the gateway itself.
+        meta l4proto { tcp, udp } meta nfproto ipv4 mark set {{.TProxyMark}} tproxy ip to 127.0.0.1:{{.TProxyPort}} counter accept comment "intercept_v4"
+        meta l4proto { tcp, udp } meta nfproto ipv6 mark set {{.TProxyMark}} tproxy ip6 to [::1]:{{.TProxyPort}} counter accept comment "intercept_v6"
+    }
 
     chain output {
         type route hook output priority mangle; policy accept;

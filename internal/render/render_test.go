@@ -321,7 +321,7 @@ func TestNftSets(t *testing.T) {
 		"set bypass_dst   { type ipv4_addr; flags interval; elements = { 203.0.113.5/32 } }",
 		"tproxy ip to 127.0.0.1:12345",
 		"quic_reject",
-		`comment "default_proxy_v4"`,
+		`comment "intercept_v4"`,
 	} {
 		if !strings.Contains(nft, want) {
 			t.Fatalf("nft missing %q:\n%s", want, nft)
@@ -330,11 +330,24 @@ func TestNftSets(t *testing.T) {
 	if strings.Contains(nft, "flush ruleset") {
 		t.Fatal("must never flush the whole ruleset")
 	}
+	// The LAN default policy is applied by Xray's catch-all, never by
+	// skipping interception: domain rules and Mode B/C steering need every
+	// packet in Xray.
 	s := baseSnap()
 	s.Network.LANDefaultPolicy = "direct"
 	b, _ := Render(s, deps())
-	if !strings.Contains(string(b.Nft), `comment "default_direct"`) {
-		t.Fatal("default_direct missing")
+	if !strings.Contains(string(b.Nft), `comment "intercept_v4"`) || strings.Contains(string(b.Nft), "default_direct") {
+		t.Fatal("direct policy must still intercept")
+	}
+	var cfg struct {
+		Routing struct {
+			Rules []map[string]any `json:"rules"`
+		} `json:"routing"`
+	}
+	_ = json.Unmarshal(b.Xray, &cfg)
+	last := cfg.Routing.Rules[len(cfg.Routing.Rules)-1]
+	if last["outboundTag"] != "direct" {
+		t.Fatalf("xray catch-all must honour the direct policy: %v", last)
 	}
 }
 
