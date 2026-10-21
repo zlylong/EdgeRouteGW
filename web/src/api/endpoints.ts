@@ -54,6 +54,10 @@ export const groups = {
   remove: (id: string) => api.del<T.GenResp>(`${B}/groups/${id}`),
 }
 
+export const geo = {
+  tags: (kind: 'geosite' | 'geoip') => api.get<T.GeoTags>(`${B}/geo/tags?kind=${kind}`),
+}
+
 export const routing = {
   sets: () => api.get<T.ListResp<T.RuleSet>>(`${B}/rule-sets`),
   createSet: (name: string) => api.post<T.ItemResp<T.RuleSet>>(`${B}/rule-sets`, { name }),

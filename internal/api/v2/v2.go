@@ -114,6 +114,7 @@ func Register(mux *http.ServeMux, d Deps) {
 	r.handle(http.MethodPost, "/api/v2/rule-sets/{id}/reorder", d.reorderRules)
 
 	r.handle(http.MethodGet, "/api/v2/rules", d.listRules)
+	r.handle(http.MethodGet, "/api/v2/geo/tags", d.geoTags)
 	r.handle(http.MethodPost, "/api/v2/rules", d.createRules)
 	r.handle(http.MethodPut, "/api/v2/rules/{id}", d.updateRule)
 	r.handle(http.MethodDelete, "/api/v2/rules/{id}", d.deleteRule)

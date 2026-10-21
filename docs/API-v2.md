@@ -90,6 +90,7 @@ Base URL:`http://<gateway>/api/v2`。所有请求与响应均为 JSON(`/artifact
 | GET | `/interfaces` | 主机网卡列表 `{name, up, loopback, addresses[], mac}`,供选择服务/管理网卡 |
 | POST | `/network/preflight` | `{"mode"}` → `PreflightResult{ok, routes, rejected, protected_conflicts[], problems[], warnings[]}`;不改任何东西 |
 | GET | `/ospf` | 模式是否启用 OSPF、服务网卡与 LAN 前缀、邻居列表(vtysh JSON)、路由计数(published/pending/failed/protected)、解析缓存统计 |
+| GET | `/geo/tags?kind=geosite\|geoip` | 已安装 geodata 的全部标签 `{kind, installed, version?, items[]}`;未安装时 `installed=false`、空列表(规则编辑器据此退回手工输入) |
 | GET | `/routes?state=&q=&limit=` | 路由引擎的决定:前缀、来源(fakeip/rule/geo/domain)、状态与原因 |
 | POST | `/routes/reset` | 清空记录,下一轮 reconcile 重新计算并对齐内核表 100 |
 | POST | `/dns/cache-clear` | 清空解析缓存并立即重新解析 |

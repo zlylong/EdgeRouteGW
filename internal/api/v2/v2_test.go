@@ -32,7 +32,10 @@ type env struct {
 	t   *testing.T
 }
 
-func newEnv(t *testing.T) *env {
+func newEnv(t *testing.T) *env { return newEnvWith(t, nil) }
+
+// newEnvWith lets a test add dependencies (geo readers, ...) before Register.
+func newEnvWith(t *testing.T, tweak func(*Deps)) *env {
 	t.Helper()
 	ctx := context.Background()
 	st, err := store.Open(ctx, filepath.Join(t.TempDir(), "v2.db"))
@@ -50,7 +53,11 @@ func newEnv(t *testing.T) *env {
 	rec := reconcile.New(st, kr, render.Deps{Paths: p}, nil, bus, log)
 	prov := &provision.Service{Store: st, Keyring: kr, Dialer: &provision.FakeDialer{Fingerprint: "SHA256:test"}, Bus: bus, Log: log, Notify: rec.Notify, Timeout: time.Minute, MaxConcurrent: 1}
 	mux := http.NewServeMux()
-	Register(mux, Deps{Store: st, Keyring: kr, Reconciler: rec, Bus: bus, Paths: p, Log: log, StartedAt: time.Now(), Provision: prov})
+	deps := Deps{Store: st, Keyring: kr, Reconciler: rec, Bus: bus, Paths: p, Log: log, StartedAt: time.Now(), Provision: prov}
+	if tweak != nil {
+		tweak(&deps)
+	}
+	Register(mux, deps)
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
 	return &env{srv: srv, st: st, rec: rec, t: t}

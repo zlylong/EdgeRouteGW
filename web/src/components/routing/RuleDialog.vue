@@ -6,6 +6,7 @@ import Input from '@/components/ui/Input.vue'
 import Textarea from '@/components/ui/Textarea.vue'
 import Select from '@/components/ui/Select.vue'
 import Field from '@/components/ui/Field.vue'
+import GeoTagPicker from './GeoTagPicker.vue'
 import { routing } from '@/api/endpoints'
 import type { MatchKind, Node, OutboundGroup, Rule, RuleAction, RuleSet } from '@/api/types'
 import { ApiError } from '@/api/client'
@@ -79,8 +80,9 @@ async function save() {
         <Field label="规则集" :error="errors.set_id"><Select v-model="form.set_id" :options="sets.map(s => ({ value: s.id, label: s.name }))" /></Field>
         <Field label="匹配类型" :error="errors.match_kind"><Select v-model="form.match_kind" :options="kinds" /></Field>
       </div>
-      <Field label="匹配值" :error="errors.match_value" :hint="form.match_kind === 'domain' ? 'c.com 仅根域 · **.c.com 任意子域 · *.c.com 一层子域' : undefined">
+      <Field label="匹配值" :error="errors.match_value" :hint="form.match_kind === 'domain' ? 'c.com 仅根域 · **.c.com 任意子域 · *.c.com 一层子域' : (form.match_kind === 'geosite' || form.match_kind === 'geoip') ? (editing ? '从已安装的 GeoData 标签中选一个' : '可多选,每个标签生成一条规则;前缀 ! 为取反') : undefined">
         <Textarea v-if="form.match_kind === 'domain' && !editing" v-model="form.match_value" rows="4" class="font-mono text-xs" :placeholder="placeholder" :invalid="!!errors.match_value" autofocus />
+        <GeoTagPicker v-else-if="form.match_kind === 'geosite' || form.match_kind === 'geoip'" :key="form.match_kind" v-model="form.match_value" :kind="form.match_kind" :single="editing" :invalid="!!errors.match_value" />
         <Input v-else v-model="form.match_value" class="font-mono" :placeholder="placeholder" :invalid="!!errors.match_value" />
         <p v-if="wildcardWarn" class="mt-1 text-xs text-warn">当前为 Mode {{ gw.state?.mode }},通配域名无法转成路由宣告,后端会拒绝。</p>
       </Field>

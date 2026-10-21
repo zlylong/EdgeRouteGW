@@ -219,3 +219,4 @@ export interface TrafficRates { at: string; up_bps: number; down_bps: number; no
 export interface TrafficResponse { range: string; bucket_s: number; series: TrafficPoint[]; total_up: number; total_down: number; nodes: NodeTraffic[]; current: TrafficRates }
 export interface LatencyResult { node_id: string; ms: number; error?: string }
 export interface DownloadSettings { proxy: string; github_mirror: string }
+export interface GeoTags { kind: 'geosite' | 'geoip'; installed: boolean; version?: string; items: string[] }
