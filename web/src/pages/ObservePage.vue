@@ -5,7 +5,7 @@ import { Pause, Play, RefreshCw, RotateCcw } from 'lucide-vue-next'
 import Sparkline from '@/components/ui/Sparkline.vue'
 import ConfirmDialog from '@/components/ui/ConfirmDialog.vue'
 import { useQuery as useQ } from '@tanstack/vue-query'
-import { nodes as nodesApi } from '@/api/endpoints'
+import { groups as groupsApi, nodes as nodesApi } from '@/api/endpoints'
 import Tabs from '@/components/ui/Tabs.vue'
 import Button from '@/components/ui/Button.vue'
 import Badge from '@/components/ui/Badge.vue'
@@ -36,11 +36,28 @@ watch(() => gw.liveConnections.length, () => {
     live.value = [newest, ...live.value].slice(0, 500)
   }
 })
+// Tags in the access log are Xray's; show the operator's names instead.
+const groupsQ = useQ({ queryKey: ['groups'], queryFn: groupsApi.list })
+const nodeNames = computed(() => Object.fromEntries((nodesQ.data.value?.items ?? []).map(n => [n.id, n.name])))
+const groupNames = computed(() => Object.fromEntries((groupsQ.data.value?.items ?? []).map(g => [g.id, g.name])))
+const fixedOut: Record<string, string> = { direct: '直连', block: '拦截', 'dns-out': 'DNS 转发', api: '内部 API', 'proxy-auto': '自动(最快节点)' }
+const outboundLabel = (o: string) => {
+  if (fixedOut[o]) return fixedOut[o]
+  if (o.startsWith('node-')) return nodeNames.value[o.slice(5)] ?? `节点 ${o.slice(5, 13)}…(已删除)`
+  if (o.startsWith('group-')) return groupNames.value[o.slice(6)] ?? `出站组 ${o.slice(6, 14)}…(已删除)`
+  return o
+}
+const outboundTone = (o: string) => o === 'direct' ? 'ok' : o === 'block' ? 'danger' : o === 'api' || o === 'dns-out' ? 'neutral' : o.startsWith('group-') || o === 'proxy-auto' ? 'info' : 'accent'
+// System-originated connections: the gateway's own stats/API calls and the
+// end-to-end node probes. Hidden unless asked for.
+const systemInbounds = new Set(['api_inbound', 'probe_in'])
+const inboundLabel: Record<string, string> = { tproxy_in: 'LAN', socks_in: '本机 SOCKS', http_in: '本机 HTTP', api_inbound: '内部 API', probe_in: '节点探测', 'dns-in': 'Fake-IP DNS' }
+const showSystem = ref(false)
 const connections = computed(() => {
   const q = filter.value.trim().toLowerCase()
-  return q ? live.value.filter(c => (c.source + ' ' + c.target + ' ' + c.outbound).toLowerCase().includes(q)) : live.value
+  return live.value.filter(c => (showSystem.value || !systemInbounds.has(c.inbound))
+    && (!q || (c.source + ' ' + c.target + ' ' + c.outbound + ' ' + outboundLabel(c.outbound) + ' ' + (inboundLabel[c.inbound] ?? c.inbound)).toLowerCase().includes(q)))
 })
-const outboundTone = (o: string) => o === 'direct' ? 'ok' : o === 'block' ? 'danger' : o.startsWith('group-') ? 'info' : 'accent'
 
 // Events
 const module = ref(''); const level = ref('')
@@ -83,15 +100,16 @@ const actionTone = (a: string) => a.includes('restart') ? 'warn' : a.includes('h
         <Button variant="secondary" size="sm" @click="paused = !paused">
           <Pause v-if="!paused" class="h-3.5 w-3.5" /><Play v-else class="h-3.5 w-3.5" /> {{ paused ? '继续' : '暂停' }}
         </Button>
+        <label class="flex items-center gap-1.5 text-xs text-fg-muted"><input v-model="showSystem" type="checkbox" class="accent-accent"> 显示系统连接(探测、内部 API)</label>
         <span class="text-xs text-fg-subtle">{{ connections.length }} 条 · 来自 Xray access log,实时推送</span>
       </div>
       <EmptyState v-if="!connections.length" title="还没有连接记录" hint="Xray 启动并有流量经过后,这里会实时显示每条连接的来源、目标和出站。" />
       <Table v-else :cols="[{ key: 't', label: '时间', class: 'w-24' }, { key: 's', label: '客户端' }, { key: 'd', label: '目标' }, { key: 'o', label: '出站' }]" dense>
         <tr v-for="(c, i) in connections" :key="c.at + c.source + i" :class="['font-mono text-xs', !c.accepted && 'text-fg-subtle']">
           <td class="px-3 py-1 text-fg-subtle" :title="fmtTime(c.at)">{{ fmtAgo(c.at) }}</td>
-          <td class="px-3 py-1">{{ c.source }}</td>
+          <td class="px-3 py-1" :title="`入站:${c.inbound}`">{{ c.source }}<span v-if="c.inbound !== 'tproxy_in'" class="ml-1 rounded bg-surface-2 px-1 text-[10px] text-fg-muted">{{ inboundLabel[c.inbound] ?? c.inbound }}</span></td>
           <td class="px-3 py-1"><span class="mr-1 rounded bg-surface-2 px-1 text-[10px] uppercase text-fg-muted">{{ c.network }}</span>{{ c.target }}</td>
-          <td class="px-3 py-1"><Badge :tone="outboundTone(c.outbound)">{{ c.outbound }}</Badge></td>
+          <td class="px-3 py-1"><Badge :tone="outboundTone(c.outbound)" :title="c.outbound">{{ outboundLabel(c.outbound) }}</Badge><span v-if="!c.accepted" class="ml-1 text-[10px] text-danger">已拒绝</span></td>
         </tr>
       </Table>
     </div>
