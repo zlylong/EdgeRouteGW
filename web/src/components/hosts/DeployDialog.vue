@@ -105,7 +105,7 @@ const stateLabel: Record<string, string> = { queued: '排队中', running: '进�
     <template v-else>
       <div class="mb-2 flex items-center gap-2 text-sm">
         <Badge :tone="stateTone">{{ stateLabel[state] ?? state }}</Badge>
-        <span v-if="error" class="truncate text-xs text-danger" :title="error">{{ error }}</span>
+        <span v-if="error" class="truncate text-xs text-danger" :title="error">{{ error }}<template v-if="/host key mismatch/.test(error)"> — 主机密钥已变化,回到主机列表点「检查连接」可重新信任</template></span>
       </div>
       <div ref="logEl" class="scroll-thin h-80 overflow-auto rounded-lg border border-border bg-[#0b1020] p-3 font-mono text-[11px] leading-5 text-slate-200">
         <div v-for="l in lines" :key="l.id" :class="{ 'text-amber-300': l.stream === 'stderr', 'text-sky-300': l.stream === 'system' }">{{ l.line }}</div>

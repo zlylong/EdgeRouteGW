@@ -39,9 +39,32 @@ watch(() => gw.lastEvent, e => { if (e?.type === 'provision.host' || e?.type ===
 const hostDialog = ref(false); const editHost = ref<RemoteHost | null>(null)
 const deployDialog = ref(false); const deployHost = ref<RemoteHost | null>(null); const viewDeployId = ref<string | null>(null)
 const checking = ref<string | null>(null)
+// A changed host key (host rebuilt, keys regenerated) is reported by
+// check/deploy as "ssh host key mismatch: pinned X, got Y". Offer to
+// re-trust instead of leaving the operator to find the API.
+const retrust = ref<{ host: RemoteHost; pinned: string; got: string } | null>(null)
+function mismatchOf(msg?: string) {
+  const m = /host key mismatch: pinned (\S+), got (\S+)/.exec(msg ?? '')
+  return m ? { pinned: m[1], got: m[2] } : null
+}
+async function doRetrust() {
+  if (!retrust.value) return
+  const h = retrust.value.host
+  await hostsApi.rePin(h.id, '')
+  const r = await hostsApi.check(h.id)
+  if (r.status === 'online') toast.ok(`${h.name} 已重新信任并在线`); else toast.warn(`${h.name}:${r.status}`, r.reason)
+  qc.invalidateQueries({ queryKey: ['hosts'] })
+}
 async function checkHost(h: RemoteHost) {
   checking.value = h.id
-  try { const r = await hostsApi.check(h.id); if (r.status === 'online') toast.ok(`${h.name} 在线`); else toast.warn(`${h.name}:${r.status}`, r.reason); qc.invalidateQueries({ queryKey: ['hosts'] }) } catch (e) { toast.error('检查失败', (e as Error).message) } finally { checking.value = null }
+  try {
+    const r = await hostsApi.check(h.id)
+    const mm = mismatchOf(r.reason)
+    if (r.status === 'online') toast.ok(`${h.name} 在线`)
+    else if (mm) retrust.value = { host: h, ...mm }
+    else toast.warn(`${h.name}:${r.status}`, r.reason)
+    qc.invalidateQueries({ queryKey: ['hosts'] })
+  } catch (e) { toast.error('检查失败', (e as Error).message) } finally { checking.value = null }
 }
 function openDeploy(h: RemoteHost, deployId: string | null = null) { deployHost.value = h; viewDeployId.value = deployId; deployDialog.value = true }
 function removeHost(h: RemoteHost) {
@@ -180,6 +203,7 @@ const latency = (n: Node) => n.latency_ms === undefined ? '-' : n.latency_ms < 0
       </Table>
     </template>
     <HostDialog v-model:open="hostDialog" :host="editHost" @saved="refresh" />
+    <ConfirmDialog v-if="retrust" :open="!!retrust" title="主机密钥已变化" :description="`${retrust.host.name}(${retrust.host.ssh_host})现在给出的 SSH 主机密钥与上次钉定的不同。\n钉定:${retrust.pinned}\n现在:${retrust.got}\n如果这台主机确实重装或重新生成过密钥,可以重新信任;否则请先核实,中间人攻击也会表现为这样。`" confirm-text="重新信任" :action="doRetrust" @update:open="v => { if (!v) retrust = null }" @done="refresh" />
     <DeployDialog v-model:open="deployDialog" :host="deployHost" :deploy-id="viewDeployId" @finished="refresh" />
 
     <NodeDialog v-model:open="nodeDialog" :node="editNode" @saved="refresh" />

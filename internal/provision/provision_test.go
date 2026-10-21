@@ -3,6 +3,7 @@ package provision
 import (
 	"bytes"
 	"context"
+	"database/sql"
 	"errors"
 	"io"
 	"log/slog"
@@ -167,5 +168,75 @@ func TestDeployFailureAndHostKeyMismatch(t *testing.T) {
 	}
 	if status, err := s.Probe(ctx, hostID); status != "offline" || err == nil {
 		t.Fatalf("probe %s %v", status, err)
+	}
+}
+
+func TestDeployOfSecondKindGetsItsOwnNode(t *testing.T) {
+	fd := &FakeDialer{Fingerprint: "SHA256:abc", Handler: func(script string, onLine func(string, string)) error {
+		onLine("stdout", "REALITY smoke test passed")
+		return nil
+	}}
+	s, st, hostID := newSvc(t, fd)
+	ctx := context.Background()
+	id1, err := s.Deploy(ctx, hostID, DeployRequest{Kind: "vless", Port: 8443, ServerName: "www.apple.com"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	d1 := waitDeploy(t, st, id1)
+	id2, err := s.Deploy(ctx, hostID, DeployRequest{Kind: "wg"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	d2 := waitDeploy(t, st, id2)
+	if d1.State != "succeeded" || d2.State != "succeeded" {
+		t.Fatalf("deploys %+v %+v", d1, d2)
+	}
+	if d1.NodeID == d2.NodeID {
+		t.Fatal("WireGuard deploy must not overwrite the VLESS node")
+	}
+	nodes, _ := st.ListNodes(ctx)
+	if len(nodes) != 2 {
+		t.Fatalf("expected two nodes, got %d", len(nodes))
+	}
+	names := map[string]string{}
+	for _, n := range nodes {
+		names[string(n.Protocol)] = n.Name
+	}
+	if names["vless"] == names["wireguard"] {
+		t.Fatalf("node names collide: %v", names)
+	}
+	// Re-deploying the same kind reuses its node.
+	id3, _ := s.Deploy(ctx, hostID, DeployRequest{Kind: "wg"})
+	if d3 := waitDeploy(t, st, id3); d3.NodeID != d2.NodeID {
+		t.Fatalf("wg re-deploy should reuse node %s, got %s", d2.NodeID, d3.NodeID)
+	}
+}
+
+func TestReuseSkipsNodeOverwrittenByOtherKind(t *testing.T) {
+	fd := &FakeDialer{Fingerprint: "SHA256:abc", Handler: func(script string, onLine func(string, string)) error {
+		onLine("stdout", "REALITY smoke test passed")
+		return nil
+	}}
+	s, st, hostID := newSvc(t, fd)
+	ctx := context.Background()
+	id1, _ := s.Deploy(ctx, hostID, DeployRequest{Kind: "wg"})
+	d1 := waitDeploy(t, st, id1)
+	// Simulate the pre-rc.8 damage: the wg deploy's node now holds a VLESS definition.
+	row, err := st.GetNode(ctx, d1.NodeID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	row.Protocol = "vless"
+	if _, err := st.Mutate(ctx, store.Mutation{Actor: "test"}, func(tx *sql.Tx) error { return store.UpdateNode(ctx, tx, row) }); err != nil {
+		t.Fatal(err)
+	}
+	id2, _ := s.Deploy(ctx, hostID, DeployRequest{Kind: "wg"})
+	d2 := waitDeploy(t, st, id2)
+	if d2.State != "succeeded" || d2.NodeID == d1.NodeID {
+		t.Fatalf("wg deploy must create a fresh node instead of overwriting the vless one: %+v", d2)
+	}
+	nodes, _ := st.ListNodes(ctx)
+	if len(nodes) != 2 {
+		t.Fatalf("expected two nodes, got %d", len(nodes))
 	}
 }

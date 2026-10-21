@@ -336,14 +336,32 @@ func (s *Service) registerNode(ctx context.Context, h store.RemoteHost, d store.
 	if err != nil {
 		return "", err
 	}
-	// Reuse the node of the previous successful deploy on this host so rules
-	// pointing at it keep working across re-deploys and rollbacks.
+	// Reuse the node of the previous successful deploy of the same kind on
+	// this host so rules pointing at it keep working across re-deploys and
+	// rollbacks. A different kind (WireGuard next to VLESS) gets its own
+	// node: both services can run on one host at the same time.
 	existing := ""
 	if deploys, err := s.Store.ListRemoteDeploys(ctx, h.ID, 50); err == nil {
 		for _, old := range deploys {
-			if old.ID != d.ID && old.NodeID != "" {
-				if _, err := s.Store.GetNode(ctx, old.NodeID); err == nil {
+			if old.ID != d.ID && old.NodeID != "" && old.Kind == d.Kind {
+				// The node must still be of this kind: builds before rc.8 let
+				// a deploy of another kind overwrite it, leaving records of
+				// both kinds pointing at one node.
+				if row, err := s.Store.GetNode(ctx, old.NodeID); err == nil && row.Protocol == n.Protocol {
 					existing = old.NodeID
+					break
+				}
+			}
+		}
+	}
+	if existing == "" {
+		// A second kind on the same host must not collide on the default
+		// name (the host's name).
+		if nodes, err := s.Store.ListNodes(ctx); err == nil {
+			for _, other := range nodes {
+				if other.Name == n.Name && other.Protocol != n.Protocol {
+					label := map[string]string{"wg": "WireGuard", "vless": "VLESS"}[d.Kind]
+					n.Name = fmt.Sprintf("%s (%s)", n.Name, label)
 					break
 				}
 			}
