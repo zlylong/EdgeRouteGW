@@ -355,7 +355,7 @@ func TestSSEStreamSendsStateThenEvents(t *testing.T) {
 		}
 	}
 	typ, data := readEvent()
-	if typ != "state" || !strings.Contains(data, `"schema_version":"0002_builtin_ruleset"`) {
+	if typ != "state" || !strings.Contains(data, `"schema_version":"0003_default_direct"`) {
 		t.Fatalf("first event %s %s", typ, data)
 	}
 	// A write produces state.changed followed by a fresh state snapshot.

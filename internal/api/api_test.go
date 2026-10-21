@@ -68,7 +68,7 @@ func TestState(t *testing.T) {
 	if err := json.NewDecoder(res.Body).Decode(&body); err != nil {
 		t.Fatal(err)
 	}
-	if body.Mode != "A" || body.Generation != 0 || body.SchemaVersion != "0002_builtin_ruleset" || body.UptimeSeconds < 5 {
+	if body.Mode != "A" || body.Generation != 0 || body.SchemaVersion != "0003_default_direct" || body.UptimeSeconds < 5 {
 		t.Fatalf("unexpected state: %+v", body)
 	}
 }

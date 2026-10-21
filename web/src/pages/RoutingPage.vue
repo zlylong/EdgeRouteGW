@@ -16,7 +16,7 @@ import Table from '@/components/ui/Table.vue'
 import RuleDialog from '@/components/routing/RuleDialog.vue'
 import TraceBox from '@/components/routing/TraceBox.vue'
 import DevicePolicyDialog from '@/components/routing/DevicePolicyDialog.vue'
-import { groups as groupsApi, nodes as nodesApi, routing } from '@/api/endpoints'
+import { config as cfgApi, groups as groupsApi, nodes as nodesApi, routing } from '@/api/endpoints'
 import type { BypassDestination, DevicePolicy, Rule, RuleSet } from '@/api/types'
 import { useToast } from '@/stores/toast'
 import { useGatewayState } from '@/stores/state'
@@ -76,6 +76,18 @@ async function moveSet(i: number, d: number) {
   ;[ids[i], ids[j]] = [ids[j], ids[i]]
   try { await routing.reorderSets(ids); refresh() } catch (e) { toast.error('排序失败', (e as Error).message) }
 }
+// The final fallback ("none of the rules matched") is the LAN default
+// policy; it is shown as the last, fixed row of the built-in set.
+const netQ = useQuery({ queryKey: ['network'], queryFn: cfgApi.network })
+const fallback = computed(() => netQ.data.value?.item.lan_default_policy ?? 'direct')
+const fallbackBusy = ref(false)
+async function setFallback(v: string) {
+  const cur = netQ.data.value?.item
+  if (!cur || (v !== 'direct' && v !== 'proxy')) return
+  fallbackBusy.value = true
+  try { await cfgApi.putNetwork({ ...cur, lan_default_policy: v }); qc.invalidateQueries({ queryKey: ['network'] }); toast.ok(v === 'direct' ? '未命中的流量将直连' : '未命中的流量将走代理') } catch (e) { toast.error('修改失败', (e as Error).message) } finally { fallbackBusy.value = false }
+}
+const selectedIsBuiltin = computed(() => !!sets.value.find(s => s.id === selectedSet.value)?.builtin)
 async function toggleRule(r: Rule, enabled: boolean) {
   try { await routing.updateRule(r.id, { set_id: r.set_id, match_kind: r.match_kind, match_value: r.match_value, action_kind: r.action_kind, action_ref: r.action_ref || undefined, remark: r.remark, enabled }); refresh() } catch (e) { toast.error('操作失败', (e as Error).message) }
 }
@@ -165,8 +177,8 @@ const deviceActionTone = (a: string) => ({ proxy: 'accent', direct: 'ok', reject
         <EmptyState v-else-if="!selectedSet" title="先创建一个规则集" hint="规则集是有序的规则分组;流量按规则集顺序、再按集内顺序匹配,第一条命中即生效。">
           <Button @click="setDialog = true"><Plus class="h-4 w-4" /> 新建规则集</Button>
         </EmptyState>
-        <EmptyState v-else-if="!rules.length" title="这个规则集还没有规则" hint="添加域名、GeoSite、IP 或 GeoIP 规则。Mode A 下未命中的流量直连。" />
-        <Table v-else :cols="[{ key: 'drag', label: '', class: 'w-8' }, { key: 'match', label: '匹配' }, { key: 'action', label: '动作' }, { key: 'remark', label: '备注' }, { key: 'on', label: '启用', class: 'w-16' }, { key: 'ops', label: '', class: 'w-36' }]" dense>
+        <EmptyState v-else-if="!rules.length && !selectedIsBuiltin" title="这个规则集还没有规则" hint="添加域名、GeoSite、IP 或 GeoIP 规则;所有规则集都没命中时按「默认」集最后一行的兜底处理。" />
+        <Table v-else-if="rules.length" :cols="[{ key: 'drag', label: '', class: 'w-8' }, { key: 'match', label: '匹配' }, { key: 'action', label: '动作' }, { key: 'remark', label: '备注' }, { key: 'on', label: '启用', class: 'w-16' }, { key: 'ops', label: '', class: 'w-36' }]" dense>
           <tr v-for="(r, i) in rules" :id="`rule-${r.id}`" :key="r.id"
               draggable="true"
               :class="['hover:bg-surface-2/60 transition-colors', dragId === r.id && 'dragging', overId === r.id && 'drag-over', highlight === r.id && 'bg-accent-soft/60']"
@@ -187,6 +199,17 @@ const deviceActionTone = (a: string) => ({ proxy: 'accent', direct: 'ok', reject
             </td>
           </tr>
         </Table>
+        <!-- Fallback row: fixed, lives in the built-in set -->
+        <div v-if="selectedIsBuiltin" class="mt-2 flex flex-wrap items-center gap-3 rounded-lg border border-dashed border-border bg-surface-2/40 px-3 py-2 text-sm">
+          <span class="rounded bg-surface-2 px-1.5 py-0.5 text-[10px] uppercase text-fg-muted">兜底</span>
+          <span class="text-fg-muted">所有规则集都没有命中的流量</span>
+          <span class="text-fg-subtle">&rarr;</span>
+          <select :value="fallback" :disabled="fallbackBusy" class="h-8 rounded-md border border-border bg-surface px-2 text-sm" @change="setFallback(($event.target as HTMLSelectElement).value)">
+            <option value="direct">直连</option>
+            <option value="proxy">代理(默认节点)</option>
+          </select>
+          <span class="text-xs text-fg-subtle">固定为最后一条,不能删除;等同于「网络与模式」里的 LAN 默认策略</span>
+        </div>
       </section>
     </div>
 
