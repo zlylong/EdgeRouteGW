@@ -87,7 +87,9 @@ const schedHint: Record<string, string> = {
     <div v-if="!compQ.data.value?.items.length" class="rounded-lg border border-border bg-surface-2 p-3 text-sm text-fg-muted">当前实例以 -no-reconcile 运行或更新模块未启用。</div>
     <div class="grid gap-4 lg:grid-cols-3">
       <Card v-for="c in compQ.data.value?.items ?? []" :key="c.name" :title="meta[c.name]?.label ?? c.name">
-        <dl class="grid grid-cols-[5rem_1fr] gap-y-1 text-sm">
+        <SchedulePicker v-if="schedHint[c.name]" :name="c.name" :label="meta[c.name]?.label ?? c.name" :schedule="c.schedule" :hint="schedHint[c.name]" :disabled="!!jobOf(c)" />
+        <p class="text-xs text-fg-subtle" :class="schedHint[c.name] ? 'mt-3' : ''">{{ meta[c.name]?.hint }}</p>
+        <dl class="mt-3 grid grid-cols-[5rem_1fr] gap-y-1 text-sm">
           <dt class="text-fg-muted">已安装</dt><dd class="font-mono">{{ c.installed || '未安装' }}</dd>
           <dt class="text-fg-muted">最新</dt>
           <dd class="font-mono">{{ c.latest || '-' }} <Badge v-if="c.latest && c.installed && c.latest !== c.installed" tone="warn">可更新</Badge><Badge v-else-if="c.latest && c.installed" tone="ok">最新</Badge></dd>
@@ -98,17 +100,12 @@ const schedHint: Record<string, string> = {
           <div class="mt-1 h-1.5 overflow-hidden rounded bg-surface-2"><div class="h-full bg-accent transition-all" :style="{ width: jobOf(c)!.percent + '%' }" /></div>
         </div>
         <p v-if="c.last_error" class="mt-2 break-words text-xs text-danger">{{ c.last_error }}</p>
-        <SchedulePicker v-if="schedHint[c.name]" :name="c.name" :label="meta[c.name]?.label ?? c.name" :schedule="c.schedule" :disabled="!!jobOf(c)" />
         <div class="mt-4 flex flex-wrap gap-2">
           <Button size="sm" :disabled="!!jobOf(c)" @click="startUpdate(c.name)"><Download class="h-3.5 w-3.5" /> {{ c.installed ? '更新到最新' : '在线安装' }}</Button>
           <Button v-if="c.bundled" size="sm" variant="secondary" :disabled="!!jobOf(c)" :title="`内置包版本 ${c.bundled.version}`" @click="installBundled(c.name)">从内置包安装 {{ c.bundled.version }}</Button>
           <Button v-if="c.name !== 'geodata' && c.name !== 'edgeroutegw'" size="sm" variant="secondary" :disabled="!!jobOf(c)" @click="openPick(c.name)">选择版本</Button>
           <Button v-if="c.name !== 'edgeroutegw'" size="sm" variant="ghost" :disabled="!!jobOf(c)" @click="uploadFor = c.name">本地上传</Button>
           <Button v-if="c.name !== 'edgeroutegw'" size="sm" variant="ghost" :disabled="!c.has_previous || !!jobOf(c)" @click="rollbackFor = c.name"><RotateCcw class="h-3.5 w-3.5" /> 回退</Button>
-        </div>
-        <div class="mt-4 space-y-1 border-t border-border pt-3 text-xs text-fg-subtle">
-          <p>{{ meta[c.name]?.hint }}</p>
-          <p v-if="schedHint[c.name]">自动更新:{{ schedHint[c.name] }}</p>
         </div>
       </Card>
     </div>

@@ -10,7 +10,7 @@ import { useToast } from '@/stores/toast'
 
 // Per-component auto-update schedule. Spec strings mirror the server:
 //   off | daily HH:MM | weekly <mon..sun> HH:MM | monthly <1..28> HH:MM
-const props = defineProps<{ name: string; label: string; schedule?: string; disabled?: boolean }>()
+const props = defineProps<{ name: string; label: string; schedule?: string; hint: string; disabled?: boolean }>()
 const qc = useQueryClient()
 const toast = useToast()
 
@@ -53,7 +53,7 @@ async function save() {
 </script>
 
 <template>
-  <div class="mt-4 rounded-md border border-border bg-surface-2/40 p-3">
+  <div class="rounded-md border border-border bg-surface-2/40 p-3">
     <div class="flex items-center justify-between">
       <span class="text-xs font-medium text-fg">自动更新</span>
       <Badge :tone="(props.schedule ?? 'off') === 'off' ? 'neutral' : 'ok'">{{ summary }}</Badge>
@@ -65,5 +65,6 @@ async function save() {
       <Input v-if="kind !== 'off'" v-model="time" type="time" class="w-28" :disabled="disabled" />
       <Button size="sm" variant="secondary" :disabled="!dirty || disabled" :loading="saving" @click="save">保存</Button>
     </div>
+    <p class="mt-2 text-xs text-fg-subtle">{{ hint }}</p>
   </div>
 </template>
