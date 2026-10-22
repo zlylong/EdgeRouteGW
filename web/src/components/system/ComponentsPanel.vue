@@ -87,9 +87,7 @@ const schedHint: Record<string, string> = {
     <div v-if="!compQ.data.value?.items.length" class="rounded-lg border border-border bg-surface-2 p-3 text-sm text-fg-muted">当前实例以 -no-reconcile 运行或更新模块未启用。</div>
     <div class="grid gap-4 lg:grid-cols-3">
       <Card v-for="c in compQ.data.value?.items ?? []" :key="c.name" :title="meta[c.name]?.label ?? c.name">
-        <SchedulePicker v-if="schedHint[c.name]" :name="c.name" :label="meta[c.name]?.label ?? c.name" :schedule="c.schedule" :hint="schedHint[c.name]" :disabled="!!jobOf(c)" />
-        <p class="text-xs text-fg-subtle" :class="schedHint[c.name] ? 'mt-3' : ''">{{ meta[c.name]?.hint }}</p>
-        <dl class="mt-3 grid grid-cols-[5rem_1fr] gap-y-1 text-sm">
+        <dl class="grid grid-cols-[5rem_1fr] gap-y-1 text-sm">
           <dt class="text-fg-muted">已安装</dt><dd class="font-mono">{{ c.installed || '未安装' }}</dd>
           <dt class="text-fg-muted">最新</dt>
           <dd class="font-mono">{{ c.latest || '-' }} <Badge v-if="c.latest && c.installed && c.latest !== c.installed" tone="warn">可更新</Badge><Badge v-else-if="c.latest && c.installed" tone="ok">最新</Badge></dd>
@@ -107,6 +105,8 @@ const schedHint: Record<string, string> = {
           <Button v-if="c.name !== 'edgeroutegw'" size="sm" variant="ghost" :disabled="!!jobOf(c)" @click="uploadFor = c.name">本地上传</Button>
           <Button v-if="c.name !== 'edgeroutegw'" size="sm" variant="ghost" :disabled="!c.has_previous || !!jobOf(c)" @click="rollbackFor = c.name"><RotateCcw class="h-3.5 w-3.5" /> 回退</Button>
         </div>
+        <SchedulePicker v-if="schedHint[c.name]" class="mt-4" :name="c.name" :label="meta[c.name]?.label ?? c.name" :schedule="c.schedule" :hint="schedHint[c.name]" :disabled="!!jobOf(c)" />
+        <p class="mt-3 text-xs text-fg-subtle">{{ meta[c.name]?.hint }}</p>
       </Card>
     </div>
     <Card title="下载通道">

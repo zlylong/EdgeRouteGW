@@ -230,7 +230,7 @@ const deviceActionTone = (a: string) => ({ proxy: 'accent', direct: 'ok', reject
               <option value="strict">拦截(宁断勿漏)</option>
             </select>
           </div>
-          <p class="text-xs text-fg-subtle">这两条固定在最后,不能删除;也就是网络配置里的 LAN 默认策略与节点失效策略。</p>
+          <p class="text-xs text-fg-subtle">这两条固定在最后,不能删除;只在这里设置(未命中规则的流量去向、节点失效时的处理)。</p>
         </div>
       </section>
     </div>

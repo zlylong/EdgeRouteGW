@@ -160,7 +160,6 @@ const routerosHint = computed(() => `/routing rule add src-address=${ospfQ.data.
         <div class="grid gap-4 sm:grid-cols-2">
           <Field label="TPROXY 端口" :error="errors.tproxy_port"><Input v-model="form.tproxy_port" type="number" class="font-mono" /></Field>
           <Field label="Fake-IP 池(Mode B)" :error="errors.fakeip_pool"><Input v-model="form.fakeip_pool" class="font-mono" /></Field>
-          <Field label="LAN 默认策略" hint="未命中规则的流量" :error="errors.lan_default_policy"><Select v-model="form.lan_default_policy" :options="[{ value: 'proxy', label: '代理(Mode B/C 默认出站)' }, { value: 'direct', label: '直连' }]" /></Field>
         </div>
       </Card>
       <Card title="OSPF 宣告参数" class="lg:col-span-2">
