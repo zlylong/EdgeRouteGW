@@ -206,25 +206,32 @@ type DNSConfig struct {
 	// Hijack redirects every LAN DNS query (port 53) reaching the gateway
 	// to Mosdns, whatever resolver the client configured. BlockDoT rejects
 	// DNS-over-TLS (853) so such clients fall back to plain DNS.
-	Hijack    bool      `json:"hijack"`
-	BlockDoT  bool      `json:"block_dot"`
+	Hijack   bool `json:"hijack"`
+	BlockDoT bool `json:"block_dot"`
+	// Tap keeps a short-lived record of the answers Mosdns hands to each
+	// client so the observe page can show the domain behind an IP target.
+	Tap       bool      `json:"tap"`
 	UpdatedAt time.Time `json:"updated_at"`
 }
 
 // NetworkConfig is the single-row network/mode configuration.
 type NetworkConfig struct {
-	Mode                Mode      `json:"mode"`
-	ManagementIface     string    `json:"management_iface"`
-	ServiceIface        string    `json:"service_iface"`
-	FakeIPPool          string    `json:"fakeip_pool"`
-	TProxyPort          int       `json:"tproxy_port"`
-	LANDefaultPolicy    string    `json:"lan_default_policy"`
-	OSPFPushBatch       int       `json:"ospf_push_batch"`
-	OSPFPushIntervalSec int       `json:"ospf_push_interval_s"`
-	OSPFResolveWorkers  int       `json:"ospf_resolve_workers"`
-	OSPFPublishAllow    []string  `json:"ospf_publish_allowlist"`
-	NodeFailoverMode    string    `json:"node_failover_mode"`
-	UpdatedAt           time.Time `json:"updated_at"`
+	Mode                Mode     `json:"mode"`
+	ManagementIface     string   `json:"management_iface"`
+	ServiceIface        string   `json:"service_iface"`
+	FakeIPPool          string   `json:"fakeip_pool"`
+	TProxyPort          int      `json:"tproxy_port"`
+	LANDefaultPolicy    string   `json:"lan_default_policy"`
+	OSPFPushBatch       int      `json:"ospf_push_batch"`
+	OSPFPushIntervalSec int      `json:"ospf_push_interval_s"`
+	OSPFResolveWorkers  int      `json:"ospf_resolve_workers"`
+	OSPFPublishAllow    []string `json:"ospf_publish_allowlist"`
+	NodeFailoverMode    string   `json:"node_failover_mode"`
+	// SniffOverride turns Xray's sniffing from route-only into a
+	// destination override: logs and the observe page show domains, and
+	// direct flows are resolved again by Xray through Mosdns.
+	SniffOverride bool      `json:"sniff_override"`
+	UpdatedAt     time.Time `json:"updated_at"`
 }
 
 // Changeset records one desired-state mutation so it can be shown and

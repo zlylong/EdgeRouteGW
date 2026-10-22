@@ -157,6 +157,8 @@ func cmdServe(args []string, stdout, stderr io.Writer, env config.LookupEnv) int
 	}
 	conns := observe.NewConnTracker(p.XrayAccessLog(), bus, log)
 	conns.Enrich = func(target string) []string { return geo.Labels(siteIdx, ipIdx, target) }
+	dnsTap := observe.NewDNSTap(log)
+	conns.DomainHint = dnsTap.Lookup
 	latency := observe.NewLatencyProber(st, bus, log)
 	if !*noReconcile {
 		latency.EnableXray(fmt.Sprintf("127.0.0.1:%d", render.ProbePort))
@@ -239,6 +241,7 @@ func cmdServe(args []string, stdout, stderr io.Writer, env config.LookupEnv) int
 	g.Go(func() error { return rec.Run(gctx) })
 	g.Go(func() error { return conns.Run(gctx) })
 	g.Go(func() error { return metrics.Run(gctx) })
+	g.Go(func() error { return dnsTap.Run(gctx) })
 	g.Go(func() error { return resLoop.Run(gctx) })
 	g.Go(func() error { return updater.RunScheduler(gctx) })
 	g.Go(func() error { return latency.Run(gctx) })

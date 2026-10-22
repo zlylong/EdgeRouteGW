@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"os"
 	"regexp"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -28,6 +29,10 @@ type Connection struct {
 	// Geo lists the geoip/geosite tags the target belongs to ("geoip:cn"),
 	// so an operator can see which rule would catch it.
 	Geo []string `json:"geo,omitempty"`
+	// Domain is the name the client most recently resolved to the target
+	// address (from the DNS tap); empty when unknown or when the target is
+	// already a name.
+	Domain string `json:"domain,omitempty"`
 }
 
 // EventConnection is the bus type for new connections.
@@ -46,6 +51,9 @@ type ConnTracker struct {
 	Capacity int
 	// Enrich tags a target ("host:port") with geo labels; nil disables it.
 	Enrich func(target string) []string
+	// DomainHint returns the domain a client (ip:port) resolved to the
+	// target address; nil disables it.
+	DomainHint func(client, target string) string
 
 	mu   sync.RWMutex
 	ring []Connection
@@ -76,7 +84,7 @@ func (t *ConnTracker) Recent(limit int, q string) []Connection {
 		}
 		c := t.ring[idx]
 		idx--
-		if q != "" && !strings.Contains(strings.ToLower(c.Source+" "+c.Target+" "+c.Outbound), q) {
+		if q != "" && !strings.Contains(strings.ToLower(c.Source+" "+c.Target+" "+c.Domain+" "+c.Outbound), q) {
 			continue
 		}
 		out = append(out, c)
@@ -85,8 +93,18 @@ func (t *ConnTracker) Recent(limit int, q string) []Connection {
 }
 
 func (t *ConnTracker) add(c Connection) {
+	if t.DomainHint != nil && c.Domain == "" {
+		c.Domain = t.DomainHint(c.Source, c.Target)
+	}
 	if t.Enrich != nil && c.Geo == nil {
 		c.Geo = t.Enrich(c.Target)
+		if c.Domain != "" {
+			for _, g := range t.Enrich(c.Domain + ":0") {
+				if !slices.Contains(c.Geo, g) {
+					c.Geo = append(c.Geo, g)
+				}
+			}
+		}
 	}
 	t.mu.Lock()
 	if t.Capacity <= 0 {

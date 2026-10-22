@@ -33,10 +33,14 @@ type DNSInput struct {
 	LogLevel        string   `json:"log_level"`
 	Hijack          *bool    `json:"hijack"`    // nil = keep default (on)
 	BlockDoT        *bool    `json:"block_dot"` // nil = keep default (on)
+	Tap             *bool    `json:"tap"`       // nil = keep default (on)
 }
 
 func (in *DNSInput) validate() (model.DNSConfig, error) {
-	c := model.DNSConfig{CacheSize: in.CacheSize, LazyCache: in.LazyCache, LazyCacheTTL: in.LazyCacheTTL, LogLevel: strings.ToLower(strings.TrimSpace(in.LogLevel)), Hijack: true, BlockDoT: true}
+	c := model.DNSConfig{CacheSize: in.CacheSize, LazyCache: in.LazyCache, LazyCacheTTL: in.LazyCacheTTL, LogLevel: strings.ToLower(strings.TrimSpace(in.LogLevel)), Hijack: true, BlockDoT: true, Tap: true}
+	if in.Tap != nil {
+		c.Tap = *in.Tap
+	}
 	if in.Hijack != nil {
 		c.Hijack = *in.Hijack
 	}
@@ -143,6 +147,7 @@ type NetworkInput struct {
 	OSPFResolveWorkers  int      `json:"ospf_resolve_workers"`
 	OSPFPublishAllow    []string `json:"ospf_publish_allowlist"`
 	NodeFailoverMode    string   `json:"node_failover_mode"`
+	SniffOverride       bool     `json:"sniff_override"`
 }
 
 func (in *NetworkInput) validate() (model.NetworkConfig, error) {
@@ -157,6 +162,7 @@ func (in *NetworkInput) validate() (model.NetworkConfig, error) {
 		OSPFPushIntervalSec: in.OSPFPushIntervalSec,
 		OSPFResolveWorkers:  in.OSPFResolveWorkers,
 		NodeFailoverMode:    strings.ToLower(strings.TrimSpace(in.NodeFailoverMode)),
+		SniffOverride:       in.SniffOverride,
 	}
 	if !c.Mode.Valid() {
 		return c, invalid("mode", "must be A, B or C")

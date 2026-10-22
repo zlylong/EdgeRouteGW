@@ -101,6 +101,14 @@ table inet {{.Table}} {
         meta l4proto { tcp, udp } th dport {{.TProxyPort}} counter drop comment "tproxy_port_direct"
     }
 
+{{end}}{{if .DNSTap}}    chain dns_tap {
+        type filter hook output priority filter; policy accept;
+        # Copies of the DNS answers Mosdns sends to clients go to the control
+        # plane (nflog group {{.DNSTapGroup}}) so the observe page can show the
+        # domain behind an IP target. Observation only; the packet continues.
+        udp sport 53 log group {{.DNSTapGroup}} snaplen 1500 comment "dns_tap"
+    }
+
 {{end}}    chain forward {
         type filter hook forward priority mangle; policy accept;
         # Forwarded flows (not intercepted: private destinations, device
@@ -142,7 +150,13 @@ type nftData struct {
 	IP6Proxy, IP6Direct, IP6Reject string
 	Bypass                         string
 	DNSHijack, BlockDoT            bool
+	DNSTap                         bool
+	DNSTapGroup                    int
 }
+
+// DNSTapGroup is the nflog group carrying copies of Mosdns answers to the
+// observe layer (internal/observe.DNSTap).
+const DNSTapGroup = 100
 
 func renderNft(snap *desired.Snapshot, _ Deps, a *Artifacts) error {
 	port := snap.Network.TProxyPort
@@ -157,6 +171,7 @@ func renderNft(snap *desired.Snapshot, _ Deps, a *Artifacts) error {
 		Generation: snap.Generation, Mode: snap.Network.Mode, Table: NftTable,
 		TProxyPort: port, TProxyMark: TProxyMark, OutMark: OutboundMark, DefaultPolicy: policy,
 		DNSHijack: snap.DNS.Hijack, BlockDoT: snap.DNS.BlockDoT,
+		DNSTap: snap.DNS.Tap, DNSTapGroup: DNSTapGroup,
 	}
 	if snap.Network.Mode == model.ModeA {
 		sets := map[string][]string{}

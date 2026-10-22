@@ -135,6 +135,7 @@ export interface DNSConfig {
   lazy_cache_ttl: number
   log_level: string
   updated_at?: string
+  tap?: boolean
 }
 
 export interface NetworkConfig {
@@ -150,6 +151,7 @@ export interface NetworkConfig {
   ospf_publish_allowlist: string[]
   node_failover_mode: 'normal' | 'strict'
   updated_at?: string
+  sniff_override: boolean
 }
 
 export interface Changeset { id: string; generation: number; actor?: string; summary: string; diff?: string; reverted_by?: string; created_at: string }
@@ -157,7 +159,7 @@ export interface ApplyLogEntry { id: number; generation: number; component: Comp
 export type EventLevel = 'debug' | 'info' | 'warn' | 'error'
 export interface Event { id: number; ts: string; level: EventLevel; module: string; type: string; message: string; trace_id?: string; actor?: string; details?: string }
 
-export interface Connection { at: string; source: string; network: string; target: string; inbound: string; outbound: string; accepted: boolean; geo?: string[] }
+export interface Connection { at: string; source: string; network: string; target: string; inbound: string; outbound: string; accepted: boolean; geo?: string[]; domain?: string }
 export interface GeoLookup { target: string; kind: 'domain' | 'ip'; geosite: string[]; geoip: string[] }
 export interface GeoEntries { kind: 'geosite' | 'geoip'; tag: string; total: number; items: string[] }
 

@@ -20,7 +20,7 @@ const toast = useToast()
 const gw = useGatewayState()
 const dnsQ = useQuery({ queryKey: ['dns'], queryFn: config.dns })
 const cfgQ = useQuery({ queryKey: ['artifact', 'mosdns'], queryFn: () => system.artifact('mosdns') })
-const form = reactive({ local: '', remote: '', cache_size: 10240, lazy_cache: true, lazy_cache_ttl: 86400, log_level: 'info', hijack: true, block_dot: true })
+const form = reactive({ local: '', remote: '', cache_size: 10240, lazy_cache: true, lazy_cache_ttl: 86400, log_level: 'info', hijack: true, block_dot: true, tap: true })
 const errors = ref<Record<string, string>>({})
 const busy = ref(false)
 const dirty = ref(false)
@@ -28,7 +28,7 @@ const dirty = ref(false)
 watch(() => dnsQ.data.value, (d) => {
   if (!d || dirty.value) return
   const c = d.item
-  Object.assign(form, { local: c.local_upstreams.join('\n'), remote: c.remote_upstreams.join('\n'), cache_size: c.cache_size, lazy_cache: c.lazy_cache, lazy_cache_ttl: c.lazy_cache_ttl, log_level: c.log_level, hijack: c.hijack ?? true, block_dot: c.block_dot ?? true })
+  Object.assign(form, { local: c.local_upstreams.join('\n'), remote: c.remote_upstreams.join('\n'), cache_size: c.cache_size, lazy_cache: c.lazy_cache, lazy_cache_ttl: c.lazy_cache_ttl, log_level: c.log_level, hijack: c.hijack ?? true, block_dot: c.block_dot ?? true, tap: c.tap ?? true })
 }, { immediate: true })
 watch(form, () => { dirty.value = true })
 
@@ -36,7 +36,7 @@ const lines = (s: string) => s.split(/[\n,]/).map(x => x.trim()).filter(Boolean)
 async function save() {
   errors.value = {}; busy.value = true
   try {
-    await config.putDns({ local_upstreams: lines(form.local), remote_upstreams: lines(form.remote), cache_size: Number(form.cache_size), lazy_cache: form.lazy_cache, lazy_cache_ttl: Number(form.lazy_cache_ttl), log_level: form.log_level, hijack: form.hijack, block_dot: form.block_dot })
+    await config.putDns({ local_upstreams: lines(form.local), remote_upstreams: lines(form.remote), cache_size: Number(form.cache_size), lazy_cache: form.lazy_cache, lazy_cache_ttl: Number(form.lazy_cache_ttl), log_level: form.log_level, hijack: form.hijack, block_dot: form.block_dot, tap: form.tap })
     dirty.value = false
     toast.ok('DNS 设置已保存', '上游变化时解析缓存会被清空并重新解析')
     qc.invalidateQueries({ queryKey: ['dns'] }); qc.invalidateQueries({ queryKey: ['artifact'] })
@@ -49,7 +49,7 @@ async function clearCache() {
   try { await network.clearDnsCache(); toast.ok('解析缓存已清空', 'Mode C 的域名会在下一轮重新解析') } catch (e) { toast.error('操作失败', (e as Error).message) }
 }
 function restoreDefaults() {
-  Object.assign(form, { local: 'https://223.5.5.5/dns-query\ntls://1.12.12.12', remote: 'https://1.1.1.1/dns-query\ntls://8.8.8.8', cache_size: 10240, lazy_cache: true, lazy_cache_ttl: 86400, log_level: 'info', hijack: true, block_dot: true })
+  Object.assign(form, { local: 'https://223.5.5.5/dns-query\ntls://1.12.12.12', remote: 'https://1.1.1.1/dns-query\ntls://8.8.8.8', cache_size: 10240, lazy_cache: true, lazy_cache_ttl: 86400, log_level: 'info', hijack: true, block_dot: true, tap: true })
 }
 </script>
 
@@ -74,6 +74,10 @@ function restoreDefaults() {
           <div class="mb-2 text-xs font-semibold uppercase tracking-wide text-fg-muted">防 DNS 泄露</div>
           <label class="flex items-center gap-2 text-sm"><Switch v-model="form.hijack" label="劫持 LAN DNS" /> 劫持 LAN 的 DNS 查询:经过网关的所有 53 端口查询都交给本机 Mosdns,无论设备配了什么 DNS(私网地址的内部 DNS 除外)</label>
           <label class="mt-2 flex items-center gap-2 text-sm"><Switch v-model="form.block_dot" label="拦截 DoT" /> 拦截 DNS-over-TLS / QUIC(853):让这类客户端退回普通 DNS,从而被劫持。DoH(443)无法通用识别,不在此列</label>
+        </div>
+        <div class="mt-4 rounded-lg border border-border bg-surface-2/40 p-3">
+          <div class="mb-2 text-xs font-semibold uppercase tracking-wide text-fg-muted">观测</div>
+          <label class="flex items-center gap-2 text-sm"><Switch v-model="form.tap" label="记录解析结果" /> 记录 Mosdns 发给每台设备的解析结果(保留 30 分钟):观测页的连接列表据此把目标 IP 标成域名。只是旁路复制一份应答,不影响解析和分流</label>
         </div>
         <p class="text-xs text-fg-subtle">
           当前模式 {{ gw.state?.mode }}:命中代理规则的域名{{ gw.state?.mode === 'B' ? '返回 Fake-IP(198.18.0.0/16)' : '经远端上游解析' }};geosite:cn 走本地上游;其余走远端上游。

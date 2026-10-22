@@ -16,9 +16,9 @@ func UpdateNetworkConfig(ctx context.Context, tx *sql.Tx, c model.NetworkConfig)
 	}
 	_, err = tx.ExecContext(ctx, `UPDATE network_config SET mode=?, management_iface=?, service_iface=?, fakeip_pool=?, tproxy_port=?,
 		lan_default_policy=?, ospf_push_batch=?, ospf_push_interval_s=?, ospf_resolve_workers=?, ospf_publish_allowlist=?, node_failover_mode=?,
-		updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=1`,
+		sniff_override=?, updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=1`,
 		string(c.Mode), c.ManagementIface, c.ServiceIface, c.FakeIPPool, c.TProxyPort, c.LANDefaultPolicy,
-		c.OSPFPushBatch, c.OSPFPushIntervalSec, c.OSPFResolveWorkers, string(allow), c.NodeFailoverMode)
+		c.OSPFPushBatch, c.OSPFPushIntervalSec, c.OSPFResolveWorkers, string(allow), c.NodeFailoverMode, b2i(c.SniffOverride))
 	return err
 }
 
@@ -33,8 +33,8 @@ func UpdateDNSConfig(ctx context.Context, tx *sql.Tx, c model.DNSConfig) error {
 		return err
 	}
 	_, err = tx.ExecContext(ctx, `UPDATE dns_config SET local_upstreams=?, remote_upstreams=?, cache_size=?, lazy_cache=?, lazy_cache_ttl=?, log_level=?,
-		hijack=?, block_dot=?, updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=1`,
-		string(local), string(remote), c.CacheSize, b2i(c.LazyCache), c.LazyCacheTTL, c.LogLevel, b2i(c.Hijack), b2i(c.BlockDoT))
+		hijack=?, block_dot=?, tap=?, updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=1`,
+		string(local), string(remote), c.CacheSize, b2i(c.LazyCache), c.LazyCacheTTL, c.LogLevel, b2i(c.Hijack), b2i(c.BlockDoT), b2i(c.Tap))
 	return err
 }
 

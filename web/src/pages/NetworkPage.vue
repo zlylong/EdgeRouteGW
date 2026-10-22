@@ -63,7 +63,7 @@ async function doSwitch() {
 }
 
 // --- Settings form ---
-const form = reactive<NetworkConfig>({ mode: 'A', management_iface: '', service_iface: '', fakeip_pool: '198.18.0.0/16', tproxy_port: 12345, lan_default_policy: 'proxy', ospf_push_batch: 500, ospf_push_interval_s: 2, ospf_resolve_workers: 8, ospf_publish_allowlist: [], node_failover_mode: 'normal' })
+const form = reactive<NetworkConfig>({ mode: 'A', management_iface: '', service_iface: '', fakeip_pool: '198.18.0.0/16', tproxy_port: 12345, lan_default_policy: 'proxy', ospf_push_batch: 500, ospf_push_interval_s: 2, ospf_resolve_workers: 8, ospf_publish_allowlist: [], node_failover_mode: 'normal', sniff_override: false })
 const allowText = ref('')
 const errors = ref<Record<string, string>>({})
 const busy = ref(false)
@@ -161,6 +161,7 @@ const routerosHint = computed(() => `/routing rule add src-address=${ospfQ.data.
           <Field label="TPROXY 端口" :error="errors.tproxy_port"><Input v-model="form.tproxy_port" type="number" class="font-mono" /></Field>
           <Field label="Fake-IP 池(Mode B)" :error="errors.fakeip_pool"><Input v-model="form.fakeip_pool" class="font-mono" /></Field>
         </div>
+        <label class="mt-4 flex items-start gap-2 text-sm"><Switch v-model="form.sniff_override" label="嗅探结果覆盖目的地址" class="mt-0.5" /><span>嗅探结果覆盖目的地址:Xray 把嗅探到的域名当作连接目标(默认只用它匹配规则),连接按 Xray 经本机 Mosdns 重新解析的地址发出,可以纠正设备侧被污染或过时的解析;代价是直连流量多一次解析,个别"按 IP 连接、SNI 固定"的业务可能出错,且 Xray 自身日志会降到 error 级别。注意 access log 和观测页仍显示原始 IP,看域名靠 DNS 页的「记录解析结果」。Mode B 不适用,默认关闭</span></label>
       </Card>
       <Card title="OSPF 宣告参数" class="lg:col-span-2">
         <div class="grid gap-4 sm:grid-cols-3">

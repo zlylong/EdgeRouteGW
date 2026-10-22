@@ -139,10 +139,10 @@ func captureDesired(ctx context.Context, tx *sql.Tx) (*DesiredSnapshot, error) {
 		s.Bypass = append(s.Bypass, b)
 	}
 	rows.Close()
-	if s.Network, err = rowAsMap(ctx, tx, `SELECT mode, management_iface, service_iface, fakeip_pool, tproxy_port, lan_default_policy, ospf_push_batch, ospf_push_interval_s, ospf_resolve_workers, ospf_publish_allowlist, node_failover_mode FROM network_config WHERE id=1`); err != nil {
+	if s.Network, err = rowAsMap(ctx, tx, `SELECT mode, management_iface, service_iface, fakeip_pool, tproxy_port, lan_default_policy, ospf_push_batch, ospf_push_interval_s, ospf_resolve_workers, ospf_publish_allowlist, node_failover_mode, sniff_override FROM network_config WHERE id=1`); err != nil {
 		return nil, err
 	}
-	if s.DNS, err = rowAsMap(ctx, tx, `SELECT local_upstreams, remote_upstreams, cache_size, lazy_cache, lazy_cache_ttl, log_level, hijack, block_dot FROM dns_config WHERE id=1`); err != nil {
+	if s.DNS, err = rowAsMap(ctx, tx, `SELECT local_upstreams, remote_upstreams, cache_size, lazy_cache, lazy_cache_ttl, log_level, hijack, block_dot, tap FROM dns_config WHERE id=1`); err != nil {
 		return nil, err
 	}
 	return s, nil

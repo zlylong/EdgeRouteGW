@@ -235,6 +235,13 @@ func (r *xrayRenderer) base(d Deps, mode model.Mode) map[string]any {
 	if mode == model.ModeB {
 		tproxySniff = sniff("fakedns")
 	}
+	// Sniff override (Mode A/C): the sniffed domain replaces the destination,
+	// so logs and the observe page carry names; direct flows are then
+	// resolved by Xray itself, through Mosdns, to keep answers consistent.
+	override := r.snap.Network.SniffOverride && mode != model.ModeB
+	if override {
+		tproxySniff["routeOnly"] = false
+	}
 	port := r.snap.Network.TProxyPort
 	if port <= 0 {
 		port = 12345
@@ -263,8 +270,12 @@ func (r *xrayRenderer) base(d Deps, mode model.Mode) map[string]any {
 			"settings": map[string]any{"udp": false, "auth": "password", "accounts": probeAccounts()},
 		},
 	}
+	direct := map[string]any{"tag": TagDirect, "protocol": "freedom", "streamSettings": map[string]any{"sockopt": map[string]any{"mark": OutboundMark}}}
+	if override {
+		direct["settings"] = map[string]any{"domainStrategy": "UseIP"}
+	}
 	outbounds := []any{
-		map[string]any{"tag": TagDirect, "protocol": "freedom", "streamSettings": map[string]any{"sockopt": map[string]any{"mark": OutboundMark}}},
+		direct,
 		map[string]any{"tag": TagBlock, "protocol": "blackhole"},
 	}
 	cfg := map[string]any{
@@ -276,6 +287,12 @@ func (r *xrayRenderer) base(d Deps, mode model.Mode) map[string]any {
 			"statsOutboundDownlink": true, "statsOutboundUplink": true,
 		}},
 		"routing": map[string]any{"domainStrategy": "IPIfNonMatch"},
+	}
+	if override {
+		cfg["dns"] = map[string]any{"servers": []any{"127.0.0.1"}, "queryStrategy": "UseIPv4", "disableFallback": true}
+		// Xray logs "domain X will use the first DNS" at warning level for
+		// every sniffed connection; that would flood the journal.
+		cfg["log"].(map[string]any)["loglevel"] = "error"
 	}
 	if mode == model.ModeB {
 		pool := r.snap.Network.FakeIPPool
