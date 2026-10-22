@@ -73,11 +73,13 @@ async function save() {
   <Dialog v-model:open="open" :title="group ? '编辑出站组' : '新建出站组'" description="规则可以指向出站组。故障转移组按顺序取前两个启用成员为主/备;负载组在所有启用成员间按策略分配。">
     <div class="space-y-4">
       <Field label="名称" :error="errors.name"><Input v-model="form.name" placeholder="如 海外主备" /></Field>
-      <Field label="类型" :error="errors.kind" :hint="kindHelp[form.kind]">
+      <Field label="类型" :error="errors.kind">
         <Select v-model="form.kind" :options="[{ value: 'failover', label: '故障转移(主/备)' }, { value: 'loadbalance', label: '负载均衡' }]" />
+        <p class="mt-1.5 text-xs leading-relaxed text-fg-muted">{{ kindHelp[form.kind] }}</p>
       </Field>
-      <Field v-if="form.kind === 'loadbalance'" label="策略" :hint="strategyHelp[form.strategy]">
+      <Field v-if="form.kind === 'loadbalance'" label="策略">
         <Select v-model="form.strategy" :options="strategyOptions" />
+        <p class="mt-1.5 text-xs leading-relaxed text-fg-muted">{{ strategyHelp[form.strategy] }}</p>
       </Field>
       <Field label="成员(有序)" :error="errors.member_ids">
         <ul class="space-y-1">
