@@ -136,7 +136,7 @@ Base URL:`http://<gateway>/api/v2`。所有请求与响应均为 JSON(`/artifact
 
 | POST | `/components/{name}/install-bundled` | 从 `/usr/share/edgeroutegw/components`(edgeroutegw-components 包)安装;`GET /components` 的 `bundled.version` 显示可用版本 |
 | POST | `/components/{name}/upload` | multipart:`file`(官方 zip)+ 可选 `sha256`;无 sha256 时按未校验安装并记事件 |
-| GET / PUT | `/components/download-settings` | `{proxy, github_mirror}`:下载代理(http/socks5)与 GitHub 镜像前缀,对 API 与下载都生效 |
+| GET / PUT | `/components/download-settings` | `{proxy, github_mirror, github_token}`:下载代理(http/socks5)、GitHub 镜像前缀(对 API 与下载都生效)、可选的 GitHub token(只用于 releases API,把每小时 60 次的匿名配额提到 5000 次) |
 
 启动时和收到 SIGHUP 时,若某组件未安装而内置包里有,则自动种子化。
 

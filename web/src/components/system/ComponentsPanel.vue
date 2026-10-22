@@ -24,7 +24,7 @@ const refreshing = ref(false)
 async function refresh() { refreshing.value = true; try { qc.setQueryData(['components'], await compApi.list(true)) } catch (e) { toast.error('检查失败', (e as Error).message) } finally { refreshing.value = false } }
 
 const dlQ = useQuery({ queryKey: ['download-settings'], queryFn: compApi.downloadSettings })
-const dl = ref({ proxy: '', github_mirror: '' })
+const dl = ref({ proxy: '', github_mirror: '', github_token: '' })
 watch(() => dlQ.data.value, d => { if (d) dl.value = { ...d } }, { immediate: true })
 async function saveDownload() {
   try { await compApi.setDownloadSettings(dl.value); toast.ok('下载设置已保存'); qc.invalidateQueries({ queryKey: ['download-settings'] }) } catch (e) { toast.error('保存失败', (e as Error).message) }
@@ -114,6 +114,7 @@ const schedHint: Record<string, string> = {
       <div class="grid gap-4 sm:grid-cols-2">
         <Field label="下载代理" hint="http(s):// 或 socks5://,留空直连"><Input v-model="dl.proxy" class="font-mono" placeholder="socks5://127.0.0.1:10808" /></Field>
         <Field label="GitHub 镜像前缀" hint="会拼在 GitHub URL 前面,留空不用"><Input v-model="dl.github_mirror" class="font-mono" placeholder="https://ghproxy.example/" /></Field>
+        <Field label="GitHub Token(可选)" hint="未认证每小时只有 60 次 API 调用,多台共用出口 IP 时很容易用尽;填一个无权限的 token 提升到 5000 次"><Input v-model="dl.github_token" type="password" autocomplete="off" class="font-mono" placeholder="github_pat_… 或 ghp_…" /></Field>
       </div>
       <div class="mt-3 flex justify-end"><Button variant="secondary" @click="saveDownload">保存</Button></div>
     </Card>

@@ -8,12 +8,16 @@ package update
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"regexp"
 	"runtime"
+	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -33,6 +37,30 @@ type GitHub struct {
 	// Mirror, when set, is prefixed before every GitHub URL (API and
 	// downloads), e.g. "https://ghproxy.example/".
 	Mirror string
+	// Token, when set, authenticates API calls (5000 requests/hour instead
+	// of 60 for anonymous callers behind one egress IP).
+	Token string
+
+	mu    sync.Mutex
+	etags map[string]cachedJSON // conditional requests: a 304 is free of charge
+}
+
+type cachedJSON struct {
+	etag string
+	body []byte
+}
+
+// RateLimitError is returned when GitHub's API quota for this IP (or
+// token) is exhausted. Reset is when it refills (zero when unknown).
+type RateLimitError struct {
+	Reset time.Time
+}
+
+func (e *RateLimitError) Error() string {
+	if e.Reset.IsZero() {
+		return "GitHub API 请求次数用尽(未认证每小时 60 次);稍后再试,或在「下载通道」填 GitHub Token"
+	}
+	return fmt.Sprintf("GitHub API 请求次数用尽(未认证每小时 60 次),%s 恢复;在「下载通道」填 GitHub Token 可提高到每小时 5000 次", e.Reset.Local().Format("15:04"))
 }
 
 // via applies the mirror prefix.
@@ -96,19 +124,78 @@ func (g *GitHub) getJSON(ctx context.Context, url string, out any) error {
 	}
 	req.Header.Set("Accept", "application/vnd.github+json")
 	req.Header.Set("User-Agent", "EdgeRouteGW/2.0")
+	if g.Token != "" {
+		req.Header.Set("Authorization", "Bearer "+g.Token)
+	}
+	g.mu.Lock()
+	cached, hit := g.etags[url]
+	g.mu.Unlock()
+	if hit {
+		req.Header.Set("If-None-Match", cached.etag)
+	}
 	res, err := g.Client.Do(req)
 	if err != nil {
 		return err
 	}
 	defer res.Body.Close()
-	if res.StatusCode != 200 {
-		msg := fmt.Sprintf("github api %s: status %d", url, res.StatusCode)
-		if res.StatusCode == 403 && res.Header.Get("X-RateLimit-Remaining") == "0" {
-			msg += " (rate limited; try again later)"
+	switch {
+	case res.StatusCode == http.StatusNotModified && hit:
+		return json.Unmarshal(cached.body, out)
+	case res.StatusCode == http.StatusOK:
+		body, err := io.ReadAll(io.LimitReader(res.Body, 4<<20))
+		if err != nil {
+			return err
 		}
-		return fmt.Errorf("%s", msg)
+		if etag := res.Header.Get("ETag"); etag != "" {
+			g.mu.Lock()
+			if g.etags == nil {
+				g.etags = map[string]cachedJSON{}
+			}
+			g.etags[url] = cachedJSON{etag: etag, body: body}
+			g.mu.Unlock()
+		}
+		return json.Unmarshal(body, out)
+	case (res.StatusCode == http.StatusForbidden || res.StatusCode == http.StatusTooManyRequests) && res.Header.Get("X-RateLimit-Remaining") == "0":
+		e := &RateLimitError{}
+		if n, err := strconv.ParseInt(res.Header.Get("X-RateLimit-Reset"), 10, 64); err == nil && n > 0 {
+			e.Reset = time.Unix(n, 0)
+		}
+		return e
 	}
-	return json.NewDecoder(io.LimitReader(res.Body, 4<<20)).Decode(out)
+	return fmt.Errorf("github api %s: status %d", url, res.StatusCode)
+}
+
+// latestByRedirect learns the latest release tag without the API:
+// github.com/<repo>/releases/latest answers with a redirect to the tag
+// page, which is not rate limited. Only the tag is known this way.
+func (g *GitHub) latestByRedirect(ctx context.Context, repo string) (Release, error) {
+	cl := *g.Client
+	cl.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, g.via(fmt.Sprintf("%s/%s/releases/latest", g.DownloadBase, repo)), nil)
+	if err != nil {
+		return Release{}, err
+	}
+	req.Header.Set("User-Agent", "EdgeRouteGW/2.0")
+	res, err := cl.Do(req)
+	if err != nil {
+		return Release{}, err
+	}
+	io.Copy(io.Discard, io.LimitReader(res.Body, 64<<10))
+	res.Body.Close()
+	if res.StatusCode/100 != 3 {
+		return Release{}, fmt.Errorf("releases/latest: status %d", res.StatusCode)
+	}
+	_, tag, ok := strings.Cut(res.Header.Get("Location"), "/releases/tag/")
+	if !ok {
+		return Release{}, fmt.Errorf("releases/latest: unexpected redirect")
+	}
+	if t, err := url.PathUnescape(tag); err == nil {
+		tag = t
+	}
+	if !ValidVersion(tag) {
+		return Release{}, fmt.Errorf("unexpected tag %q", tag)
+	}
+	return Release{Tag: tag}, nil
 }
 
 // Releases lists up to n releases, newest first.
@@ -129,10 +216,17 @@ func (g *GitHub) Releases(ctx context.Context, repo string, n int) ([]Release, e
 	return out, nil
 }
 
-// Latest returns the latest non-prerelease.
+// Latest returns the latest non-prerelease. When the API quota is used up
+// it falls back to the release page redirect, which yields the tag alone.
 func (g *GitHub) Latest(ctx context.Context, repo string) (Release, error) {
 	var raw ghRelease
 	if err := g.getJSON(ctx, fmt.Sprintf("%s/repos/%s/releases/latest", g.APIBase, repo), &raw); err != nil {
+		var rl *RateLimitError
+		if errors.As(err, &rl) {
+			if rel, err2 := g.latestByRedirect(ctx, repo); err2 == nil {
+				return rel, nil
+			}
+		}
 		return Release{}, err
 	}
 	if !ValidVersion(raw.TagName) {

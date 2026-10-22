@@ -21,6 +21,7 @@ const BundleDir = "/usr/share/edgeroutegw/components"
 const (
 	ProxyKey  = "download.proxy"         // e.g. socks5://127.0.0.1:10808 (the gateway's own tunnel)
 	MirrorKey = "download.github_mirror" // e.g. https://ghproxy.example/ prefixed before GitHub URLs
+	TokenKey  = "download.github_token"  // optional GitHub token for the releases API (rate limit 60/h -> 5000/h)
 )
 
 // Bundled describes what the bundle offers for a component.
@@ -144,18 +145,23 @@ func (s *Service) SeedFromBundle(ctx context.Context) (seeded []string) {
 type DownloadSettings struct {
 	Proxy  string `json:"proxy"`
 	Mirror string `json:"github_mirror"`
+	Token  string `json:"github_token"`
 }
 
 // GetDownloadSettings reads the stored settings.
 func (s *Service) GetDownloadSettings(ctx context.Context) DownloadSettings {
 	p, _ := s.Store.GetSetting(ctx, ProxyKey)
 	m, _ := s.Store.GetSetting(ctx, MirrorKey)
-	return DownloadSettings{Proxy: p, Mirror: m}
+	t, _ := s.Store.GetSetting(ctx, TokenKey)
+	return DownloadSettings{Proxy: p, Mirror: m, Token: t}
 }
 
 // SetDownloadSettings validates, stores and applies proxy and mirror.
 func (s *Service) SetDownloadSettings(ctx context.Context, d DownloadSettings) error {
-	d.Proxy, d.Mirror = strings.TrimSpace(d.Proxy), strings.TrimSpace(d.Mirror)
+	d.Proxy, d.Mirror, d.Token = strings.TrimSpace(d.Proxy), strings.TrimSpace(d.Mirror), strings.TrimSpace(d.Token)
+	if len(d.Token) > 255 || strings.ContainsAny(d.Token, " \t\r\n\"") {
+		return fmt.Errorf("github token must be a single token string")
+	}
 	if d.Proxy != "" {
 		u, err := url.Parse(d.Proxy)
 		if err != nil || u.Host == "" || (u.Scheme != "http" && u.Scheme != "https" && u.Scheme != "socks5" && u.Scheme != "socks5h") {
@@ -177,6 +183,9 @@ func (s *Service) SetDownloadSettings(ctx context.Context, d DownloadSettings) e
 	if err := s.Store.SetSetting(ctx, MirrorKey, d.Mirror); err != nil {
 		return err
 	}
+	if err := s.Store.SetSetting(ctx, TokenKey, d.Token); err != nil {
+		return err
+	}
 	s.ApplyDownloadSettings(ctx)
 	return nil
 }
@@ -196,6 +205,7 @@ func (s *Service) ApplyDownloadSettings(ctx context.Context) {
 	s.GitHub.Client = &http.Client{Timeout: 20 * time.Second, Transport: transport}
 	s.HTTP = &http.Client{Timeout: 15 * time.Minute, Transport: transport}
 	s.GitHub.Mirror = d.Mirror
+	s.GitHub.Token = d.Token
 	s.mu.Unlock()
 }
 
