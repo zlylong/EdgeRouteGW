@@ -266,13 +266,18 @@ func validate(p netip.Prefix) error {
 	if b[0] >= 224 {
 		return fmt.Errorf("multicast or reserved")
 	}
+	// Private, CGNAT and "this network" space is never announced, not even
+	// as a /32: a poisoned DNS answer pointing a proxied domain at a LAN
+	// host would otherwise pull that host's traffic into the gateway.
 	switch {
-	case b[0] == 10 && p.Bits() <= 8:
-		return fmt.Errorf("RFC1918 supernet 10.0.0.0/%d", p.Bits())
-	case b[0] == 172 && b[1] >= 16 && b[1] <= 31 && p.Bits() <= 12:
-		return fmt.Errorf("RFC1918 supernet 172.16.0.0/%d", p.Bits())
-	case b[0] == 192 && b[1] == 168 && p.Bits() <= 16:
-		return fmt.Errorf("RFC1918 supernet 192.168.0.0/%d", p.Bits())
+	case b[0] == 10 || b[0] == 0:
+		return fmt.Errorf("private or reserved address space")
+	case b[0] == 172 && b[1] >= 16 && b[1] <= 31:
+		return fmt.Errorf("private address space")
+	case b[0] == 192 && b[1] == 168:
+		return fmt.Errorf("private address space")
+	case b[0] == 100 && b[1] >= 64 && b[1] <= 127:
+		return fmt.Errorf("CGNAT address space")
 	}
 	return nil
 }

@@ -135,6 +135,7 @@ func (d Deps) uploadComponent(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusServiceUnavailable, "UNAVAILABLE", "updates are disabled", nil)
 		return
 	}
+	r.Body = http.MaxBytesReader(w, r.Body, 600<<20) // archive limit (512 MB) plus form overhead
 	if err := r.ParseMultipartForm(32 << 20); err != nil {
 		d.fail(w, r, invalid("file", "multipart form expected: %v", err))
 		return
@@ -166,7 +167,7 @@ func (d Deps) getDownloadSettings(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, update.DownloadSettings{})
 		return
 	}
-	writeJSON(w, http.StatusOK, d.Updater.GetDownloadSettings(r.Context()))
+	writeJSON(w, http.StatusOK, d.Updater.DownloadSettingsView(r.Context()))
 }
 
 func (d Deps) putDownloadSettings(w http.ResponseWriter, r *http.Request) {
@@ -183,7 +184,7 @@ func (d Deps) putDownloadSettings(w http.ResponseWriter, r *http.Request) {
 		d.fail(w, r, invalid("proxy", "%v", err))
 		return
 	}
-	writeJSON(w, http.StatusOK, d.Updater.GetDownloadSettings(r.Context()))
+	writeJSON(w, http.StatusOK, d.Updater.DownloadSettingsView(r.Context()))
 }
 
 func (d Deps) getComponentSchedule(w http.ResponseWriter, r *http.Request) {

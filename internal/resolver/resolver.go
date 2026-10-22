@@ -74,8 +74,8 @@ func DNSLookup(server string) Lookup {
 				continue
 			}
 			ip, ok := netip.AddrFromSlice(a.A.To4())
-			if !ok {
-				continue
+			if !ok || ip.IsPrivate() || ip.IsLoopback() || ip.IsUnspecified() || ip.IsLinkLocalUnicast() || ip.IsMulticast() {
+				continue // bogon answers never become routes
 			}
 			addrs = append(addrs, ip)
 			ttl := time.Duration(a.Hdr.Ttl) * time.Second

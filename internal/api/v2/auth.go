@@ -92,12 +92,13 @@ func (d Deps) changePassword(w http.ResponseWriter, r *http.Request) {
 	var in struct {
 		OldPassword string `json:"old_password"`
 		NewPassword string `json:"new_password"`
+		KeepTokens  bool   `json:"keep_tokens"` // default: revoke every API token
 	}
 	if err := decode(r, &in); err != nil {
 		d.fail(w, r, err)
 		return
 	}
-	err := d.Auth.ChangePassword(r.Context(), p.ID, in.OldPassword, in.NewPassword)
+	err := d.Auth.ChangePassword(r.Context(), p.ID, in.OldPassword, in.NewPassword, in.KeepTokens)
 	var pe *auth.PolicyError
 	switch {
 	case errors.Is(err, auth.ErrBadCredentials):

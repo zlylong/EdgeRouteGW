@@ -116,6 +116,9 @@ func (d Deps) handleReconcileNow(w http.ResponseWriter, r *http.Request) {
 // config" view. It renders fresh from desired state, so it shows what the
 // next apply will produce.
 func (d Deps) handleArtifact(w http.ResponseWriter, r *http.Request) {
+	if !sessionOnly(w, r) { // rendered configs carry node credentials
+		return
+	}
 	_, arts, err := d.Reconciler.PlanOnly(r.Context())
 	if err != nil {
 		d.fail(w, r, err)

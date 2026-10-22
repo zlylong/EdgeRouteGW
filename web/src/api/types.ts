@@ -225,7 +225,7 @@ export interface TrafficRate { up_bps: number; down_bps: number }
 export interface TrafficRates { at: string; up_bps: number; down_bps: number; nodes: Record<string, TrafficRate>; available: boolean }
 export interface TrafficResponse { range: string; bucket_s: number; series: TrafficPoint[]; total_up: number; total_down: number; nodes: NodeTraffic[]; current: TrafficRates }
 export interface LatencyResult { node_id: string; ms: number; error?: string }
-export interface DownloadSettings { proxy: string; github_mirror: string; github_token: string }
+export interface DownloadSettings { proxy: string; github_mirror: string; github_token: string; has_github_token: boolean; clear_github_token?: boolean }
 export interface GeoTags { kind: 'geosite' | 'geoip'; installed: boolean; version?: string; items: string[] }
 export interface TuningItem { key: string; title: string; status: 'ok' | 'applied' | 'fallback' | 'unavailable' | 'info'; detail: string; hint?: string }
 export interface TuningReport { at: string; applied: boolean; host: { cpus: number; kernel: string; virt: string; iface: string }; items: TuningItem[] }

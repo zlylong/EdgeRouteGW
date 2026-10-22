@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/zlylong/EdgeRouteGW/internal/auth"
 	"io"
 	"log/slog"
 	"net/http"
@@ -58,7 +59,7 @@ func newEnvWith(t *testing.T, tweak func(*Deps)) *env {
 		tweak(&deps)
 	}
 	Register(mux, deps)
-	srv := httptest.NewServer(mux)
+	srv := httptest.NewServer(testSession(mux))
 	t.Cleanup(srv.Close)
 	return &env{srv: srv, st: st, rec: rec, t: t}
 }
@@ -490,4 +491,12 @@ func latestMigration(t *testing.T) string {
 		t.Fatal("no migrations")
 	}
 	return all[len(all)-1].Version
+}
+
+// testSession stands in for the auth middleware: every request is an
+// interactive admin session.
+func testSession(h http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		h.ServeHTTP(w, r.WithContext(auth.WithPrincipal(r.Context(), auth.Principal{Kind: "session", ID: "test", Name: "admin", Scope: "write"})))
+	})
 }

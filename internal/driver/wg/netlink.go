@@ -182,7 +182,8 @@ func (Netlink) Remove(name string, table, mark int) error {
 	for _, fam := range []int{netlink.FAMILY_V4, netlink.FAMILY_V6} {
 		if rules, err := netlink.RuleList(fam); err == nil {
 			for _, r := range rules {
-				if (mark != 0 && r.Mark == uint32(mark)) || (table != 0 && r.Table == table && r.Table >= render.WGTableBase && r.Table < render.WGTableBase+render.WGMaxIfaces) {
+				ours := table != 0 && r.Table == table && r.Table >= render.WGTableBase && r.Table < render.WGTableBase+render.WGMaxIfaces
+				if ours && (mark == 0 || r.Mark == uint32(mark)) {
 					_ = netlink.RuleDel(&r)
 				}
 			}

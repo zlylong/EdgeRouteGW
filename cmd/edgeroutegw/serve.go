@@ -100,6 +100,7 @@ func cmdServe(args []string, stdout, stderr io.Writer, env config.LookupEnv) int
 
 	run := execx.Real{Timeout: 60 * time.Second, Log: log}
 	authSvc := auth.New(st, cfg.DataDir, log)
+	authSvc.ForceSecure = cfg.SecureCookies
 	if err := authSvc.Bootstrap(ctx); err != nil {
 		log.Error("auth bootstrap failed", "err", err)
 		return 1

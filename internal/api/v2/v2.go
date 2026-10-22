@@ -283,6 +283,18 @@ func (d Deps) mutate(ctx context.Context, r *http.Request, summary string, fn fu
 
 // actorOf names who made a change: the authenticated principal, or the
 // remote address when the handler runs without the auth middleware (tests).
+// sessionOnly rejects API tokens on routes that return secrets (node
+// credentials, rendered configs, the GitHub token). A read-only token must
+// never be a way to export every credential of the gateway.
+func sessionOnly(w http.ResponseWriter, r *http.Request) bool {
+	p, ok := auth.FromContext(r.Context())
+	if !ok || p.Kind != "session" {
+		writeErr(w, http.StatusForbidden, "SESSION_REQUIRED", "this resource contains credentials and is only available to a browser session", nil)
+		return false
+	}
+	return true
+}
+
 func actorOf(r *http.Request) string {
 	if p, ok := auth.FromContext(r.Context()); ok {
 		return p.Actor()

@@ -115,7 +115,8 @@ func VlessInstallScript(p VlessParams) string {
 	return scriptPrelude + fmt.Sprintf(`retry_cmd apt-get update -qq
 retry_cmd apt-get install -y -qq curl unzip coreutils
 enable_bbr
-mkdir -p /usr/local/etc/xray /usr/local/share/xray
+install -d -m 0700 /usr/local/etc/xray
+install -d -m 0755 /usr/local/share/xray
 case "$(uname -m)" in
   x86_64|amd64)  ASSET="Xray-linux-64.zip" ;;
   aarch64|arm64) ASSET="Xray-linux-arm64-v8a.zip" ;;
@@ -172,8 +173,8 @@ for _ in $(seq 1 30); do
   sleep 0.5
 done
 if [ "$ready" -ne 1 ]; then echo "probe client did not start (port %d busy?)" >&2; cat "$WORK/probe.log" >&2; exit 1; fi
-if ! curl -sS --max-time 20 -o /dev/null --socks5-hostname 127.0.0.1:%d "https://%s/"; then
-  echo "REALITY smoke test FAILED: xray runs but no client completes a handshake. dest %s is not a usable camouflage target from this host; pick another dest/serverName." >&2
+if ! curl -sS --max-time 20 -o /dev/null --socks5-hostname 127.0.0.1:%d 'https://%s/'; then
+  echo 'REALITY smoke test FAILED: xray runs but no client completes a handshake. dest %s is not a usable camouflage target from this host; pick another dest/serverName.' >&2
   cat "$WORK/probe.log" >&2
   exit 1
 fi

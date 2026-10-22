@@ -111,6 +111,11 @@ type ctxKey int
 const principalKey ctxKey = iota
 
 // FromContext returns the authenticated principal, if any.
+// WithPrincipal attaches a principal (tests, trusted embedders).
+func WithPrincipal(ctx context.Context, p Principal) context.Context {
+	return context.WithValue(ctx, principalKey, p)
+}
+
 func FromContext(ctx context.Context) (Principal, bool) {
 	p, ok := ctx.Value(principalKey).(Principal)
 	return p, ok
@@ -172,8 +177,10 @@ func (s *Service) Logout(ctx context.Context, sessionID string) error {
 }
 
 // ChangePassword verifies the old password, stores the new hash, clears the
-// bootstrap flag and file, and revokes every other session.
-func (s *Service) ChangePassword(ctx context.Context, sessionID, oldPw, newPw string) error {
+// bootstrap flag and file, revokes every other session and, unless
+// keepTokens is set, every API token (a token minted during a session
+// compromise must not outlive the password change).
+func (s *Service) ChangePassword(ctx context.Context, sessionID, oldPw, newPw string, keepTokens bool) error {
 	admin, err := s.Store.Admin(ctx)
 	if err != nil {
 		return err
@@ -197,7 +204,11 @@ func (s *Service) ChangePassword(ctx context.Context, sessionID, oldPw, newPw st
 	}
 	_ = os.Remove(s.BootstrapPasswordFile())
 	n, _ := s.Store.DeleteOtherSessions(ctx, sessionID)
-	s.Log.Info("admin password changed", "revoked_sessions", n)
+	var t int64
+	if !keepTokens {
+		t, _ = s.Store.DeleteAllAPITokens(ctx)
+	}
+	s.Log.Info("admin password changed", "revoked_sessions", n, "revoked_tokens", t)
 	return nil
 }
 
@@ -310,6 +321,13 @@ func (s *Service) Middleware(exempt func(r *http.Request) bool) func(http.Handle
 			if !ok {
 				w.Header().Set("Cache-Control", "no-store")
 				writeJSON(w, http.StatusUnauthorized, `{"error":{"code":"UNAUTHENTICATED","message":"login required"}}`)
+				return
+			}
+			if p.Kind == "session" && p.Bootstrap && !strings.HasPrefix(r.URL.Path, "/api/v2/auth/") {
+				// The generated bootstrap password only unlocks the
+				// password change itself; the router guard in the UI is
+				// not a security boundary.
+				writeJSON(w, http.StatusForbidden, `{"error":{"code":"PASSWORD_CHANGE_REQUIRED","message":"change the bootstrap password first"}}`)
 				return
 			}
 			if !safeMethod(r.Method) {

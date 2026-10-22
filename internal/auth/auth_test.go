@@ -82,13 +82,13 @@ func TestBootstrapLoginChangePassword(t *testing.T) {
 	}
 	other, _, _ := s.Login(ctx, pw, "10.0.0.2", "ua2")
 
-	if err := s.ChangePassword(ctx, sess.ID, pw, "short"); err == nil {
+	if err := s.ChangePassword(ctx, sess.ID, pw, "short", false); err == nil {
 		t.Fatal("weak password accepted")
 	}
-	if err := s.ChangePassword(ctx, sess.ID, "wrong", "longenoughpassword"); err != ErrBadCredentials {
+	if err := s.ChangePassword(ctx, sess.ID, "wrong", "longenoughpassword", false); err != ErrBadCredentials {
 		t.Fatalf("expected bad credentials, got %v", err)
 	}
-	if err := s.ChangePassword(ctx, sess.ID, pw, "longenoughpassword"); err != nil {
+	if err := s.ChangePassword(ctx, sess.ID, pw, "longenoughpassword", false); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(s.BootstrapPasswordFile()); !os.IsNotExist(err) {
@@ -162,7 +162,16 @@ func TestMiddlewareCookieCSRFAndTokens(t *testing.T) {
 	if do("GET", "/x", false, "", "") != 401 {
 		t.Fatal("anonymous allowed")
 	}
-	if do("GET", "/x", true, "", "") != 204 || seen.Kind != "session" || !seen.Bootstrap {
+	if do("GET", "/x", true, "", "") != 403 {
+		t.Fatal("bootstrap session must be limited to the password change")
+	}
+	if do("POST", "/auth/password-like", true, csrf, "") != 403 { // only /api/v2/auth/* is open
+		t.Fatal("bootstrap session must not reach other routes")
+	}
+	if err := s.ChangePassword(ctx, sess.ID, pw, "longenoughpassword", false); err != nil {
+		t.Fatal(err)
+	}
+	if do("GET", "/x", true, "", "") != 204 || seen.Kind != "session" || seen.Bootstrap {
 		t.Fatalf("cookie GET failed: %+v", seen)
 	}
 	if do("POST", "/x", true, "", "") != 403 {

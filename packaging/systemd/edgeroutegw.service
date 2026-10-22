@@ -29,10 +29,19 @@ ProtectControlGroups=yes
 RestrictSUIDSGID=yes
 RestrictRealtime=yes
 LockPersonality=yes
+ProtectKernelLogs=yes
+ProtectClock=yes
+ProtectHostname=yes
+RestrictNamespaces=yes
+SystemCallArchitectures=native
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
+UMask=0027
 ReadWritePaths=/var/lib/edgeroutegw /etc/edgeroutegw /etc/frr /etc/nftables.conf
 RuntimeDirectory=edgeroutegw
+RuntimeDirectoryMode=0750
 RuntimeDirectoryPreserve=yes
 StateDirectory=edgeroutegw
+StateDirectoryMode=0750
 
 [Install]
 WantedBy=multi-user.target

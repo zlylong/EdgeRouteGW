@@ -21,6 +21,9 @@ type Config struct {
 	DataDir string
 	// LogLevel is one of debug, info, warn, error.
 	LogLevel string
+	// SecureCookies marks session cookies Secure even though the process
+	// itself speaks plain HTTP: set it when a TLS reverse proxy is in front.
+	SecureCookies bool
 }
 
 const (
@@ -44,6 +47,8 @@ func Parse(fs *flag.FlagSet, args []string, env LookupEnv) (Config, error) {
 	fs.StringVar(&cfg.ListenAddr, "listen", cfg.ListenAddr, "HTTP listen address (env ERGW_LISTEN)")
 	fs.StringVar(&cfg.DataDir, "data-dir", cfg.DataDir, "data directory for database, keys and components (env ERGW_DATA_DIR)")
 	fs.StringVar(&cfg.LogLevel, "log-level", cfg.LogLevel, "log level: debug|info|warn|error (env ERGW_LOG_LEVEL)")
+	sc, _ := env(envPrefix + "SECURE_COOKIES")
+	fs.BoolVar(&cfg.SecureCookies, "secure-cookies", sc == "1" || strings.EqualFold(sc, "true"), "mark session cookies Secure (behind a TLS reverse proxy; env ERGW_SECURE_COOKIES)")
 	if err := fs.Parse(args); err != nil {
 		return Config{}, err
 	}

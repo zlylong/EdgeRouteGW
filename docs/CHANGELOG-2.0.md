@@ -1,5 +1,24 @@
 # EdgeRouteGW 2.0 变更记录
 
+## [2.0.0-rc.23] - 2026-10-22
+
+安全收尾审计(见 `docs/SECURITY-AUDIT-2.0.md`)的修复:
+
+- 凭证只对浏览器会话开放:`GET /backup?include_secrets=1` 与 `GET /artifacts/*` 对 API token 返回 403(只读 token 曾能借此导出全部节点凭证);含凭证的导出写一条 warn 事件。
+- GitHub Token 不再回传:`GET /components/download-settings` 只给 `has_github_token`;PUT 留空保持、`clear_github_token` 清除;配置了镜像时 token 不随请求发出;镜像只接受 https;校验文件(.dgst / sha256sum / SHA256SUMS)优先直连 GitHub,镜像只在直连不通时兜底。
+- nftables:prerouting 与 dns_hijack 链先放行 `fib daddr type local`(发往网关自身任何地址的流量,包括 WAN 口公网 IP,不再进 TPROXY);新增 input 链,只有带 TPROXY 标记的包能到达 TPROXY 端口,LAN 内直接连 `<网关>:12345` 一律丢弃(原本会让 Xray 对自己成环)。
+- 托管主机部署:REALITY 的 server_name / dest 按主机名与 host:port 白名单校验后才进脚本,脚本内改为单引号;远端 `/usr/local/etc/xray` 以 0700 创建。
+- 初始密码由服务端强制:bootstrap 会话除 `/auth/*` 外一律 403 `PASSWORD_CHANGE_REQUIRED`,不再只靠前端路由守卫。
+- 改密默认吊销所有 API token(请求带 `keep_tokens: true` 可保留)。
+- 组件上传整个请求体限 600 MB(此前只限内存阈值,超出部分会无上限落盘);下载限 1 GB 并预检 Content-Length;二进制替换改为先写完 .new 再换名,替换过程中目标文件始终存在。
+- 本地上传未提供 sha256 时真正写入 `upload.unverified` 事件(此前只有日志)。
+- OSPF 发布:私网、CGNAT、0.0.0.0/8 的任何前缀(包括 /32)都拒绝发布;解析器丢弃私网 / 回环 / 链路本地答案。此前被投毒的 DNS 答案可以把 LAN 主机的 /32 宣告给主路由。
+- 自升级:安排重启失败时任务按失败处理并清理暂存目录(此前显示成功但进程仍是旧版本);重启单元名带时间戳。
+- 托管主机换 SSH 端口也重新钉主机密钥;内核 WireGuard 清理 ip rule 时只删本接口路由表的规则;网卡名按内核规则 `^[A-Za-z0-9_.-]{1,15}$` 校验。
+- `-secure-cookies` / `ERGW_SECURE_COOKIES=1`:放在 TLS 反代后面时给会话 cookie 加 Secure。
+- 数据库文件:打开时对 db / -wal / -shm 显式 chmod 0600(已有安装的 0644 文件也会收紧)。
+- systemd 单元加固:三份单元加 ProtectKernelLogs / ProtectClock / ProtectHostname / RestrictNamespaces / SystemCallArchitectures=native / UMask=0027 / RuntimeDirectoryMode=0750;主单元加 RestrictAddressFamilies 与 StateDirectoryMode=0750;Xray/Mosdns 单元补齐 ProtectKernelTunables / ProtectKernelModules / ProtectControlGroups / RestrictSUIDSGID / RestrictRealtime / LockPersonality。
+
 ## [2.0.0-rc.22] - 2026-10-22
 
 - 「检查新版本」失败多半是 GitHub API 匿名配额(每出口 IP 每小时 60 次)用尽:现在错误信息直接写明「请求次数用尽,HH:MM 恢复」;releases API 改用 ETag 条件请求(304 不计配额);配额用尽时「最新版本」退回用 releases/latest 的跳转取标签(不限流);下载通道新增可选 GitHub Token(5000 次/小时)。

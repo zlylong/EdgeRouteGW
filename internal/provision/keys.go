@@ -7,6 +7,10 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"fmt"
+	"net"
+	"regexp"
+	"strconv"
+	"strings"
 
 	"github.com/google/uuid"
 	"golang.org/x/crypto/curve25519"
@@ -108,6 +112,13 @@ func NewVlessParams(port int, serverName, dest string) (VlessParams, error) {
 	if dest == "" {
 		dest = serverName + ":443"
 	}
+	serverName = strings.ToLower(serverName)
+	if !hostnameRe.MatchString(serverName) {
+		return VlessParams{}, fmt.Errorf("server_name must be a hostname")
+	}
+	if h, port, err := net.SplitHostPort(dest); err != nil || !(hostnameRe.MatchString(strings.ToLower(h)) || net.ParseIP(h) != nil) || !validPortString(port) {
+		return VlessParams{}, fmt.Errorf("dest must be host:port")
+	}
 	priv, pub, err := RealityKeys()
 	if err != nil {
 		return VlessParams{}, err
@@ -124,4 +135,13 @@ func validPort(p int) error {
 		return fmt.Errorf("port %d out of range", p)
 	}
 	return nil
+}
+
+// hostnameRe is a DNS hostname (lowercase, at least two labels). Values
+// matching it are safe to place inside a shell script and a JSON config.
+var hostnameRe = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]{0,62}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,62}[a-z0-9])?)+$`)
+
+func validPortString(p string) bool {
+	n, err := strconv.Atoi(p)
+	return err == nil && n > 0 && n < 65536
 }

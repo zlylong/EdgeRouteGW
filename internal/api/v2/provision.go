@@ -181,8 +181,8 @@ func (d Deps) updateHost(w http.ResponseWriter, r *http.Request) {
 		d.fail(w, r, err)
 		return
 	}
-	if h.SSHHost != cur.SSHHost {
-		_ = d.Store.SetRemoteHostKey(ctx, h.ID, "") // new address, new key
+	if h.SSHHost != cur.SSHHost || h.SSHPort != cur.SSHPort {
+		_ = d.Store.SetRemoteHostKey(ctx, h.ID, "") // new endpoint, new key
 	}
 	saved, _ := d.Store.GetRemoteHost(ctx, h.ID)
 	writeJSON(w, http.StatusOK, itemResp[HostView]{Item: d.hostView(r, saved)})

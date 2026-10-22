@@ -19,8 +19,21 @@ NoNewPrivileges=yes
 ProtectSystem=strict
 ProtectHome=yes
 PrivateTmp=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+RestrictSUIDSGID=yes
+RestrictRealtime=yes
+RestrictNamespaces=yes
+LockPersonality=yes
+SystemCallArchitectures=native
+UMask=0027
 ReadWritePaths=/var/lib/edgeroutegw/mosdns /run/edgeroutegw
 RuntimeDirectory=edgeroutegw
+RuntimeDirectoryMode=0750
 RuntimeDirectoryPreserve=yes
 
 [Install]

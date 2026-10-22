@@ -49,11 +49,16 @@ func Download(ctx context.Context, client *http.Client, url, dest, sha256hex str
 	}
 	tmpName := tmp.Name()
 	defer os.Remove(tmpName)
+	if res.ContentLength > maxDownload {
+		tmp.Close()
+		return fmt.Errorf("%s is %d bytes, larger than the %d MB limit", filepath.Base(url), res.ContentLength, maxDownload>>20)
+	}
 	h := sha256.New()
 	var done int64
 	buf := make([]byte, 256<<10)
+	body := io.LimitReader(res.Body, maxDownload+1)
 	for {
-		n, rerr := res.Body.Read(buf)
+		n, rerr := body.Read(buf)
 		if n > 0 {
 			if _, err := tmp.Write(buf[:n]); err != nil {
 				tmp.Close()
@@ -61,6 +66,10 @@ func Download(ctx context.Context, client *http.Client, url, dest, sha256hex str
 			}
 			h.Write(buf[:n])
 			done += int64(n)
+			if done > maxDownload {
+				tmp.Close()
+				return fmt.Errorf("%s exceeds the %d MB download limit", filepath.Base(url), maxDownload>>20)
+			}
 			if progress != nil {
 				progress(done, res.ContentLength)
 			}
@@ -144,22 +153,34 @@ func Unzip(zipPath, dir string, members []string) (map[string]string, error) {
 	return out, nil
 }
 
-// SwapFile installs src at dst keeping the previous dst as dst+".prev".
+// maxDownload bounds any single release asset (the largest, the .deb with
+// bundled components, is well under 200 MB).
+const maxDownload = 1 << 30
+
+// SwapFile installs src at dst keeping the previous dst as dst+".prev". The
+// new file is fully written next to dst before anything moves, so dst is
+// never missing.
 func SwapFile(src, dst string, perm os.FileMode) error {
 	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
+		return err
+	}
+	tmp := dst + ".new"
+	if err := copyFile(src, tmp, perm); err != nil {
+		_ = os.Remove(tmp)
 		return err
 	}
 	if _, err := os.Stat(dst); err == nil {
 		_ = os.Remove(dst + ".prev")
 		if err := os.Rename(dst, dst+".prev"); err != nil {
+			_ = os.Remove(tmp)
 			return err
 		}
 	}
-	tmp := dst + ".new"
-	if err := copyFile(src, tmp, perm); err != nil {
+	if err := os.Rename(tmp, dst); err != nil {
+		_ = os.Rename(dst+".prev", dst)
 		return err
 	}
-	return os.Rename(tmp, dst)
+	return nil
 }
 
 // RestorePrev puts dst+".prev" back.

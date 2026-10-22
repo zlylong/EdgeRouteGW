@@ -143,9 +143,10 @@ func (s *Service) installSelf(ctx context.Context, job *Job) error {
 	// finish and the client sees the job succeed. The stage directory is
 	// removed by the same unit once the restart has been issued.
 	cleanup = false
-	if res, err := s.Run.Run(ctx, "systemd-run", "--on-active=3", "--unit=edgeroutegw-selfrestart", "--collect",
+	if res, err := s.Run.Run(ctx, "systemd-run", "--on-active=3", fmt.Sprintf("--unit=edgeroutegw-selfrestart-%d", time.Now().UnixNano()), "--collect",
 		"/bin/sh", "-c", "systemctl daemon-reload; systemctl restart edgeroutegw.service; rm -rf "+shellQuote(work)); err != nil {
-		s.Log.Warn("could not schedule restart; restart edgeroutegw.service manually", "err", err, "out", strings.TrimSpace(string(res.Output)))
+		cleanup = true
+		return fmt.Errorf("package installed but the restart could not be scheduled (%s); restart edgeroutegw.service manually", strings.TrimSpace(string(res.Output)))
 	}
 	return nil
 }

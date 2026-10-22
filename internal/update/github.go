@@ -124,7 +124,9 @@ func (g *GitHub) getJSON(ctx context.Context, url string, out any) error {
 	}
 	req.Header.Set("Accept", "application/vnd.github+json")
 	req.Header.Set("User-Agent", "EdgeRouteGW/2.0")
-	if g.Token != "" {
+	if g.Token != "" && g.Mirror == "" {
+		// The token authenticates us to GitHub only; a mirror must never
+		// receive it.
 		req.Header.Set("Authorization", "Bearer "+g.Token)
 	}
 	g.mu.Lock()
@@ -247,9 +249,23 @@ func (g *GitHub) ReleaseByTag(ctx context.Context, repo, tag string) (Release, e
 	return raw.toRelease(), nil
 }
 
-// Text fetches a small text file (digest files).
+// Text fetches a small text file (digest files). Checksums are the trust
+// anchor of every install, so with a mirror configured the origin is tried
+// first (briefly) and the mirror only serves them when GitHub is unreachable.
 func (g *GitHub) Text(ctx context.Context, url string) (string, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, g.via(url), nil)
+	if g.Mirror != "" {
+		dctx, cancel := context.WithTimeout(ctx, 8*time.Second)
+		txt, err := g.text(dctx, url)
+		cancel()
+		if err == nil {
+			return txt, nil
+		}
+	}
+	return g.text(ctx, g.via(url))
+}
+
+func (g *GitHub) text(ctx context.Context, url string) (string, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return "", err
 	}

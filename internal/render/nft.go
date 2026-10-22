@@ -37,7 +37,11 @@ table inet {{.Table}} {
         type filter hook prerouting priority mangle; policy accept;
         meta mark {{.OutMark}} return
 
-        # Never intercept local, private or multicast destinations.
+        # Never intercept local, private or multicast destinations. "local"
+        # covers every address of the gateway itself, including a public
+        # one on a WAN port, so inbound traffic to the gateway never lands
+        # in Xray.
+        fib daddr type local return
         ip daddr { 127.0.0.0/8, 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 169.254.0.0/16, 224.0.0.0/4, 255.255.255.255/32 } return
         ip6 daddr { ::1/128, fc00::/7, fe80::/10, ff00::/8 } return
 
@@ -82,9 +86,19 @@ table inet {{.Table}} {
         # chose, except hosts on private networks which may be the client's
         # own internal DNS) is answered by Mosdns, so proxied domains are
         # never resolved through the local ISP and Fake-IP/rules always apply.
+        fib daddr type local return
         ip daddr { 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 169.254.0.0/16, 127.0.0.0/8 } return
         ip6 daddr { fc00::/7, fe80::/10, ::1/128 } return
         meta l4proto { tcp, udp } th dport 53 counter redirect to :53 comment "dns_hijack"
+    }
+
+    chain input {
+        type filter hook input priority filter; policy accept;
+        # The TPROXY socket accepts any connection to its port. Only packets
+        # the prerouting chain marked may reach it; a direct connection to
+        # <gateway>:port would otherwise be looped back into Xray.
+        meta mark {{.TProxyMark}} return
+        meta l4proto { tcp, udp } th dport {{.TProxyPort}} counter drop comment "tproxy_port_direct"
     }
 
 {{end}}    chain forward {

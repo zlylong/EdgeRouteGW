@@ -50,6 +50,12 @@ const backupFormat = "edgeroutegw-backup/1"
 func (d Deps) exportBackup(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	withSecrets := r.URL.Query().Get("include_secrets") == "1"
+	if withSecrets {
+		if !sessionOnly(w, r) {
+			return
+		}
+		_ = d.Store.AddEvent(ctx, model.Event{Level: model.LevelWarn, Module: "backup", Type: "export.secrets", Message: "backup exported with node credentials", Actor: actorOf(r)})
+	}
 	snap, err := desired.Load(ctx, d.Store, d.Keyring)
 	if err != nil {
 		d.fail(w, r, err)

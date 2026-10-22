@@ -207,6 +207,16 @@ func (s *Store) ListAPITokens(ctx context.Context) ([]APIToken, error) {
 	return out, rows.Err()
 }
 
+// DeleteAllAPITokens revokes every token (password change).
+func (s *Store) DeleteAllAPITokens(ctx context.Context) (int64, error) {
+	res, err := s.db.ExecContext(ctx, `DELETE FROM api_tokens`)
+	if err != nil {
+		return 0, err
+	}
+	n, _ := res.RowsAffected()
+	return n, nil
+}
+
 // DeleteAPIToken revokes a token.
 func (s *Store) DeleteAPIToken(ctx context.Context, id string) error {
 	return affectedOne(s.db.ExecContext(ctx, `DELETE FROM api_tokens WHERE id=?`, id))

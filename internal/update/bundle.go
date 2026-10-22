@@ -3,6 +3,7 @@ package update
 import (
 	"context"
 	"fmt"
+	"github.com/zlylong/EdgeRouteGW/internal/model"
 	"io"
 	"mime/multipart"
 	"net/http"
@@ -145,7 +146,20 @@ func (s *Service) SeedFromBundle(ctx context.Context) (seeded []string) {
 type DownloadSettings struct {
 	Proxy  string `json:"proxy"`
 	Mirror string `json:"github_mirror"`
-	Token  string `json:"github_token"`
+	// Token is write-only over the API: GET reports HasToken instead. An
+	// empty Token on PUT keeps the stored one; ClearToken removes it.
+	Token      string `json:"github_token,omitempty"`
+	HasToken   bool   `json:"has_github_token"`
+	ClearToken bool   `json:"clear_github_token,omitempty"`
+}
+
+// DownloadSettingsView is what the API returns: the token itself stays in
+// the store.
+func (s *Service) DownloadSettingsView(ctx context.Context) DownloadSettings {
+	d := s.GetDownloadSettings(ctx)
+	d.HasToken = d.Token != ""
+	d.Token = ""
+	return d
 }
 
 // GetDownloadSettings reads the stored settings.
@@ -162,6 +176,9 @@ func (s *Service) SetDownloadSettings(ctx context.Context, d DownloadSettings) e
 	if len(d.Token) > 255 || strings.ContainsAny(d.Token, " \t\r\n\"") {
 		return fmt.Errorf("github token must be a single token string")
 	}
+	if d.Token == "" && !d.ClearToken {
+		d.Token, _ = s.Store.GetSetting(ctx, TokenKey) // keep the stored token
+	}
 	if d.Proxy != "" {
 		u, err := url.Parse(d.Proxy)
 		if err != nil || u.Host == "" || (u.Scheme != "http" && u.Scheme != "https" && u.Scheme != "socks5" && u.Scheme != "socks5h") {
@@ -170,8 +187,8 @@ func (s *Service) SetDownloadSettings(ctx context.Context, d DownloadSettings) e
 	}
 	if d.Mirror != "" {
 		u, err := url.Parse(d.Mirror)
-		if err != nil || u.Host == "" || (u.Scheme != "http" && u.Scheme != "https") {
-			return fmt.Errorf("mirror must be an http(s) URL prefix")
+		if err != nil || u.Host == "" || u.Scheme != "https" {
+			return fmt.Errorf("mirror must be an https:// URL prefix (it serves the binaries this gateway runs as root)")
 		}
 		if !strings.HasSuffix(d.Mirror, "/") {
 			d.Mirror += "/"
@@ -285,8 +302,14 @@ func (s *Service) runUploadJob(ctx context.Context, job *Job, zipPath string, un
 	}
 	if err != nil {
 		s.Log.Error("upload install failed", "component", job.Component, "err", err)
+		_ = s.Store.AddEvent(ctx, model.Event{Level: model.LevelError, Module: "update", Type: "upload.failed", Message: fmt.Sprintf("%s install from uploaded archive failed: %v", job.Component, err)})
 	} else {
+		lvl, typ := model.LevelInfo, "upload.installed"
+		if unverified {
+			lvl, typ = model.LevelWarn, "upload.unverified"
+		}
 		s.Log.Warn(msg)
+		_ = s.Store.AddEvent(ctx, model.Event{Level: lvl, Module: "update", Type: typ, Message: msg})
 		if s.Notify != nil {
 			s.Notify()
 		}

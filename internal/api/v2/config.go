@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"net/http"
 	"net/netip"
+	"regexp"
 	"strings"
 
 	"github.com/zlylong/EdgeRouteGW/internal/desired"
@@ -161,7 +162,7 @@ func (in *NetworkInput) validate() (model.NetworkConfig, error) {
 		return c, invalid("mode", "must be A, B or C")
 	}
 	for _, f := range []struct{ name, v string }{{"management_iface", c.ManagementIface}, {"service_iface", c.ServiceIface}} {
-		if len(f.v) > 15 || strings.ContainsAny(f.v, " /\\") {
+		if f.v != "" && (!ifaceNameRe.MatchString(f.v) || strings.Contains(f.v, "..")) {
 			return c, invalid(f.name, "invalid interface name")
 		}
 	}
@@ -266,3 +267,7 @@ func (d Deps) putNetwork(w http.ResponseWriter, r *http.Request) {
 	saved, _ := d.Store.NetworkConfig(ctx)
 	writeJSON(w, http.StatusOK, itemResp[model.NetworkConfig]{Item: saved, Generation: gen})
 }
+
+// ifaceNameRe is what the kernel accepts for an interface name; it also
+// keeps the value safe inside FRR configuration and sysfs paths.
+var ifaceNameRe = regexp.MustCompile(`^[A-Za-z0-9_.-]{1,15}$`)

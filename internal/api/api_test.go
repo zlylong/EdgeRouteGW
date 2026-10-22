@@ -232,6 +232,21 @@ func TestAuthFlowThroughHandler(t *testing.T) {
 		t.Fatalf("/me after login %+v", me)
 	}
 
+	// The bootstrap password only unlocks the password change itself.
+	res, _ = client.Get(srv.URL + "/api/v2/state")
+	if res.StatusCode != 403 {
+		t.Fatalf("state with bootstrap password %d", res.StatusCode)
+	}
+	res.Body.Close()
+	req0, _ := http.NewRequest("POST", srv.URL+"/api/v2/auth/password", strings.NewReader(`{"old_password":"`+pw+`","new_password":"longenoughpassword"}`))
+	req0.Header.Set("Content-Type", "application/json")
+	req0.Header.Set(auth.CSRFHeader, me.CSRFToken)
+	res, _ = client.Do(req0)
+	if res.StatusCode != 200 {
+		t.Fatalf("password change %d", res.StatusCode)
+	}
+	res.Body.Close()
+
 	// Read works with the cookie; a write needs the CSRF header.
 	res, _ = client.Get(srv.URL + "/api/v2/state")
 	if res.StatusCode != 200 {

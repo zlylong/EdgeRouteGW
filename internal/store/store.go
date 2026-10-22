@@ -46,6 +46,15 @@ func Open(ctx context.Context, path string) (*Store, error) {
 		_ = db.Close()
 		return nil, fmt.Errorf("ping sqlite: %w", err)
 	}
+	// The database holds session ids, encrypted credentials and a few plain
+	// settings (download proxy, GitHub token): never world-readable, whatever
+	// umask created it under.
+	for _, suffix := range []string{"", "-wal", "-shm"} {
+		if err := os.Chmod(path+suffix, 0o600); err != nil && !os.IsNotExist(err) {
+			_ = db.Close()
+			return nil, fmt.Errorf("chmod %s: %w", path+suffix, err)
+		}
+	}
 	return &Store{db: db, path: path}, nil
 }
 
