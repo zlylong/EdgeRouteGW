@@ -1,5 +1,9 @@
 # EdgeRouteGW 2.0 变更记录
 
+## [Unreleased]
+
+- 修复:系统调优的 BBR 检测用子串匹配 `tcp_available_congestion_control`,bbr 排在最后(紧挨换行)时判成不存在,于是每次启动都去 `modprobe tcp_bbr`,在 ProtectKernelModules 沙箱里必然失败并留下一条 `command failed` 警告;改为按字段匹配,且模块目录不可见时不再尝试 modprobe。
+
 ## [2.0.0-rc.23] - 2026-10-22
 
 安全收尾审计(见 `docs/SECURITY-AUDIT-2.0.md`)的修复:

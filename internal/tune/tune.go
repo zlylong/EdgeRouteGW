@@ -11,10 +11,12 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/zlylong/EdgeRouteGW/internal/driver/execx"
@@ -156,13 +158,15 @@ func (t *Tuner) congestion(ctx context.Context, apply bool) Item {
 	cur, _ := os.ReadFile("/proc/sys/net/ipv4/tcp_congestion_control")
 	qdisc, _ := os.ReadFile("/proc/sys/net/core/default_qdisc")
 	c, q := strings.TrimSpace(string(cur)), strings.TrimSpace(string(qdisc))
-	hasBBR := strings.Contains(" "+string(avail)+" ", " bbr ")
-	if !hasBBR && apply {
-		// The service cannot modprobe (ProtectKernelModules); the package does,
-		// but a kernel without tcp_bbr simply lacks it.
+	// Fields, not a substring match: bbr is usually the last entry and sits
+	// before the trailing newline.
+	hasBBR := slices.Contains(strings.Fields(string(avail)), "bbr")
+	if !hasBBR && apply && modulesVisible() {
+		// Under ProtectKernelModules /lib/modules is hidden and modprobe can
+		// only fail; the package loads tcp_bbr via modules-load.d instead.
 		if _, err := t.Exec.Run(ctx, "modprobe", "tcp_bbr"); err == nil {
 			avail, _ = os.ReadFile("/proc/sys/net/ipv4/tcp_available_congestion_control")
-			hasBBR = strings.Contains(" "+string(avail)+" ", " bbr ")
+			hasBBR = slices.Contains(strings.Fields(string(avail)), "bbr")
 		}
 	}
 	switch {
@@ -412,4 +416,22 @@ func (t *Tuner) conntrack(apply bool) Item {
 		it.Status, it.Detail = StatusOK, "max=1048576,超时已按网关用途设置"
 	}
 	return it
+}
+
+// modulesVisible reports whether the running kernel's module tree can be
+// read by this process (false inside a ProtectKernelModules sandbox).
+func modulesVisible() bool {
+	var u syscall.Utsname
+	if err := syscall.Uname(&u); err != nil {
+		return false
+	}
+	var b []byte
+	for _, c := range u.Release {
+		if c == 0 {
+			break
+		}
+		b = append(b, byte(c))
+	}
+	_, err := os.Stat("/lib/modules/" + string(b))
+	return err == nil
 }
