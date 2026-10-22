@@ -1,6 +1,6 @@
 # EdgeRouteGW 2.0 变更记录
 
-## [Unreleased]
+## [2.0.0-rc.26] - 2026-10-22
 
 - 观测页 DNS 关联:nftables 在 output 链把 Mosdns 发给设备的 UDP 应答复制一份到 nflog(组 100),控制面记录「设备 → 解析到的 IP → 域名」(保留 30 分钟);连接列表里 IP 目标后面显示 `≈ 域名`,geosite 标签也按该域名补上,搜索可按域名过滤。旁路复制,不在 DNS 路径上,不影响分流;DNS 页「观测 → 记录解析结果」开关(迁移 0006,默认开)。deb 的 modules-load 加 nfnetlink_log。
 - 网络与模式 → 数据面参数新增「嗅探结果覆盖目的地址」开关(默认关,Mode B 不适用):开启后 tproxy_in 的 sniffing 不再 routeOnly,Xray 以嗅探到的域名为目标并经本机 Mosdns 重新解析(dns 127.0.0.1 + direct 出站 UseIP),可纠正设备侧的污染解析。实测 Xray 的 access log 即使覆盖了目的地址仍打印原始 IP,所以看域名靠上面的 DNS 关联;开启时 Xray 日志级别降为 error,否则每条连接一行 "will use the first DNS" 警告。
