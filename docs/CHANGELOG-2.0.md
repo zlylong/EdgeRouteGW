@@ -1,5 +1,11 @@
 # EdgeRouteGW 2.0 变更记录
 
+## [2.0.0-rc.15] - 2026-10-22
+
+- WireGuard 节点改走内核:有 wireguard 内核模块时,每个 WireGuard 节点变成一个内核接口(`ergw-xxxxxxxx`)+ 专用路由表 + fwmark 规则,Xray 的该节点出站变为带 mark 的 freedom,隧道加解密不再在 Xray 用户态进行(实验环境实测用户态 WG 只有约 260 Mbps 且吃满 2.4 核)。无模块、带 reserved 字节(WARP)或参数不全的节点自动回退用户态实现。新组件「WireGuard(内核)」显示握手健康。
+- nftables 新增 forward 链 MSS 钳制(`tcp option maxseg size set rt mtu`),转发流量经隧道不再分片。
+- sysctl 补充 `tcp_slow_start_after_idle=0`、`tcp_mtu_probing=1`、`netdev_max_backlog=16384`。
+
 ## [2.0.0-rc.14] - 2026-10-22
 
 - 内核调优补齐 1.x 安装脚本的全部项:sysctl 文件新增 `tcp_fastopen=3`;conntrack 参数(max 1048576、established 3600s 等)由服务在 nf_conntrack 模块存在时运行时写入(2.0 的 TPROXY 规则本身不用 conntrack,不再强制加载模块)。`edgeroutegw doctor` 检查 BBR、fq_codel、fastopen 与 conntrack。

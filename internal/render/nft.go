@@ -70,6 +70,14 @@ table inet {{.Table}} {
         meta l4proto { tcp, udp } meta nfproto ipv6 mark set {{.TProxyMark}} tproxy ip6 to [::1]:{{.TProxyPort}} counter accept comment "intercept_v6"
     }
 
+    chain forward {
+        type filter hook forward priority mangle; policy accept;
+        # Forwarded flows (not intercepted: private destinations, device
+        # bypasses) get their MSS clamped to the outgoing path MTU so a
+        # tunnel on the way never has to fragment.
+        tcp flags syn tcp option maxseg size set rt mtu counter comment "mss_clamp"
+    }
+
     chain output {
         type route hook output priority mangle; policy accept;
         meta mark {{.OutMark}} return

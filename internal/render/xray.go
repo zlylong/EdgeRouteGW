@@ -89,8 +89,18 @@ func renderXray(snap *desired.Snapshot, d Deps, a *Artifacts) error {
 	// Outbounds: direct, block, (dns-out), then one per enabled node.
 	outbounds := cfg["outbounds"].([]any)
 	nodeOutbounds := map[string]json.RawMessage{}
+	kernelWG := map[string]WGIface{}
+	for _, w := range a.WG {
+		kernelWG[w.NodeID] = w
+	}
 	for _, n := range snap.EnabledNodes() {
-		ob, err := buildOutbound(n)
+		var ob map[string]any
+		var err error
+		if w, ok := kernelWG[n.ID]; ok {
+			ob = wgOutbound(n.ID, w)
+		} else {
+			ob, err = buildOutbound(n)
+		}
 		if err != nil {
 			a.warn("node %q skipped: %v", n.Name, err)
 			continue

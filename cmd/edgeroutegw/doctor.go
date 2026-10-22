@@ -77,6 +77,11 @@ func cmdDoctor(args []string, stdout, stderr io.Writer, env config.LookupEnv) in
 			check(v == kv[1], true, kv[2], "= "+v+map[bool]string{true: "", false: " (want " + kv[1] + "; sysctl -p /etc/sysctl.d/99-edgeroutegw.conf)"}[v == kv[1]])
 		}
 	}
+	if _, err := os.Stat("/sys/module/wireguard"); err == nil {
+		check(true, false, "wireguard kernel module", "loaded; WireGuard nodes use kernel interfaces")
+	} else {
+		check(true, true, "wireguard kernel module", "not loaded; WireGuard nodes run in Xray userspace (slower): modprobe wireguard")
+	}
 	if b, err := os.ReadFile("/proc/sys/net/netfilter/nf_conntrack_max"); err == nil {
 		v := strings.TrimSpace(string(b))
 		check(v == "1048576", true, "net.netfilter.nf_conntrack_max", "= "+v)

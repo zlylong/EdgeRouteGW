@@ -16,7 +16,7 @@ const gw = useGatewayState()
 const auth = useAuth()
 
 const modeLabel: Record<string, string> = { A: 'Mode A · TPROXY 网关', B: 'Mode B · Fake-IP + OSPF', C: 'Mode C · 真实 IP OSPF' }
-const compLabel: Record<string, string> = { xray: 'Xray', mosdns: 'Mosdns', nftables: 'nftables', frr: 'FRR' }
+const compLabel: Record<string, string> = { xray: 'Xray', mosdns: 'Mosdns', nftables: 'nftables', frr: 'FRR', wireguard: 'WireGuard' }
 const title = computed(() => (route.meta.title as string) ?? '')
 const dark = computed(() => document.documentElement.classList.contains('dark'))
 

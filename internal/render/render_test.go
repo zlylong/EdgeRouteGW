@@ -474,3 +474,54 @@ func TestXrayProbeChannel(t *testing.T) {
 		t.Fatalf("probe rules must come before user rules (probe %d, user %d)", lastProbe, firstUser)
 	}
 }
+
+func TestKernelWireGuardOutbound(t *testing.T) {
+	snap := baseSnap()
+	wg := model.Node{ID: "wg1", Name: "wg", Protocol: model.ProtocolWireGuard, Address: "203.0.113.9", Port: 51820, Enabled: true, Credential: "PRIVATE",
+		Params: `{"settings":{"address":["10.77.0.2/32"],"mtu":1380,"peers":[{"publicKey":"PUB","endpoint":"203.0.113.9:51820","allowedIPs":["0.0.0.0/0","::/0"]}]}}`}
+	warp := wg
+	warp.ID, warp.Name = "wg2", "warp"
+	warp.Params = `{"settings":{"address":["10.77.0.3/32"],"reserved":[1,2,3],"peers":[{"publicKey":"PUB","endpoint":"203.0.113.9:51820"}]}}`
+	snap.Nodes = append(snap.Nodes, wg, warp)
+
+	d := deps()
+	d.KernelWG = true
+	a, err := Render(snap, d)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(a.WG) != 1 || a.WG[0].NodeID != "wg1" || a.WG[0].Name != WGIfaceName("wg1") || a.WG[0].Table != WGTableBase || a.WG[0].Mark != WGMarkBase || a.WG[0].MTU != 1380 || a.WG[0].PrivateKey != "PRIVATE" {
+		t.Fatalf("wg ifaces %+v", a.WG)
+	}
+	if a.WG[0].Peers[0].Keepalive != WGKeepalive || a.WG[0].Peers[0].Endpoint != "203.0.113.9:51820" {
+		t.Fatalf("peer %+v", a.WG[0].Peers[0])
+	}
+	var ob map[string]any
+	_ = json.Unmarshal(a.XrayOutbounds["node-wg1"], &ob)
+	if ob["protocol"] != "freedom" || ob["streamSettings"].(map[string]any)["sockopt"].(map[string]any)["mark"] != float64(WGMarkBase) {
+		t.Fatalf("kernel node outbound %v", ob)
+	}
+	_ = json.Unmarshal(a.XrayOutbounds["node-wg2"], &ob)
+	if ob["protocol"] != "wireguard" {
+		t.Fatalf("warp node must stay userspace: %v", ob)
+	}
+	found := false
+	for _, w := range a.Warnings {
+		if strings.Contains(w, "warp") && strings.Contains(w, "userspace") {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("expected fallback warning, got %v", a.Warnings)
+	}
+	// Without the module nothing changes.
+	d.KernelWG = false
+	a, _ = Render(snap, d)
+	_ = json.Unmarshal(a.XrayOutbounds["node-wg1"], &ob)
+	if len(a.WG) != 0 || ob["protocol"] != "wireguard" {
+		t.Fatalf("userspace expected without kernel module: %v", ob)
+	}
+	if !strings.Contains(string(a.Nft), `comment "mss_clamp"`) || !strings.Contains(string(a.Nft), "hook forward") {
+		t.Fatal("forward chain with MSS clamp missing")
+	}
+}

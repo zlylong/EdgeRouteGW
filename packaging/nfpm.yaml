@@ -45,6 +45,11 @@ contents:
     type: config
     file_info:
       mode: 0644
+  - src: packaging/modules-load.d-edgeroutegw.conf
+    dst: /etc/modules-load.d/edgeroutegw.conf
+    type: config
+    file_info:
+      mode: 0644
   - src: packaging/env.example
     dst: /etc/edgeroutegw/edgeroutegw.env
     type: config|noreplace

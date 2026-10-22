@@ -25,10 +25,11 @@ const (
 	ComponentMosdns   Component = "mosdns"
 	ComponentNftables Component = "nftables"
 	ComponentFRR      Component = "frr"
+	ComponentWG       Component = "wireguard"
 )
 
 // Components lists every component in display order.
-var Components = []Component{ComponentXray, ComponentMosdns, ComponentNftables, ComponentFRR}
+var Components = []Component{ComponentXray, ComponentMosdns, ComponentNftables, ComponentFRR, ComponentWG}
 
 // ComponentStatus is the reconciler's view of one component.
 type ComponentStatus string

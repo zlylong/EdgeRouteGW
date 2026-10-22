@@ -24,6 +24,7 @@ import (
 	"github.com/zlylong/EdgeRouteGW/internal/driver/nft"
 	"github.com/zlylong/EdgeRouteGW/internal/driver/route"
 	"github.com/zlylong/EdgeRouteGW/internal/driver/systemd"
+	"github.com/zlylong/EdgeRouteGW/internal/driver/wg"
 	"github.com/zlylong/EdgeRouteGW/internal/driver/xray"
 	"github.com/zlylong/EdgeRouteGW/internal/events"
 	"github.com/zlylong/EdgeRouteGW/internal/geo"
@@ -120,6 +121,16 @@ func cmdServe(args []string, stdout, stderr io.Writer, env config.LookupEnv) int
 	}
 
 	deps := render.Deps{Paths: p, IfaceAddr: render.SystemInterfaceAddr, DefaultIface: netinfo.DefaultIface}
+	if !*noReconcile {
+		// Kernel WireGuard. The unit runs with ProtectKernelModules, so the
+		// module is loaded by the package (postinst, modules-load.d), not
+		// here; without it nodes fall back to Xray's userspace implementation.
+		if _, err := os.Stat("/sys/module/wireguard"); err == nil {
+			deps.KernelWG = true
+		} else {
+			log.Warn("wireguard kernel module not loaded (modprobe wireguard; /etc/modules-load.d/edgeroutegw.conf); WireGuard nodes use the userspace implementation")
+		}
+	}
 	var geoSite *geo.Site
 	var geoIP *geo.IP
 	if _, err := os.Stat(p.GeoSite()); err == nil {
@@ -156,6 +167,7 @@ func cmdServe(args []string, stdout, stderr io.Writer, env config.LookupEnv) int
 		sd := systemd.NewDBus()
 		frrDriver = frr.New(run, sd, route.New(log), log)
 		drivers = []driver.Driver{
+			wg.New(wg.Netlink{}, log), // interfaces must exist before Xray binds to their marks
 			xray.New(p, run, sd, log),
 			mosdns.New(p, sd, log),
 			nft.New(p, run, log),

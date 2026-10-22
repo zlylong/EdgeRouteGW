@@ -41,6 +41,9 @@ type Deps struct {
 	// DefaultIface names the interface with the default route; used when
 	// the service interface is not configured. nil means no fallback.
 	DefaultIface func() (string, error)
+	// KernelWG is true when the host has the wireguard kernel module:
+	// WireGuard nodes then become kernel interfaces (see wg.go).
+	KernelWG bool
 }
 
 // Artifacts is everything the drivers apply for one generation.
@@ -72,6 +75,8 @@ type Artifacts struct {
 	RouteRejected  []routes.Route
 	ResolveDomains []string
 	FRR            []byte
+	// WG lists the kernel WireGuard interfaces to maintain (KernelWG only).
+	WG []WGIface
 
 	// Warnings are non-fatal findings (a rule skipped, a group with one live
 	// member) surfaced to the UI alongside the apply.
@@ -84,6 +89,7 @@ func Render(snap *desired.Snapshot, d Deps) (*Artifacts, error) {
 	if !a.Mode.Valid() {
 		return nil, fmt.Errorf("invalid mode %q", a.Mode)
 	}
+	renderWG(snap, d, a)
 	if err := renderXray(snap, d, a); err != nil {
 		return nil, fmt.Errorf("render xray: %w", err)
 	}

@@ -27,6 +27,7 @@ const compMeta: Record<string, { label: string; hint: string }> = {
   mosdns: { label: 'Mosdns', hint: 'DNS 分流 · 53 端口' },
   nftables: { label: 'nftables', hint: 'TPROXY 劫持与设备策略' },
   frr: { label: 'FRR / OSPF', hint: 'Mode B/C 路由宣告' },
+  wireguard: { label: 'WireGuard(内核)', hint: 'WireGuard 节点的内核隧道接口' },
 }
 const statusLabel: Record<string, string> = { active: '运行中', degraded: '降级', down: '未运行', disabled: '未启用', unknown: '未知' }
 const statusTone: Record<string, 'ok' | 'warn' | 'danger' | 'neutral'> = { active: 'ok', degraded: 'warn', down: 'danger', disabled: 'neutral', unknown: 'neutral' }
