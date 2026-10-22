@@ -98,7 +98,7 @@ const schedHint: Record<string, string> = {
           <div class="mt-1 h-1.5 overflow-hidden rounded bg-surface-2"><div class="h-full bg-accent transition-all" :style="{ width: jobOf(c)!.percent + '%' }" /></div>
         </div>
         <p v-if="c.last_error" class="mt-2 break-words text-xs text-danger">{{ c.last_error }}</p>
-        <SchedulePicker v-if="schedHint[c.name]" :name="c.name" :label="meta[c.name]?.label ?? c.name" :schedule="c.schedule" :hint="schedHint[c.name]" :disabled="!!jobOf(c)" />
+        <SchedulePicker v-if="schedHint[c.name]" :name="c.name" :label="meta[c.name]?.label ?? c.name" :schedule="c.schedule" :disabled="!!jobOf(c)" />
         <div class="mt-4 flex flex-wrap gap-2">
           <Button size="sm" :disabled="!!jobOf(c)" @click="startUpdate(c.name)"><Download class="h-3.5 w-3.5" /> {{ c.installed ? '更新到最新' : '在线安装' }}</Button>
           <Button v-if="c.bundled" size="sm" variant="secondary" :disabled="!!jobOf(c)" :title="`内置包版本 ${c.bundled.version}`" @click="installBundled(c.name)">从内置包安装 {{ c.bundled.version }}</Button>
@@ -106,7 +106,10 @@ const schedHint: Record<string, string> = {
           <Button v-if="c.name !== 'edgeroutegw'" size="sm" variant="ghost" :disabled="!!jobOf(c)" @click="uploadFor = c.name">本地上传</Button>
           <Button v-if="c.name !== 'edgeroutegw'" size="sm" variant="ghost" :disabled="!c.has_previous || !!jobOf(c)" @click="rollbackFor = c.name"><RotateCcw class="h-3.5 w-3.5" /> 回退</Button>
         </div>
-        <p class="mt-4 border-t border-border pt-3 text-xs text-fg-subtle">{{ meta[c.name]?.hint }}</p>
+        <div class="mt-4 space-y-1 border-t border-border pt-3 text-xs text-fg-subtle">
+          <p>{{ meta[c.name]?.hint }}</p>
+          <p v-if="schedHint[c.name]">自动更新:{{ schedHint[c.name] }}</p>
+        </div>
       </Card>
     </div>
     <Card title="下载通道">

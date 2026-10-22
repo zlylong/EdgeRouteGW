@@ -10,7 +10,7 @@ import { useToast } from '@/stores/toast'
 
 // Per-component auto-update schedule. Spec strings mirror the server:
 //   off | daily HH:MM | weekly <mon..sun> HH:MM | monthly <1..28> HH:MM
-const props = defineProps<{ name: string; label: string; schedule?: string; hint: string; disabled?: boolean }>()
+const props = defineProps<{ name: string; label: string; schedule?: string; disabled?: boolean }>()
 const qc = useQueryClient()
 const toast = useToast()
 
@@ -65,6 +65,5 @@ async function save() {
       <Input v-if="kind !== 'off'" v-model="time" type="time" class="w-28" :disabled="disabled" />
       <Button size="sm" variant="secondary" :disabled="!dirty || disabled" :loading="saving" @click="save">保存</Button>
     </div>
-    <p class="mt-2 text-xs text-fg-subtle">{{ hint }}</p>
   </div>
 </template>
