@@ -222,6 +222,7 @@ export interface Release { tag: string; prerelease: boolean; published_at: strin
 export interface TrafficPoint { ts: number; up: number; down: number }
 export interface NodeTraffic { node_id: string; up: number; down: number }
 export interface TrafficRate { up_bps: number; down_bps: number }
+export interface SysMetrics { at: string; available: boolean; cpu_percent: number; cpus: number; load1: number; load5: number; load15: number; mem_total: number; mem_used: number; mem_available: number; swap_total: number; swap_used: number; conntrack_count: number; conntrack_max: number; uptime_s: number }
 export interface TrafficRates { at: string; up_bps: number; down_bps: number; nodes: Record<string, TrafficRate>; available: boolean }
 export interface TrafficResponse { range: string; bucket_s: number; series: TrafficPoint[]; total_up: number; total_down: number; nodes: NodeTraffic[]; current: TrafficRates }
 export interface LatencyResult { node_id: string; ms: number; error?: string }

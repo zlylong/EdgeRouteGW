@@ -101,7 +101,7 @@ func TestImportProductionShape(t *testing.T) {
 		t.Fatalf("report %+v", rep)
 	}
 	joined := strings.Join(rep.Warnings, "\n")
-	for _, want := range []string{"bad..value", "node 99 no longer exists", "weekly"} {
+	for _, want := range []string{"bad..value", "node 99 no longer exists"} {
 		if !strings.Contains(joined, want) {
 			t.Fatalf("missing warning %q in %v", want, rep.Warnings)
 		}
@@ -160,7 +160,7 @@ func TestImportProductionShape(t *testing.T) {
 	if strings.Join(dns.RemoteUpstreams, ",") != "172.20.0.11,10.100.10.10" && strings.Join(dns.RemoteUpstreams, ",") != "172.20.1.11,10.100.10.10" {
 		t.Fatalf("dns %+v", dns)
 	}
-	if v, _ := st.GetSetting(ctx, "geodata.auto_update"); v != "daily 04:00" {
+	if v, _ := st.GetSetting(ctx, "geodata.auto_update"); v != "weekly 1 04:00" {
 		t.Fatalf("schedule %q", v)
 	}
 	devs, _ := st.ListDevicePolicies(ctx)

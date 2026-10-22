@@ -162,6 +162,7 @@ func cmdServe(args []string, stdout, stderr io.Writer, env config.LookupEnv) int
 		latency.EnableXray(fmt.Sprintf("127.0.0.1:%d", render.ProbePort))
 	}
 	traffic := observe.NewTrafficSampler(st, bus, observe.XrayStats(run, p.XrayBinary()), log)
+	metrics := observe.NewSysMetrics(log)
 
 	var drivers []driver.Driver
 	var frrDriver *frr.Driver
@@ -231,12 +232,13 @@ func cmdServe(args []string, stdout, stderr io.Writer, env config.LookupEnv) int
 	h := api.NewHandler(api.Deps{
 		Store: st, Keyring: kr, Reconciler: rec, Bus: bus, Paths: p, Log: log, StartedAt: time.Now(),
 		Auth: authSvc, GeoSite: geoSite, GeoIP: geoIP, SiteIndex: siteIdx, IPIndex: ipIdx, Connections: conns, FRR: frrDriver, ResolverKick: resLoop.Kick,
-		IfaceAddr: render.SystemInterfaceAddr, DefaultIface: netinfo.DefaultIface, Provision: prov, Tuner: tuner, Updater: updater, Traffic: traffic, Latency: latency,
+		IfaceAddr: render.SystemInterfaceAddr, DefaultIface: netinfo.DefaultIface, Provision: prov, Tuner: tuner, Updater: updater, Traffic: traffic, Latency: latency, Metrics: metrics,
 	})
 
 	g, gctx := errgroup.WithContext(ctx)
 	g.Go(func() error { return rec.Run(gctx) })
 	g.Go(func() error { return conns.Run(gctx) })
+	g.Go(func() error { return metrics.Run(gctx) })
 	g.Go(func() error { return resLoop.Run(gctx) })
 	g.Go(func() error { return updater.RunScheduler(gctx) })
 	g.Go(func() error { return latency.Run(gctx) })

@@ -1,5 +1,10 @@
 # EdgeRouteGW 2.0 变更记录
 
+## [Unreleased]
+
+- 总览页第一排新增主机监控:CPU(利用率 + 核数 + 负载)、内存(已用 / 总量 + swap)、连接数(conntrack 条目 / 上限)、实时速率(上下行 + 主机运行时间),每 5 秒刷新;`GET /system/metrics`。五个组件卡片并成一排。流量图加上下行颜色图例,实时速率按颜色区分上下行。
+- 1.x 导入:GeoData 定时的每周 / 每月设置按原样迁移(此前一律改成每天并提示)。
+
 ## [2.0.0-rc.24] - 2026-10-22
 
 - 修复:系统调优的 BBR 检测用子串匹配 `tcp_available_congestion_control`,bbr 排在最后(紧挨换行)时判成不存在,于是每次启动都去 `modprobe tcp_bbr`,在 ProtectKernelModules 沙箱里必然失败并留下一条 `command failed` 警告;改为按字段匹配,且模块目录不可见时不再尝试 modprobe。

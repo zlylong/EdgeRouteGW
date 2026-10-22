@@ -59,6 +59,8 @@ type Deps struct {
 	SiteIndex   *geo.SiteIndex
 	IPIndex     *geo.IPIndex
 	Connections *observe.ConnTracker
+	// Metrics samples host CPU / memory / conntrack for the dashboard; nil without it.
+	Metrics *observe.SysMetrics
 	// FRR exposes OSPF neighbours; nil without drivers.
 	FRR *frr.Driver
 	// ResolverKick wakes the resolver after writes that may add domains.
@@ -94,6 +96,7 @@ func Register(mux *http.ServeMux, d Deps) {
 	r.handle(http.MethodPost, "/api/v2/reconcile", d.handleReconcileNow)
 	r.handle(http.MethodGet, "/api/v2/artifacts/{component}", d.handleArtifact)
 	r.handle(http.MethodGet, "/api/v2/events", d.handleEvents)
+	r.handle(http.MethodGet, "/api/v2/system/metrics", d.handleMetrics)
 	r.handle(http.MethodGet, "/api/v2/events/stream", d.handleStream)
 	r.handle(http.MethodGet, "/api/v2/changesets", d.handleChangesets)
 	r.handle(http.MethodGet, "/api/v2/apply-log", d.handleApplyLog)

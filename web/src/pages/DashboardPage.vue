@@ -21,6 +21,14 @@ watch(() => gw.lastEvent, e => { if (e?.type === 'traffic.sample') live.value = 
 const rate = (bps: number) => fmtBytes(Math.round(bps)) + '/s'
 const nodeName = (id: string) => nodesQ.data.value?.items.find(n => n.id === id)?.name ?? id.slice(0, 8)
 const eventsQ = useQuery({ queryKey: ['events', 'recent'], queryFn: () => system.events({ limit: 10 }), refetchInterval: 15_000 })
+const metricsQ = useQuery({ queryKey: ['sys-metrics'], queryFn: system.metrics, refetchInterval: 5_000 })
+const m = computed(() => metricsQ.data.value?.item)
+const pct = (a: number, b: number) => b > 0 ? Math.min(100, Math.round((a / b) * 100)) : 0
+const barTone = (p: number) => p >= 90 ? 'bg-danger' : p >= 75 ? 'bg-warn' : 'bg-accent'
+const fmtUptime = (s: number) => {
+  const d = Math.floor(s / 86400), h = Math.floor((s % 86400) / 3600), mi = Math.floor((s % 3600) / 60)
+  return d ? `${d} 天 ${h} 小时` : h ? `${h} 小时 ${mi} 分` : `${mi} 分钟`
+}
 
 const compMeta: Record<string, { label: string; hint: string }> = {
   xray: { label: 'Xray', hint: '代理核心 · 出站与路由' },
@@ -51,6 +59,33 @@ const levelTone: Record<string, 'danger' | 'warn' | 'info' | 'neutral'> = { erro
     </div>
 
     <div class="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+      <Card body-class="p-4">
+        <p class="text-xs text-fg-muted">CPU</p>
+        <p class="mt-1 text-2xl font-semibold tabular-nums">{{ m?.available ? `${m.cpu_percent.toFixed(0)}%` : '-' }}</p>
+        <div class="mt-2 h-1.5 overflow-hidden rounded bg-surface-2"><div class="h-full transition-all" :class="barTone(m?.cpu_percent ?? 0)" :style="{ width: `${m?.cpu_percent ?? 0}%` }" /></div>
+        <p class="mt-2 text-[11px] text-fg-subtle">{{ m?.available ? `${m.cpus} 核 · 负载 ${m.load1.toFixed(2)} / ${m.load5.toFixed(2)} / ${m.load15.toFixed(2)}` : '采样中…' }}</p>
+      </Card>
+      <Card body-class="p-4">
+        <p class="text-xs text-fg-muted">内存</p>
+        <p class="mt-1 text-2xl font-semibold tabular-nums">{{ m?.available ? `${pct(m.mem_used, m.mem_total)}%` : '-' }}</p>
+        <div class="mt-2 h-1.5 overflow-hidden rounded bg-surface-2"><div class="h-full transition-all" :class="barTone(pct(m?.mem_used ?? 0, m?.mem_total ?? 0))" :style="{ width: `${pct(m?.mem_used ?? 0, m?.mem_total ?? 0)}%` }" /></div>
+        <p class="mt-2 text-[11px] text-fg-subtle">{{ m?.available ? `${fmtBytes(m.mem_used)} / ${fmtBytes(m.mem_total)}${m.swap_total ? ` · swap ${fmtBytes(m.swap_used)} / ${fmtBytes(m.swap_total)}` : ''}` : '' }}</p>
+      </Card>
+      <Card body-class="p-4">
+        <p class="text-xs text-fg-muted">连接数</p>
+        <p class="mt-1 text-2xl font-semibold tabular-nums">{{ m?.available && m.conntrack_count >= 0 ? m.conntrack_count.toLocaleString() : '-' }}</p>
+        <div class="mt-2 h-1.5 overflow-hidden rounded bg-surface-2"><div class="h-full transition-all" :class="barTone(pct(m?.conntrack_count ?? 0, m?.conntrack_max ?? 0))" :style="{ width: `${pct(m?.conntrack_count ?? 0, m?.conntrack_max ?? 0)}%` }" /></div>
+        <p class="mt-2 text-[11px] text-fg-subtle">{{ m?.available ? (m.conntrack_count >= 0 ? `conntrack 表上限 ${m.conntrack_max.toLocaleString()}` : '未加载 conntrack 模块') : '' }}</p>
+      </Card>
+      <Card body-class="p-4">
+        <p class="text-xs text-fg-muted">实时速率</p>
+        <p class="mt-1 text-2xl font-semibold tabular-nums"><span class="text-accent">↓{{ live?.available ? rate(live.down_bps) : '-' }}</span></p>
+        <p class="text-sm font-medium tabular-nums text-info">↑{{ live?.available ? rate(live.up_bps) : '-' }}</p>
+        <p class="mt-2 text-[11px] text-fg-subtle">{{ m?.available ? `主机已运行 ${fmtUptime(m.uptime_s)}` : '' }}</p>
+      </Card>
+    </div>
+
+    <div class="grid gap-4 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-5">
       <Card v-for="c in gw.components" :key="c.name" body-class="p-4">
         <div class="flex items-start justify-between">
           <div>
@@ -69,13 +104,14 @@ const levelTone: Record<string, 'danger' | 'warn' | 'info' | 'neutral'> = { erro
 
     <Card title="流量(近 1 小时)">
       <template #actions>
-        <span v-if="live?.available" class="text-xs text-fg-muted">↓ {{ rate(live.down_bps) }} · ↑ {{ rate(live.up_bps) }}</span>
+        <span v-if="live?.available" class="text-xs text-fg-muted"><span class="text-accent">↓ {{ rate(live.down_bps) }}</span> · <span class="text-info">↑ {{ rate(live.up_bps) }}</span></span>
         <span v-else class="text-xs text-fg-subtle">Xray 未运行或无统计</span>
         <RouterLink to="/observe"><Button size="sm" variant="ghost">详情</Button></RouterLink>
       </template>
       <Sparkline :points="trafficQ.data.value?.series ?? []" />
-      <div class="mt-2 flex flex-wrap gap-x-6 gap-y-1 text-xs text-fg-muted">
-        <span>本小时 ↓ {{ fmtBytes(trafficQ.data.value?.total_down ?? 0) }} ↑ {{ fmtBytes(trafficQ.data.value?.total_up ?? 0) }}</span>
+      <div class="mt-2 flex flex-wrap items-center gap-x-5 gap-y-1 text-xs text-fg-muted">
+        <span class="inline-flex items-center gap-1.5"><i class="inline-block h-2 w-2 rounded-full bg-accent" /> 下行 {{ fmtBytes(trafficQ.data.value?.total_down ?? 0) }}</span>
+        <span class="inline-flex items-center gap-1.5"><i class="inline-block h-2 w-2 rounded-full bg-info" /> 上行 {{ fmtBytes(trafficQ.data.value?.total_up ?? 0) }}</span>
         <span v-for="n in (trafficQ.data.value?.nodes ?? []).slice(0, 5)" :key="n.node_id">{{ nodeName(n.node_id) }}: {{ fmtBytes(n.up + n.down) }}</span>
       </div>
     </Card>

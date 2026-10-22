@@ -2,6 +2,7 @@ package v2
 
 import (
 	"fmt"
+	"github.com/zlylong/EdgeRouteGW/internal/observe"
 	"net/http"
 	"strings"
 	"time"
@@ -244,4 +245,15 @@ func jsonMarshal(v any) ([]byte, error) {
 		return nil, err
 	}
 	return []byte(strings.TrimRight(sb.String(), "\n")), nil
+}
+
+// handleMetrics returns the latest host sample (CPU, memory, load,
+// conntrack, uptime) for the dashboard tiles.
+func (d Deps) handleMetrics(w http.ResponseWriter, r *http.Request) {
+	var s observe.SysSample
+	if d.Metrics != nil {
+		s = d.Metrics.Current()
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	writeJSON(w, http.StatusOK, itemResp[observe.SysSample]{Item: s})
 }

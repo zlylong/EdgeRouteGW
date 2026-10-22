@@ -17,6 +17,7 @@ export const auth = {
 
 export const system = {
   state: () => api.get<T.StateResponse>(`${B}/state`),
+  metrics: () => api.get<T.ItemResp<T.SysMetrics>>(`${B}/system/metrics`),
   plan: () => api.get<T.PlanResponse>(`${B}/plan`),
   reconcile: () => api.post<{ state: T.StateResponse }>(`${B}/reconcile`),
   artifact: (name: 'xray' | 'mosdns' | 'mosdns-domains' | 'nftables') => api.text(`${B}/artifacts/${name}`),

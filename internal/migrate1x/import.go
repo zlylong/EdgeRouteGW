@@ -389,12 +389,31 @@ func Import(ctx context.Context, st *store.Store, kr *secret.Keyring, opts Optio
 	if v := strings.ToLower(settings["dns_log_level"]); v == "debug" || v == "info" || v == "warn" || v == "error" {
 		dns.LogLevel = v
 	}
+	// 1.x cron: daily / weekly (cron_weekday 1..7, 7 = Sunday, as Go's
+	// time.Weekday clamped) / monthly (cron_monthday 1..31). 2.0 schedules
+	// carry the same shapes; monthly days past 28 become the 28th.
 	geodataSchedule := "off"
 	if settings["cron_enabled"] == "true" {
 		if t := strings.TrimSpace(settings["cron_time"]); len(t) == 5 {
-			geodataSchedule = "daily " + t
-			if st := settings["cron_schedule_type"]; st != "" && st != "daily" {
-				rep.warn("geodata update was %s in 1.x; 2.0 schedules daily at %s", st, t)
+			switch settings["cron_schedule_type"] {
+			case "weekly":
+				wd, err := strconv.Atoi(strings.TrimSpace(settings["cron_weekday"]))
+				if err != nil || wd < 1 || wd > 7 {
+					wd = 1
+				}
+				geodataSchedule = fmt.Sprintf("weekly %d %s", wd, t)
+			case "monthly":
+				md, err := strconv.Atoi(strings.TrimSpace(settings["cron_monthday"]))
+				if err != nil || md < 1 {
+					md = 1
+				}
+				if md > 28 {
+					rep.warn("geodata update was on day %d of the month in 1.x; 2.0 runs it on the 28th", md)
+					md = 28
+				}
+				geodataSchedule = fmt.Sprintf("monthly %d %s", md, t)
+			default:
+				geodataSchedule = "daily " + t
 			}
 		}
 	}

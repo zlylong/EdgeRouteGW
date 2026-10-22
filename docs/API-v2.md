@@ -158,6 +158,7 @@ CLI:`edgeroutegw import-v1 [--old-key aes.key] [--dry-run] [--replace] proxygw.d
 | 方法 | 路径 | 说明 |
 |---|---|---|
 | GET | `/traffic?range=1h|24h|7d|30d` | 按桶聚合的上下行字节序列、区间合计、按节点合计、当前速率(`current.available=false` 表示 Xray 统计不可用)。采样每 10 秒读一次 `xray api statsquery`,每分钟落库,保留 90 天;direct/block 不计入合计。SSE 每次采样推 `traffic.sample` |
+| GET | `/system/metrics` | 主机采样:`cpu_percent`、`cpus`、`load1/5/15`、`mem_*`、`swap_*`(字节)、`conntrack_count/max`(-1 = 未加载模块)、`uptime_s`;每 5 秒更新 |
 | POST | `/node-probes` | 立即探测全部启用节点;结果 `{node_id, ms(-1=不通), error?, via(xray=经该节点出站 HTTP 实测;tcp=连接端口), checked_at}`,`GET /nodes` 的 `probe` 字段带最近一次结果;探测目标可用设置 `probe.url` 覆盖 |
 | (旧) |  同步对所有启用节点做一次 TCP 连接测时,写入 `latency_ms`(-1 = 不可达);后台每 5 分钟自动一轮,SSE 推 `nodes.latency` |
 | POST | `/changesets/{id}/revert` | 把配置恢复成该次变更之后的快照,作为新的 generation 下发;中间的变更标记 `reverted_by`。每次写操作保存完整快照,保留最近 200 次 |
