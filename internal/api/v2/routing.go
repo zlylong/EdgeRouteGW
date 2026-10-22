@@ -545,6 +545,41 @@ func (d Deps) createBypass(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, itemResp[model.BypassDestination]{Item: b, Generation: gen})
 }
 
+// updateBypass edits the remark. The CIDR itself is immutable: delete and
+// add again, so the change shows up as such in the changesets.
+func (d Deps) updateBypass(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		Remark string `json:"remark"`
+	}
+	if err := decode(r, &in); err != nil {
+		d.fail(w, r, err)
+		return
+	}
+	in.Remark = strings.TrimSpace(in.Remark)
+	if len(in.Remark) > 200 {
+		d.fail(w, r, invalid("remark", "at most 200 characters"))
+		return
+	}
+	ctx := r.Context()
+	id := r.PathValue("id")
+	if err := d.Store.UpdateBypassRemark(ctx, id, in.Remark); err != nil {
+		d.fail(w, r, err)
+		return
+	}
+	items, err := d.Store.ListBypassDestinations(ctx)
+	if err != nil {
+		d.fail(w, r, err)
+		return
+	}
+	for _, b := range items {
+		if b.ID == id {
+			writeJSON(w, http.StatusOK, itemResp[model.BypassDestination]{Item: b})
+			return
+		}
+	}
+	writeErr(w, http.StatusNotFound, codeNotFound, "bypass destination not found", nil)
+}
+
 func (d Deps) deleteBypass(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	id := r.PathValue("id")

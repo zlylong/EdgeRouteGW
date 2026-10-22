@@ -139,6 +139,7 @@ func Register(mux *http.ServeMux, d Deps) {
 
 	r.handle(http.MethodGet, "/api/v2/bypass", d.listBypass)
 	r.handle(http.MethodPost, "/api/v2/bypass", d.createBypass)
+	r.handle(http.MethodPut, "/api/v2/bypass/{id}", d.updateBypass)
 	r.handle(http.MethodDelete, "/api/v2/bypass/{id}", d.deleteBypass)
 
 	r.handle(http.MethodGet, "/api/v2/dns", d.getDNS)

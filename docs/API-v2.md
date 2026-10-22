@@ -74,6 +74,7 @@ Base URL:`http://<gateway>/api/v2`。所有请求与响应均为 JSON(`/artifact
 | GET / POST | `/device-policies` | `{kind(mac|ip|cidr), value, action(proxy|direct|reject), remark?}`;`/32`、`/128` 自动归为 `ip`,其余为 `cidr`;仅 Mode A 生效 |
 | PUT / DELETE | `/device-policies/{id}` | |
 | GET / POST | `/bypass` | `{cidr, remark?}`,仅 IPv4;Mode A 下这些目标绕过 Xray |
+| PUT | `/bypass/{id}` | `{remark}`,只改备注(不 bump generation);CIDR 不可改,删了重加 |
 | DELETE | `/bypass/{id}` | |
 
 ## 配置

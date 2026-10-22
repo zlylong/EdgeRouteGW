@@ -81,6 +81,7 @@ export const routing = {
   removeDevice: (id: string) => api.del<T.GenResp>(`${B}/device-policies/${id}`),
   bypass: () => api.get<T.ListResp<T.BypassDestination>>(`${B}/bypass`),
   createBypass: (cidr: string, remark: string) => api.post<T.ItemResp<T.BypassDestination>>(`${B}/bypass`, { cidr, remark }),
+  updateBypass: (id: string, remark: string) => api.put<T.ItemResp<T.BypassDestination>>(`${B}/bypass/${id}`, { remark }),
   removeBypass: (id: string) => api.del<T.GenResp>(`${B}/bypass/${id}`),
 }
 

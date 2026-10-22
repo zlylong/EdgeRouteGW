@@ -136,6 +136,12 @@ function onMatched(id: string | null) {
 const devices = computed(() => devicesQ.data.value?.items ?? [])
 const bypass = computed(() => bypassQ.data.value?.items ?? [])
 function removeDevice(d: DevicePolicy) { confirm.value = { title: '删除设备策略?', desc: `${d.value} · ${d.action}`, action: () => routing.removeDevice(d.id) } }
+const bypassEdit = ref<{ id: string; remark: string } | null>(null)
+async function saveBypassRemark() {
+  if (!bypassEdit.value) return
+  const { id, remark } = bypassEdit.value
+  try { await routing.updateBypass(id, remark); bypassEdit.value = null; qc.invalidateQueries({ queryKey: ['bypass'] }) } catch (e) { toast.error('保存失败', (e as Error).message) }
+}
 function removeBypass(b: BypassDestination) { confirm.value = { title: '删除绕过目标?', desc: b.cidr, action: () => routing.removeBypass(b.id) } }
 async function addBypass() {
   bypassBusy.value = true
@@ -269,7 +275,17 @@ const deviceActionTone = (a: string) => ({ proxy: 'accent', direct: 'ok', reject
       <Table v-else :cols="[{ key: 'c', label: 'CIDR' }, { key: 'r', label: '备注' }, { key: 'ops', label: '', class: 'w-16' }]">
         <tr v-for="b in bypass" :key="b.id" class="hover:bg-surface-2/60">
           <td class="px-3 py-2 font-mono text-xs">{{ b.cidr }}</td>
-          <td class="px-3 py-2 text-xs text-fg-muted">{{ b.remark }}</td>
+          <td class="px-3 py-2 text-xs text-fg-muted">
+            <form v-if="bypassEdit?.id === b.id" class="flex items-center gap-2" @submit.prevent="saveBypassRemark">
+              <Input v-model="bypassEdit.remark" class="h-7 w-64 text-xs" placeholder="备注" autofocus @keydown.esc="bypassEdit = null" />
+              <Button type="submit" size="sm">保存</Button>
+              <Button type="button" size="sm" variant="ghost" @click="bypassEdit = null">取消</Button>
+            </form>
+            <button v-else type="button" class="group inline-flex max-w-full items-center gap-1.5 text-left hover:text-fg" title="点击修改备注" @click="bypassEdit = { id: b.id, remark: b.remark ?? '' }">
+              <span class="truncate">{{ b.remark || '—' }}</span>
+              <Pencil class="h-3 w-3 shrink-0 opacity-0 transition-opacity group-hover:opacity-100" />
+            </button>
+          </td>
           <td class="px-3 py-2 text-right"><Button variant="ghost" size="icon" class="text-danger" aria-label="删除" @click="removeBypass(b)"><Trash2 class="h-3.5 w-3.5" /></Button></td>
         </tr>
       </Table>

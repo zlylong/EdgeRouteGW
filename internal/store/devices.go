@@ -72,6 +72,12 @@ func InsertBypassDestination(ctx context.Context, tx *sql.Tx, b model.BypassDest
 	return err
 }
 
+// UpdateBypassRemark changes the remark of a bypass CIDR. Remarks never
+// reach a rendered artifact, so this is not a desired-state change.
+func (s *Store) UpdateBypassRemark(ctx context.Context, id, remark string) error {
+	return affectedOne(s.db.ExecContext(ctx, `UPDATE bypass_destinations SET remark=? WHERE id=?`, remark, id))
+}
+
 // DeleteBypassDestination removes a bypass CIDR.
 func DeleteBypassDestination(ctx context.Context, tx *sql.Tx, id string) error {
 	return affectedOne(tx.ExecContext(ctx, `DELETE FROM bypass_destinations WHERE id=?`, id))
