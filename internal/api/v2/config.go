@@ -25,15 +25,18 @@ func (d Deps) getDNS(w http.ResponseWriter, r *http.Request) {
 
 // DNSInput is the full DNS configuration (PUT replaces all fields).
 type DNSInput struct {
-	LocalUpstreams  []string `json:"local_upstreams"`
-	RemoteUpstreams []string `json:"remote_upstreams"`
-	CacheSize       int      `json:"cache_size"`
-	LazyCache       bool     `json:"lazy_cache"`
-	LazyCacheTTL    int      `json:"lazy_cache_ttl"`
-	LogLevel        string   `json:"log_level"`
-	Hijack          *bool    `json:"hijack"`    // nil = keep default (on)
-	BlockDoT        *bool    `json:"block_dot"` // nil = keep default (on)
-	Tap             *bool    `json:"tap"`       // nil = keep default (on)
+	LocalUpstreams  []string               `json:"local_upstreams"`
+	RemoteUpstreams []string               `json:"remote_upstreams"`
+	CacheSize       int                    `json:"cache_size"`
+	LazyCache       bool                   `json:"lazy_cache"`
+	LazyCacheTTL    int                    `json:"lazy_cache_ttl"`
+	LogLevel        string                 `json:"log_level"`
+	Hijack          *bool                  `json:"hijack"`    // nil = keep default (on)
+	BlockDoT        *bool                  `json:"block_dot"` // nil = keep default (on)
+	Tap             *bool                  `json:"tap"`       // nil = keep default (on)
+	ECSSubnet       string                 `json:"ecs_subnet"`
+	ForwardRules    []model.DNSForwardRule `json:"forward_rules"`
+	IPv6Mode        string                 `json:"ipv6_mode"`
 }
 
 func (in *DNSInput) validate() (model.DNSConfig, error) {
@@ -70,6 +73,34 @@ func (in *DNSInput) validate() (model.DNSConfig, error) {
 	}
 	if c.RemoteUpstreams, err = norm("remote_upstreams", in.RemoteUpstreams); err != nil {
 		return c, err
+	}
+	if ecs := strings.TrimSpace(in.ECSSubnet); ecs != "" {
+		p, err := netip.ParsePrefix(ecs)
+		if err != nil || !p.Addr().Is4() || p.Bits() < 8 || p.Bits() > 32 {
+			return c, invalid("ecs_subnet", "must be an IPv4 network like 120.197.0.0/16")
+		}
+		c.ECSSubnet = p.Masked().String()
+	}
+	switch m := strings.ToLower(strings.TrimSpace(in.IPv6Mode)); m {
+	case "", "all", "proxy":
+		c.IPv6Mode = m
+	default:
+		return c, invalid("ipv6_mode", "must be empty, all or proxy")
+	}
+	if len(in.ForwardRules) > 32 {
+		return c, invalid("forward_rules", "at most 32 rules")
+	}
+	c.ForwardRules = []model.DNSForwardRule{}
+	for i, fr := range in.ForwardRules {
+		p, err := rulespec.ParseDomain(strings.TrimPrefix(strings.TrimSpace(fr.Suffix), "**."))
+		if err != nil || p.Wildcard {
+			return c, invalid("forward_rules", "rule %d: suffix must be a domain like corp.local", i+1)
+		}
+		up, err := rulespec.NormalizeUpstream(fr.Upstream)
+		if err != nil {
+			return c, invalid("forward_rules", "rule %d: %v", i+1, err)
+		}
+		c.ForwardRules = append(c.ForwardRules, model.DNSForwardRule{Suffix: p.Base, Upstream: up})
 	}
 	if c.CacheSize < 0 || c.CacheSize > 1_000_000 {
 		return c, invalid("cache_size", "must be 0-1000000")

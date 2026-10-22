@@ -81,7 +81,7 @@ Base URL:`http://<gateway>/api/v2`。所有请求与响应均为 JSON(`/artifact
 
 | 方法 | 路径 | 说明 |
 |---|---|---|
-| GET / PUT | `/dns` | `local_upstreams[]`、`remote_upstreams[]`(1~8 个;公网远端上游自动经 127.0.0.1:10808 SOCKS 并强制 TCP)、`cache_size`、`lazy_cache`、`lazy_cache_ttl`、`log_level` |
+| GET / PUT | `/dns` | `local_upstreams[]`、`remote_upstreams[]`(1~8 个;公网远端上游自动经 127.0.0.1:10808 SOCKS 并强制 TCP)、`cache_size`、`lazy_cache`、`lazy_cache_ttl`、`log_level`、`hijack`、`block_dot`、`tap`、`ecs_subnet`(IPv4 CIDR,发给本地上游的 EDNS Client Subnet)、`forward_rules[]`(`{suffix, upstream}`,最多 32 条,内网域名直接转发)、`ipv6_mode`(`""` / `all` / `proxy`,AAAA 过滤) |
 | GET / PUT | `/network` | `mode(A|B|C)`、`management_iface`、`service_iface`、`fakeip_pool`(IPv4,≥/24)、`tproxy_port`(1024~65535)、`lan_default_policy(proxy|direct)`、`ospf_push_batch`、`ospf_push_interval_s`、`ospf_resolve_workers`、`ospf_publish_allowlist[]`、`node_failover_mode(normal|strict)`。切到 B/C 时若存在通配域名规则则拒绝;B/C 的受保护端点 preflight 在 M3 加入 |
 
 ## 网络、模式与 OSPF(M3)

@@ -20,7 +20,7 @@ const toast = useToast()
 const gw = useGatewayState()
 const dnsQ = useQuery({ queryKey: ['dns'], queryFn: config.dns })
 const cfgQ = useQuery({ queryKey: ['artifact', 'mosdns'], queryFn: () => system.artifact('mosdns') })
-const form = reactive({ local: '', remote: '', cache_size: 10240, lazy_cache: true, lazy_cache_ttl: 86400, log_level: 'info', hijack: true, block_dot: true, tap: true })
+const form = reactive({ local: '', remote: '', cache_size: 10240, lazy_cache: true, lazy_cache_ttl: 86400, log_level: 'info', hijack: true, block_dot: true, tap: true, ecs_subnet: '', ipv6_mode: '' as '' | 'all' | 'proxy', forward_rules: [] as { suffix: string; upstream: string }[] })
 const errors = ref<Record<string, string>>({})
 const busy = ref(false)
 const dirty = ref(false)
@@ -28,15 +28,16 @@ const dirty = ref(false)
 watch(() => dnsQ.data.value, (d) => {
   if (!d || dirty.value) return
   const c = d.item
-  Object.assign(form, { local: c.local_upstreams.join('\n'), remote: c.remote_upstreams.join('\n'), cache_size: c.cache_size, lazy_cache: c.lazy_cache, lazy_cache_ttl: c.lazy_cache_ttl, log_level: c.log_level, hijack: c.hijack ?? true, block_dot: c.block_dot ?? true, tap: c.tap ?? true })
+  Object.assign(form, { local: c.local_upstreams.join('\n'), remote: c.remote_upstreams.join('\n'), cache_size: c.cache_size, lazy_cache: c.lazy_cache, lazy_cache_ttl: c.lazy_cache_ttl, log_level: c.log_level, hijack: c.hijack ?? true, block_dot: c.block_dot ?? true, tap: c.tap ?? true, ecs_subnet: c.ecs_subnet ?? '', ipv6_mode: c.ipv6_mode ?? '', forward_rules: (c.forward_rules ?? []).map(r => ({ ...r })) })
 }, { immediate: true })
 watch(form, () => { dirty.value = true })
 
+const removeForward = (i: number) => { form.forward_rules.splice(i, 1) }
 const lines = (s: string) => s.split(/[\n,]/).map(x => x.trim()).filter(Boolean)
 async function save() {
   errors.value = {}; busy.value = true
   try {
-    await config.putDns({ local_upstreams: lines(form.local), remote_upstreams: lines(form.remote), cache_size: Number(form.cache_size), lazy_cache: form.lazy_cache, lazy_cache_ttl: Number(form.lazy_cache_ttl), log_level: form.log_level, hijack: form.hijack, block_dot: form.block_dot, tap: form.tap })
+    await config.putDns({ local_upstreams: lines(form.local), remote_upstreams: lines(form.remote), cache_size: Number(form.cache_size), lazy_cache: form.lazy_cache, lazy_cache_ttl: Number(form.lazy_cache_ttl), log_level: form.log_level, hijack: form.hijack, block_dot: form.block_dot, tap: form.tap, ecs_subnet: form.ecs_subnet.trim(), ipv6_mode: form.ipv6_mode, forward_rules: form.forward_rules.filter(r => r.suffix.trim() || r.upstream.trim()) })
     dirty.value = false
     toast.ok('DNS 设置已保存', '上游变化时解析缓存会被清空并重新解析')
     qc.invalidateQueries({ queryKey: ['dns'] }); qc.invalidateQueries({ queryKey: ['artifact'] })
@@ -49,7 +50,7 @@ async function clearCache() {
   try { await network.clearDnsCache(); toast.ok('解析缓存已清空', 'Mode C 的域名会在下一轮重新解析') } catch (e) { toast.error('操作失败', (e as Error).message) }
 }
 function restoreDefaults() {
-  Object.assign(form, { local: 'https://223.5.5.5/dns-query\ntls://1.12.12.12', remote: 'https://1.1.1.1/dns-query\ntls://8.8.8.8', cache_size: 10240, lazy_cache: true, lazy_cache_ttl: 86400, log_level: 'info', hijack: true, block_dot: true, tap: true })
+  Object.assign(form, { local: 'https://223.5.5.5/dns-query\ntls://1.12.12.12', remote: 'https://1.1.1.1/dns-query\ntls://8.8.8.8', cache_size: 10240, lazy_cache: true, lazy_cache_ttl: 86400, log_level: 'info', hijack: true, block_dot: true, tap: true, ecs_subnet: '', ipv6_mode: '', forward_rules: [] })
 }
 </script>
 
@@ -74,6 +75,24 @@ function restoreDefaults() {
           <div class="mb-2 text-xs font-semibold uppercase tracking-wide text-fg-muted">防 DNS 泄露</div>
           <label class="flex items-center gap-2 text-sm"><Switch v-model="form.hijack" label="劫持 LAN DNS" /> 劫持 LAN 的 DNS 查询:经过网关的所有 53 端口查询都交给本机 Mosdns,无论设备配了什么 DNS(私网地址的内部 DNS 除外)</label>
           <label class="mt-2 flex items-center gap-2 text-sm"><Switch v-model="form.block_dot" label="拦截 DoT" /> 拦截 DNS-over-TLS / QUIC(853):让这类客户端退回普通 DNS,从而被劫持。DoH(443)无法通用识别,不在此列</label>
+        </div>
+        <div class="mt-4 rounded-lg border border-border bg-surface-2/40 p-3">
+          <div class="mb-2 text-xs font-semibold uppercase tracking-wide text-fg-muted">解析行为</div>
+          <div class="grid gap-4 md:grid-cols-2">
+            <Field label="ECS 客户端子网(本地上游)" hint="网关出口在境外时,把这个国内网段作为 EDNS Client Subnet 发给本地上游,国内站就会返回就近的 CDN 地址;留空不发" :error="errors.ecs_subnet"><Input v-model="form.ecs_subnet" class="font-mono" placeholder="120.197.0.0/16" /></Field>
+            <Field label="IPv6 解析(AAAA)" hint="过滤后客户端只拿到 A 记录,避免绕开只接管 IPv4 的 TPROXY 或卡在不通的 v6 上" :error="errors.ipv6_mode"><Select v-model="form.ipv6_mode" :options="[{ value: '', label: '正常返回' }, { value: 'proxy', label: '仅代理域名不返回 AAAA' }, { value: 'all', label: '全部不返回 AAAA' }]" /></Field>
+          </div>
+          <div class="mt-3">
+            <div class="mb-1 flex items-center justify-between"><span class="text-xs font-medium">内网域名转发</span><Button size="sm" variant="ghost" @click="form.forward_rules.push({ suffix: '', upstream: '' })">+ 添加</Button></div>
+            <p class="mb-2 text-xs text-fg-subtle">这些后缀(含子域)直接问指定的上游,优先于缓存与分流,不走代理;用于内网 DNS 的名字,例如 corp.local → 10.100.10.10</p>
+            <p v-if="errors.forward_rules" class="mb-2 text-xs text-danger">{{ errors.forward_rules }}</p>
+            <div v-for="(rule, idx) in form.forward_rules" :key="idx" class="mb-2 flex items-center gap-2">
+              <Input v-model="rule.suffix" class="font-mono" placeholder="corp.local" />
+              <span class="text-xs text-fg-subtle">to</span>
+              <Input v-model="rule.upstream" class="font-mono" placeholder="10.100.10.10" />
+              <Button size="sm" variant="ghost" class="shrink-0 text-danger" @click="removeForward(idx)">删除</Button>
+            </div>
+          </div>
         </div>
         <div class="mt-4 rounded-lg border border-border bg-surface-2/40 p-3">
           <div class="mb-2 text-xs font-semibold uppercase tracking-wide text-fg-muted">观测</div>

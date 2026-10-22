@@ -32,9 +32,14 @@ func UpdateDNSConfig(ctx context.Context, tx *sql.Tx, c model.DNSConfig) error {
 	if err != nil {
 		return err
 	}
+	fwd, err := json.Marshal(nonNilRules(c.ForwardRules))
+	if err != nil {
+		return err
+	}
 	_, err = tx.ExecContext(ctx, `UPDATE dns_config SET local_upstreams=?, remote_upstreams=?, cache_size=?, lazy_cache=?, lazy_cache_ttl=?, log_level=?,
-		hijack=?, block_dot=?, tap=?, updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=1`,
-		string(local), string(remote), c.CacheSize, b2i(c.LazyCache), c.LazyCacheTTL, c.LogLevel, b2i(c.Hijack), b2i(c.BlockDoT), b2i(c.Tap))
+		hijack=?, block_dot=?, tap=?, ecs_subnet=?, forward_rules=?, ipv6_mode=?, updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=1`,
+		string(local), string(remote), c.CacheSize, b2i(c.LazyCache), c.LazyCacheTTL, c.LogLevel, b2i(c.Hijack), b2i(c.BlockDoT), b2i(c.Tap),
+		c.ECSSubnet, string(fwd), c.IPv6Mode)
 	return err
 }
 
@@ -43,4 +48,11 @@ func nonNil(s []string) []string {
 		return []string{}
 	}
 	return s
+}
+
+func nonNilRules(r []model.DNSForwardRule) []model.DNSForwardRule {
+	if r == nil {
+		return []model.DNSForwardRule{}
+	}
+	return r
 }

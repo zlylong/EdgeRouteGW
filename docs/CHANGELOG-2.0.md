@@ -1,5 +1,9 @@
 # EdgeRouteGW 2.0 变更记录
 
+## [2.0.0-rc.28] - 2026-10-22
+
+- DNS 页新增「解析行为」:ECS 客户端子网(本地上游带 EDNS Client Subnet,网关出口在境外时国内站返回就近 CDN)、IPv6 解析过滤(全部 / 仅代理域名不返回 AAAA,返回空 NOERROR 让客户端回退 A)、内网域名转发(后缀 → 指定上游,排在缓存与分流之前、不走代理,最多 32 条)。迁移 0007;Mosdns 配置相应多出 ecs_handler / local_seq / forward_internal_N。
+
 ## [2.0.0-rc.27] - 2026-10-22
 
 - 修复:网关自升级在新版本发布后一两分钟内点「更新到最新」会报「no 2.x release found」(GitHub 的 releases 列表接口此时返回空数组),现在列表为空或限流时退回用发布页跳转取最新标签。

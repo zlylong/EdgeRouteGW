@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"net"
+	"net/netip"
 	"sort"
 	"strings"
 
@@ -37,17 +38,45 @@ func renderMosdns(snap *desired.Snapshot, d Deps, a *Artifacts) error {
 	}
 	fmt.Fprintf(&b, "  - tag: forward_local\n    type: forward\n    args: { upstreams: %s }\n", upstreams(dns.LocalUpstreams, false))
 	fmt.Fprintf(&b, "  - tag: forward_remote\n    type: forward\n    args: { upstreams: %s }\n", upstreams(dns.RemoteUpstreams, true))
+	// ECS: the local upstreams see the LAN's real network instead of the
+	// gateway's egress, so CDN answers are the nearby ones.
+	localExec := "$forward_local"
+	if p, err := netip.ParsePrefix(dns.ECSSubnet); err == nil && p.Addr().Is4() {
+		fmt.Fprintf(&b, "  - tag: ecs_local\n    type: ecs_handler\n    args: { forward: false, send: true, preset: \"%s\", mask4: %d, mask6: 56 }\n", p.Masked().Addr(), p.Bits())
+		b.WriteString("  - tag: local_seq\n    type: sequence\n    args:\n      - exec: $ecs_local\n      - exec: $forward_local\n")
+		localExec = "$local_seq"
+	}
+	// Internal-domain forwarding: one forward plugin per rule, direct.
+	for i, fr := range dns.ForwardRules {
+		if _, err := rulespec.ParseDomain(fr.Suffix); err != nil {
+			continue
+		}
+		fmt.Fprintf(&b, "  - tag: forward_internal_%d\n    type: forward\n    args: { upstreams: %s }\n", i, upstreams([]string{fr.Upstream}, false))
+	}
 	proxyExec := "$forward_remote"
 	if snap.Network.Mode == model.ModeB {
 		fmt.Fprintf(&b, "  - tag: forward_fakeip\n    type: forward\n    args: { upstreams: [{ addr: \"127.0.0.1:%d\" }] }\n", FakeDNSPort)
 		proxyExec = "$forward_fakeip"
 	}
 	b.WriteString("  - tag: main_sequence\n    type: sequence\n    args:\n")
+	for i, fr := range dns.ForwardRules {
+		if _, err := rulespec.ParseDomain(fr.Suffix); err != nil {
+			continue
+		}
+		fmt.Fprintf(&b, "      - matches: [ qname domain:%s ]\n        exec: $forward_internal_%d\n      - matches: [ has_resp ]\n        exec: return\n", fr.Suffix, i)
+	}
+	if dns.IPv6Mode == "all" {
+		// NOERROR with no answer: clients fall back to A immediately.
+		b.WriteString("      - matches: [ qtype 28 ]\n        exec: reject 0\n")
+	}
 	if dns.LazyCache {
 		b.WriteString("      - exec: $lazy_cache\n      - matches: [ has_resp ]\n        exec: return\n")
 	}
+	if dns.IPv6Mode == "proxy" {
+		b.WriteString("      - matches: [ qname $proxy_domain, qtype 28 ]\n        exec: reject 0\n")
+	}
 	fmt.Fprintf(&b, "      - matches: [ qname $proxy_domain ]\n        exec: %s\n      - matches: [ has_resp ]\n        exec: return\n", proxyExec)
-	b.WriteString("      - matches: [ qname $geosite_cn ]\n        exec: $forward_local\n      - matches: [ has_resp ]\n        exec: return\n")
+	fmt.Fprintf(&b, "      - matches: [ qname $geosite_cn ]\n        exec: %s\n      - matches: [ has_resp ]\n        exec: return\n", localExec)
 	b.WriteString("      - exec: $forward_remote\n")
 	// ":53" binds both families so hijacked IPv6 queries are answered too.
 	b.WriteString("  - tag: udp_server\n    type: udp_server\n    args:\n      entry: main_sequence\n      listen: \":53\"\n")

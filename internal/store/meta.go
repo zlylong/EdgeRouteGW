@@ -76,13 +76,23 @@ func (s *Store) DNSConfig(ctx context.Context) (model.DNSConfig, error) {
 	var c model.DNSConfig
 	var local, remote, updated string
 	var lazy, hijack, blockDoT, tap int
+	var fwd string
 	err := s.db.QueryRowContext(ctx, `SELECT local_upstreams, remote_upstreams, cache_size, lazy_cache,
-		lazy_cache_ttl, log_level, hijack, block_dot, tap, updated_at FROM dns_config WHERE id = 1`,
-	).Scan(&local, &remote, &c.CacheSize, &lazy, &c.LazyCacheTTL, &c.LogLevel, &hijack, &blockDoT, &tap, &updated)
+		lazy_cache_ttl, log_level, hijack, block_dot, tap, ecs_subnet, forward_rules, ipv6_mode, updated_at FROM dns_config WHERE id = 1`,
+	).Scan(&local, &remote, &c.CacheSize, &lazy, &c.LazyCacheTTL, &c.LogLevel, &hijack, &blockDoT, &tap, &c.ECSSubnet, &fwd, &c.IPv6Mode, &updated)
 	if err != nil {
 		return c, fmt.Errorf("read dns_config: %w", err)
 	}
 	c.LazyCache, c.Hijack, c.BlockDoT, c.Tap = lazy != 0, hijack != 0, blockDoT != 0, tap != 0
+	if fwd == "" {
+		fwd = "[]"
+	}
+	if err := json.Unmarshal([]byte(fwd), &c.ForwardRules); err != nil {
+		return c, fmt.Errorf("decode forward_rules: %w", err)
+	}
+	if c.ForwardRules == nil {
+		c.ForwardRules = []model.DNSForwardRule{}
+	}
 	c.UpdatedAt = parseTime(updated)
 	if err := json.Unmarshal([]byte(local), &c.LocalUpstreams); err != nil {
 		return c, fmt.Errorf("decode local_upstreams: %w", err)

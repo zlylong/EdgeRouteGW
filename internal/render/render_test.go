@@ -614,3 +614,34 @@ func TestRemoteDNSUpstreamsPinnedToProxyAndModeAFallback(t *testing.T) {
 		t.Fatalf("Mode A with proxy fallback must not be direct: %v", last)
 	}
 }
+
+func TestMosdnsECSForwardAndIPv6(t *testing.T) {
+	snap := baseSnap()
+	snap.DNS.ECSSubnet = "120.197.0.0/16"
+	snap.DNS.ForwardRules = []model.DNSForwardRule{{Suffix: "corp.local", Upstream: "10.100.10.10"}}
+	snap.DNS.IPv6Mode = "proxy"
+	a, err := Render(snap, deps())
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg := string(a.MosdnsConfig)
+	for _, want := range []string{
+		`type: ecs_handler`, `preset: "120.197.0.0", mask4: 16`, "- exec: $ecs_local\n      - exec: $forward_local", "exec: $local_seq",
+		`tag: forward_internal_0`, `{ addr: "10.100.10.10" }`, "matches: [ qname domain:corp.local ]\n        exec: $forward_internal_0",
+		"matches: [ qname $proxy_domain, qtype 28 ]\n        exec: reject 0",
+	} {
+		if !strings.Contains(cfg, want) {
+			t.Fatalf("missing %q in\n%s", want, cfg)
+		}
+	}
+	if strings.Index(cfg, "forward_internal_0\n") > strings.Index(cfg, "$lazy_cache") && strings.Contains(cfg, "$lazy_cache") {
+		t.Fatal("internal forwarding must run before the cache")
+	}
+	snap.DNS.IPv6Mode = "all"
+	snap.DNS.ECSSubnet = ""
+	a, _ = Render(snap, deps())
+	cfg = string(a.MosdnsConfig)
+	if !strings.Contains(cfg, "matches: [ qtype 28 ]\n        exec: reject 0") || strings.Contains(cfg, "ecs_handler") {
+		t.Fatalf("ipv6 all / no ecs:\n%s", cfg)
+	}
+}

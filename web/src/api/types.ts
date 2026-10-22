@@ -136,6 +136,9 @@ export interface DNSConfig {
   log_level: string
   updated_at?: string
   tap?: boolean
+  ecs_subnet?: string
+  forward_rules?: { suffix: string; upstream: string }[]
+  ipv6_mode?: '' | 'all' | 'proxy'
 }
 
 export interface NetworkConfig {

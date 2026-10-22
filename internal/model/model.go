@@ -210,8 +210,24 @@ type DNSConfig struct {
 	BlockDoT bool `json:"block_dot"`
 	// Tap keeps a short-lived record of the answers Mosdns hands to each
 	// client so the observe page can show the domain behind an IP target.
-	Tap       bool      `json:"tap"`
+	Tap bool `json:"tap"`
+	// ECSSubnet, when set (IPv4 CIDR), is sent as EDNS Client Subnet with
+	// queries to the local upstreams so CDNs answer for that network rather
+	// than for the gateway's own egress.
+	ECSSubnet string `json:"ecs_subnet"`
+	// ForwardRules send names under a suffix to a specific upstream (an
+	// internal DNS, typically) before any other logic.
+	ForwardRules []DNSForwardRule `json:"forward_rules"`
+	// IPv6Mode filters AAAA answers: "" (keep), "all" (no AAAA at all) or
+	// "proxy" (no AAAA for proxied domains only).
+	IPv6Mode  string    `json:"ipv6_mode"`
 	UpdatedAt time.Time `json:"updated_at"`
+}
+
+// DNSForwardRule maps a domain suffix to one upstream.
+type DNSForwardRule struct {
+	Suffix   string `json:"suffix"`   // "corp.local": the name and everything below it
+	Upstream string `json:"upstream"` // NormalizeUpstream form
 }
 
 // NetworkConfig is the single-row network/mode configuration.
