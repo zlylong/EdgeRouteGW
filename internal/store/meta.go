@@ -73,14 +73,14 @@ func (s *Store) NetworkConfig(ctx context.Context) (model.NetworkConfig, error) 
 func (s *Store) DNSConfig(ctx context.Context) (model.DNSConfig, error) {
 	var c model.DNSConfig
 	var local, remote, updated string
-	var lazy int
+	var lazy, hijack, blockDoT int
 	err := s.db.QueryRowContext(ctx, `SELECT local_upstreams, remote_upstreams, cache_size, lazy_cache,
-		lazy_cache_ttl, log_level, updated_at FROM dns_config WHERE id = 1`,
-	).Scan(&local, &remote, &c.CacheSize, &lazy, &c.LazyCacheTTL, &c.LogLevel, &updated)
+		lazy_cache_ttl, log_level, hijack, block_dot, updated_at FROM dns_config WHERE id = 1`,
+	).Scan(&local, &remote, &c.CacheSize, &lazy, &c.LazyCacheTTL, &c.LogLevel, &hijack, &blockDoT, &updated)
 	if err != nil {
 		return c, fmt.Errorf("read dns_config: %w", err)
 	}
-	c.LazyCache = lazy != 0
+	c.LazyCache, c.Hijack, c.BlockDoT = lazy != 0, hijack != 0, blockDoT != 0
 	c.UpdatedAt = parseTime(updated)
 	if err := json.Unmarshal([]byte(local), &c.LocalUpstreams); err != nil {
 		return c, fmt.Errorf("decode local_upstreams: %w", err)

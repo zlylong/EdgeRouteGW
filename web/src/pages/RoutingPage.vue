@@ -91,6 +91,13 @@ async function setFallback(v: string) {
   fallbackBusy.value = true
   try { await cfgApi.putNetwork({ ...cur, lan_default_policy: v }); qc.invalidateQueries({ queryKey: ['network'] }); toast.ok(v === 'direct' ? '未命中的流量将直连' : '未命中的流量将走代理') } catch (e) { toast.error('修改失败', (e as Error).message) } finally { fallbackBusy.value = false }
 }
+const failover = computed(() => netQ.data.value?.item.node_failover_mode ?? 'normal')
+async function setFailover(v: string) {
+  const cur = netQ.data.value?.item
+  if (!cur || (v !== 'normal' && v !== 'strict')) return
+  fallbackBusy.value = true
+  try { await cfgApi.putNetwork({ ...cur, node_failover_mode: v }); qc.invalidateQueries({ queryKey: ['network'] }); toast.ok(v === 'strict' ? '节点全部失效时将拦截' : '节点全部失效时将退回直连') } catch (e) { toast.error('修改失败', (e as Error).message) } finally { fallbackBusy.value = false }
+}
 const selectedIsBuiltin = computed(() => !!sets.value.find(s => s.id === selectedSet.value)?.builtin)
 async function toggleRule(r: Rule, enabled: boolean) {
   try { await routing.updateRule(r.id, { set_id: r.set_id, match_kind: r.match_kind, match_value: r.match_value, action_kind: r.action_kind, action_ref: r.action_ref || undefined, remark: r.remark, enabled }); refresh() } catch (e) { toast.error('操作失败', (e as Error).message) }
@@ -204,15 +211,26 @@ const deviceActionTone = (a: string) => ({ proxy: 'accent', direct: 'ok', reject
           </tr>
         </Table>
         <!-- Fallback row: fixed, lives in the built-in set -->
-        <div v-if="selectedIsBuiltin" class="mt-2 flex flex-wrap items-center gap-3 rounded-lg border border-dashed border-border bg-surface-2/40 px-3 py-2 text-sm">
-          <span class="rounded bg-surface-2 px-1.5 py-0.5 text-[10px] uppercase text-fg-muted">兜底</span>
-          <span class="text-fg-muted">所有规则集都没有命中的流量</span>
-          <span class="text-fg-subtle">&rarr;</span>
-          <select :value="fallback" :disabled="fallbackBusy" class="h-8 rounded-md border border-border bg-surface px-2 text-sm" @change="setFallback(($event.target as HTMLSelectElement).value)">
-            <option value="direct">直连</option>
-            <option value="proxy">代理(默认节点)</option>
-          </select>
-          <span class="text-xs text-fg-subtle">固定为最后一条,不能删除;等同于「网络与模式」里的 LAN 默认策略</span>
+        <div v-if="selectedIsBuiltin" class="mt-2 space-y-2 rounded-lg border border-dashed border-border bg-surface-2/40 px-3 py-2 text-sm">
+          <div class="flex flex-wrap items-center gap-3">
+            <span class="w-14 rounded bg-surface-2 px-1.5 py-0.5 text-center text-[10px] uppercase text-fg-muted">兜底</span>
+            <span class="text-fg-muted">所有规则集都没有命中的流量</span>
+            <span class="text-fg-subtle">&rarr;</span>
+            <select :value="fallback" :disabled="fallbackBusy" class="h-8 rounded-md border border-border bg-surface px-2 text-sm" @change="setFallback(($event.target as HTMLSelectElement).value)">
+              <option value="direct">直连</option>
+              <option value="proxy">代理(默认节点)</option>
+            </select>
+          </div>
+          <div class="flex flex-wrap items-center gap-3">
+            <span class="w-14 rounded bg-surface-2 px-1.5 py-0.5 text-center text-[10px] uppercase text-fg-muted">失效</span>
+            <span class="text-fg-muted">规则指向的节点或出站组全部失效时</span>
+            <span class="text-fg-subtle">&rarr;</span>
+            <select :value="failover" :disabled="fallbackBusy" class="h-8 rounded-md border border-border bg-surface px-2 text-sm" @change="setFailover(($event.target as HTMLSelectElement).value)">
+              <option value="normal">退回默认出站</option>
+              <option value="strict">拦截(宁断勿漏)</option>
+            </select>
+          </div>
+          <p class="text-xs text-fg-subtle">这两条固定在最后,不能删除;也就是网络配置里的 LAN 默认策略与节点失效策略。</p>
         </div>
       </section>
     </div>

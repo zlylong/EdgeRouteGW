@@ -33,8 +33,8 @@ func UpdateDNSConfig(ctx context.Context, tx *sql.Tx, c model.DNSConfig) error {
 		return err
 	}
 	_, err = tx.ExecContext(ctx, `UPDATE dns_config SET local_upstreams=?, remote_upstreams=?, cache_size=?, lazy_cache=?, lazy_cache_ttl=?, log_level=?,
-		updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=1`,
-		string(local), string(remote), c.CacheSize, b2i(c.LazyCache), c.LazyCacheTTL, c.LogLevel)
+		hijack=?, block_dot=?, updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=1`,
+		string(local), string(remote), c.CacheSize, b2i(c.LazyCache), c.LazyCacheTTL, c.LogLevel, b2i(c.Hijack), b2i(c.BlockDoT))
 	return err
 }
 

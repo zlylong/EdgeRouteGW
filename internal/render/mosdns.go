@@ -48,8 +48,9 @@ func renderMosdns(snap *desired.Snapshot, d Deps, a *Artifacts) error {
 	fmt.Fprintf(&b, "      - matches: [ qname $proxy_domain ]\n        exec: %s\n      - matches: [ has_resp ]\n        exec: return\n", proxyExec)
 	b.WriteString("      - matches: [ qname $geosite_cn ]\n        exec: $forward_local\n      - matches: [ has_resp ]\n        exec: return\n")
 	b.WriteString("      - exec: $forward_remote\n")
-	b.WriteString("  - tag: udp_server\n    type: udp_server\n    args:\n      entry: main_sequence\n      listen: 0.0.0.0:53\n")
-	b.WriteString("  - tag: tcp_server\n    type: tcp_server\n    args:\n      entry: main_sequence\n      listen: 0.0.0.0:53\n")
+	// ":53" binds both families so hijacked IPv6 queries are answered too.
+	b.WriteString("  - tag: udp_server\n    type: udp_server\n    args:\n      entry: main_sequence\n      listen: \":53\"\n")
+	b.WriteString("  - tag: tcp_server\n    type: tcp_server\n    args:\n      entry: main_sequence\n      listen: \":53\"\n")
 	a.MosdnsConfig = []byte(b.String())
 
 	// proxy_domains: every domain/geosite rule whose action sends traffic to

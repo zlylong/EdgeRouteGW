@@ -41,6 +41,12 @@ table inet {{.Table}} {
         ip daddr { 127.0.0.0/8, 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 169.254.0.0/16, 224.0.0.0/4, 255.255.255.255/32 } return
         ip6 daddr { ::1/128, fc00::/7, fe80::/10, ff00::/8 } return
 
+{{if .DNSHijack}}        # DNS queries never enter Xray: the nat chain below hands them to Mosdns.
+        meta l4proto { tcp, udp } th dport 53 counter return comment "dns_to_hijack"
+{{end}}{{if .BlockDoT}}        # DNS-over-TLS cannot be inspected; refuse it so clients fall back to plain DNS.
+        tcp dport 853 counter reject with tcp reset comment "dot_reject"
+        udp dport 853 counter reject comment "doq_reject"
+{{end}}
         # Per-device overrides (Mode A only; in B/C the main router steers traffic here and a bypass would loop).
         ether saddr @mac_reject counter drop comment "device_mac_reject"
         ip saddr @ip_reject counter drop comment "device_ip_reject"
@@ -70,7 +76,18 @@ table inet {{.Table}} {
         meta l4proto { tcp, udp } meta nfproto ipv6 mark set {{.TProxyMark}} tproxy ip6 to [::1]:{{.TProxyPort}} counter accept comment "intercept_v6"
     }
 
-    chain forward {
+{{if .DNSHijack}}    chain dns_hijack {
+        type nat hook prerouting priority dstnat; policy accept;
+        # Every DNS query that reaches the gateway (any resolver the client
+        # chose, except hosts on private networks which may be the client's
+        # own internal DNS) is answered by Mosdns, so proxied domains are
+        # never resolved through the local ISP and Fake-IP/rules always apply.
+        ip daddr { 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 169.254.0.0/16, 127.0.0.0/8 } return
+        ip6 daddr { fc00::/7, fe80::/10, ::1/128 } return
+        meta l4proto { tcp, udp } th dport 53 counter redirect to :53 comment "dns_hijack"
+    }
+
+{{end}}    chain forward {
         type filter hook forward priority mangle; policy accept;
         # Forwarded flows (not intercepted: private destinations, device
         # bypasses) get their MSS clamped to the outgoing path MTU so a
@@ -110,6 +127,7 @@ type nftData struct {
 	IPProxy, IPDirect, IPReject    string
 	IP6Proxy, IP6Direct, IP6Reject string
 	Bypass                         string
+	DNSHijack, BlockDoT            bool
 }
 
 func renderNft(snap *desired.Snapshot, _ Deps, a *Artifacts) error {
@@ -124,6 +142,7 @@ func renderNft(snap *desired.Snapshot, _ Deps, a *Artifacts) error {
 	data := nftData{
 		Generation: snap.Generation, Mode: snap.Network.Mode, Table: NftTable,
 		TProxyPort: port, TProxyMark: TProxyMark, OutMark: OutboundMark, DefaultPolicy: policy,
+		DNSHijack: snap.DNS.Hijack, BlockDoT: snap.DNS.BlockDoT,
 	}
 	if snap.Network.Mode == model.ModeA {
 		sets := map[string][]string{}

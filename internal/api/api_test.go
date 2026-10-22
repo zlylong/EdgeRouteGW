@@ -68,7 +68,7 @@ func TestState(t *testing.T) {
 	if err := json.NewDecoder(res.Body).Decode(&body); err != nil {
 		t.Fatal(err)
 	}
-	if body.Mode != "A" || body.Generation != 0 || body.SchemaVersion != "0003_default_direct" || body.UptimeSeconds < 5 {
+	if body.Mode != "A" || body.Generation != 0 || body.SchemaVersion != latestMigration(t) || body.UptimeSeconds < 5 {
 		t.Fatalf("unexpected state: %+v", body)
 	}
 }
@@ -276,4 +276,14 @@ func mustURL(s string) *url.URL {
 		panic(err)
 	}
 	return u
+}
+
+// latestMigration is the version the state endpoint must report.
+func latestMigration(t *testing.T) string {
+	t.Helper()
+	all, err := store.Migrations()
+	if err != nil || len(all) == 0 {
+		t.Fatal("no migrations")
+	}
+	return all[len(all)-1].Version
 }

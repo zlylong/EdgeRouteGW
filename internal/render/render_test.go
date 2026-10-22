@@ -525,3 +525,27 @@ func TestKernelWireGuardOutbound(t *testing.T) {
 		t.Fatal("forward chain with MSS clamp missing")
 	}
 }
+
+func TestNftDNSHijack(t *testing.T) {
+	snap := baseSnap()
+	snap.DNS.Hijack, snap.DNS.BlockDoT = true, true
+	a, _ := Render(snap, deps())
+	nft := string(a.Nft)
+	for _, want := range []string{`comment "dns_to_hijack"`, "type nat hook prerouting priority dstnat", `redirect to :53 comment "dns_hijack"`, `comment "dot_reject"`} {
+		if !strings.Contains(nft, want) {
+			t.Fatalf("missing %q", want)
+		}
+	}
+	// The exclusion for DNS must come before interception.
+	if strings.Index(nft, "dns_to_hijack") > strings.Index(nft, "intercept_v4") {
+		t.Fatal("dns_to_hijack must precede intercept rules")
+	}
+	snap.DNS.Hijack, snap.DNS.BlockDoT = false, false
+	a, _ = Render(snap, deps())
+	if strings.Contains(string(a.Nft), "dns_hijack") || strings.Contains(string(a.Nft), "dot_reject") {
+		t.Fatal("hijack rules rendered while disabled")
+	}
+	if !strings.Contains(string(a.MosdnsConfig), `listen: ":53"`) {
+		t.Fatal("mosdns must listen dual-stack")
+	}
+}

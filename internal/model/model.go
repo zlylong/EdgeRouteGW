@@ -197,13 +197,18 @@ type BypassDestination struct {
 
 // DNSConfig is the single-row Mosdns configuration.
 type DNSConfig struct {
-	LocalUpstreams  []string  `json:"local_upstreams"`
-	RemoteUpstreams []string  `json:"remote_upstreams"`
-	CacheSize       int       `json:"cache_size"`
-	LazyCache       bool      `json:"lazy_cache"`
-	LazyCacheTTL    int       `json:"lazy_cache_ttl"`
-	LogLevel        string    `json:"log_level"`
-	UpdatedAt       time.Time `json:"updated_at"`
+	LocalUpstreams  []string `json:"local_upstreams"`
+	RemoteUpstreams []string `json:"remote_upstreams"`
+	CacheSize       int      `json:"cache_size"`
+	LazyCache       bool     `json:"lazy_cache"`
+	LazyCacheTTL    int      `json:"lazy_cache_ttl"`
+	LogLevel        string   `json:"log_level"`
+	// Hijack redirects every LAN DNS query (port 53) reaching the gateway
+	// to Mosdns, whatever resolver the client configured. BlockDoT rejects
+	// DNS-over-TLS (853) so such clients fall back to plain DNS.
+	Hijack    bool      `json:"hijack"`
+	BlockDoT  bool      `json:"block_dot"`
+	UpdatedAt time.Time `json:"updated_at"`
 }
 
 // NetworkConfig is the single-row network/mode configuration.

@@ -142,7 +142,7 @@ func captureDesired(ctx context.Context, tx *sql.Tx) (*DesiredSnapshot, error) {
 	if s.Network, err = rowAsMap(ctx, tx, `SELECT mode, management_iface, service_iface, fakeip_pool, tproxy_port, lan_default_policy, ospf_push_batch, ospf_push_interval_s, ospf_resolve_workers, ospf_publish_allowlist, node_failover_mode FROM network_config WHERE id=1`); err != nil {
 		return nil, err
 	}
-	if s.DNS, err = rowAsMap(ctx, tx, `SELECT local_upstreams, remote_upstreams, cache_size, lazy_cache, lazy_cache_ttl, log_level FROM dns_config WHERE id=1`); err != nil {
+	if s.DNS, err = rowAsMap(ctx, tx, `SELECT local_upstreams, remote_upstreams, cache_size, lazy_cache, lazy_cache_ttl, log_level, hijack, block_dot FROM dns_config WHERE id=1`); err != nil {
 		return nil, err
 	}
 	return s, nil
@@ -231,8 +231,15 @@ func restoreDesired(ctx context.Context, tx *sql.Tx, s *DesiredSnapshot) error {
 		return err
 	}
 	d := s.DNS
-	_, err := tx.ExecContext(ctx, `UPDATE dns_config SET local_upstreams=?, remote_upstreams=?, cache_size=?, lazy_cache=?, lazy_cache_ttl=?, log_level=?, updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=1`,
-		d["local_upstreams"], d["remote_upstreams"], d["cache_size"], d["lazy_cache"], d["lazy_cache_ttl"], d["log_level"])
+	hijack, blockDoT := d["hijack"], d["block_dot"]
+	if hijack == nil { // snapshots taken before 0004
+		hijack = 1
+	}
+	if blockDoT == nil {
+		blockDoT = 1
+	}
+	_, err := tx.ExecContext(ctx, `UPDATE dns_config SET local_upstreams=?, remote_upstreams=?, cache_size=?, lazy_cache=?, lazy_cache_ttl=?, log_level=?, hijack=?, block_dot=?, updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=1`,
+		d["local_upstreams"], d["remote_upstreams"], d["cache_size"], d["lazy_cache"], d["lazy_cache_ttl"], d["log_level"], hijack, blockDoT)
 	return err
 }
 

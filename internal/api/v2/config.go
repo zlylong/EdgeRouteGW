@@ -30,10 +30,18 @@ type DNSInput struct {
 	LazyCache       bool     `json:"lazy_cache"`
 	LazyCacheTTL    int      `json:"lazy_cache_ttl"`
 	LogLevel        string   `json:"log_level"`
+	Hijack          *bool    `json:"hijack"`    // nil = keep default (on)
+	BlockDoT        *bool    `json:"block_dot"` // nil = keep default (on)
 }
 
 func (in *DNSInput) validate() (model.DNSConfig, error) {
-	c := model.DNSConfig{CacheSize: in.CacheSize, LazyCache: in.LazyCache, LazyCacheTTL: in.LazyCacheTTL, LogLevel: strings.ToLower(strings.TrimSpace(in.LogLevel))}
+	c := model.DNSConfig{CacheSize: in.CacheSize, LazyCache: in.LazyCache, LazyCacheTTL: in.LazyCacheTTL, LogLevel: strings.ToLower(strings.TrimSpace(in.LogLevel)), Hijack: true, BlockDoT: true}
+	if in.Hijack != nil {
+		c.Hijack = *in.Hijack
+	}
+	if in.BlockDoT != nil {
+		c.BlockDoT = *in.BlockDoT
+	}
 	norm := func(field string, list []string) ([]string, error) {
 		if len(list) == 0 {
 			return nil, invalid(field, "at least one upstream")

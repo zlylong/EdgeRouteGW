@@ -128,6 +128,8 @@ export interface BypassDestination { id: string; cidr: string; remark?: string; 
 export interface DNSConfig {
   local_upstreams: string[]
   remote_upstreams: string[]
+  hijack?: boolean
+  block_dot?: boolean
   cache_size: number
   lazy_cache: boolean
   lazy_cache_ttl: number

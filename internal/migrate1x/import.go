@@ -379,6 +379,7 @@ func Import(ctx context.Context, st *store.Store, kr *secret.Keyring, opts Optio
 		dns.RemoteUpstreams = v
 	}
 	dns.LazyCache = settings["dns_lazy"] != "false"
+	dns.Hijack, dns.BlockDoT = true, true
 	if v, err := strconv.Atoi(settings["dns_cache_size"]); err == nil && v > 0 {
 		dns.CacheSize = v
 	}

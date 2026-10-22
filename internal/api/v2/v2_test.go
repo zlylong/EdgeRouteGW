@@ -355,7 +355,7 @@ func TestSSEStreamSendsStateThenEvents(t *testing.T) {
 		}
 	}
 	typ, data := readEvent()
-	if typ != "state" || !strings.Contains(data, `"schema_version":"0003_default_direct"`) {
+	if typ != "state" || !strings.Contains(data, `"schema_version":"`+latestMigration(t)+`"`) {
 		t.Fatalf("first event %s %s", typ, data)
 	}
 	// A write produces state.changed followed by a fresh state snapshot.
@@ -481,4 +481,13 @@ func TestHostsAndDeploys(t *testing.T) {
 	if code, _ := e.do("POST", "/api/v2/components/xray/update", nil); code != 503 {
 		t.Fatalf("update without updater: %d", code)
 	}
+}
+
+func latestMigration(t *testing.T) string {
+	t.Helper()
+	all, err := store.Migrations()
+	if err != nil || len(all) == 0 {
+		t.Fatal("no migrations")
+	}
+	return all[len(all)-1].Version
 }
