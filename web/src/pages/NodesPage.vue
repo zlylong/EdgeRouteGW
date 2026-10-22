@@ -74,6 +74,7 @@ async function rollbackHost(h: RemoteHost) {
   if (!h.last_deploy) return
   try { const r = await hostsApi.rollback(h.last_deploy.id); openDeploy(h, r.deploy_id) } catch (e) { toast.error('无法回滚', (e as Error).message) }
 }
+const strategyOf = (g: OutboundGroup) => { try { return (JSON.parse(g.strategy || '{}').strategy as string) || 'leastPing' } catch { return 'leastPing' } }
 const hostTone = (s: string) => ({ online: 'ok', deploying: 'info', failed: 'danger', offline: 'danger', unknown: 'neutral' } as const)[s as 'online'] ?? 'neutral'
 const hostLabel: Record<string, string> = { online: '在线', deploying: '部署中', failed: '失败', offline: '离线', unknown: '未检查' }
 const deployLabel: Record<string, string> = { queued: '排队', running: '进行中', succeeded: '成功', failed: '失败', rolled_back: '已回滚' }
@@ -161,7 +162,7 @@ const probeTitle = (n: Node) => n.probe ? `${n.probe.via === 'xray' ? '经该节
       <Table v-else :cols="[{ key: 'name', label: '名称' }, { key: 'kind', label: '类型' }, { key: 'members', label: '成员(按序)' }, { key: 'act', label: '', class: 'w-40' }]">
         <tr v-for="g in groups" :key="g.id" class="hover:bg-surface-2/60">
           <td class="px-3 py-2 font-medium">{{ g.name }}</td>
-          <td class="px-3 py-2"><Badge :tone="g.kind === 'failover' ? 'info' : 'accent'">{{ g.kind === 'failover' ? '故障转移' : '负载均衡' }}</Badge></td>
+          <td class="px-3 py-2"><Badge :tone="g.kind === 'failover' ? 'info' : 'accent'">{{ g.kind === 'failover' ? '故障转移' : '负载均衡' }}</Badge><span v-if="g.kind === 'loadbalance'" class="ml-1 font-mono text-[10px] text-fg-muted">{{ strategyOf(g) }}</span></td>
           <td class="px-3 py-2 text-sm text-fg-muted">
             <span v-for="(id, i) in g.member_ids" :key="id">{{ i ? ' → ' : '' }}{{ nodeName(id) }}</span>
           </td>

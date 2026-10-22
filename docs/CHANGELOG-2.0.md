@@ -1,5 +1,9 @@
 # EdgeRouteGW 2.0 变更记录
 
+## [2.0.0-rc.19] - 2026-10-22
+
+- 出站组对话框:类型(故障转移 / 负载均衡)和四种负载策略(leastPing 最低延迟、leastLoad 最稳定、random 随机、roundRobin 轮询)都有说明文字,写明 Xray 每 30 秒探测一次成员、探测失败的成员不会被选中;出站组列表显示所用策略。
+
 ## [2.0.0-rc.18] - 2026-10-22
 
 - DNS 上游默认改为加密:国内 `https://223.5.5.5/dns-query`(阿里 DoH)+ `tls://1.12.12.12`(DNSPod DoT),远端 `https://1.1.1.1/dns-query`(Cloudflare DoH)+ `tls://8.8.8.8`(Google DoT,经节点代理)。IP 形式不需要 bootstrap;域名形式自动加 `bootstrap: 223.5.5.5`;加密上游保持长连接(idle_timeout 30s),tcp/tls 开启 pipeline。迁移 0005 只把仍是原明文默认值的库切换过去,自定义列表不动。

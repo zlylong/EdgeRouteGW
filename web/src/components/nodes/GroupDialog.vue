@@ -16,6 +16,26 @@ const open = defineModel<boolean>('open', { default: false })
 const emit = defineEmits<{ saved: [] }>()
 const toast = useToast()
 const form = reactive({ name: '', kind: 'failover' as GroupKind, members: [] as string[], strategy: 'leastPing' })
+
+// Explanations shown under the selectors. Xray probes every member every
+// 30 s against http://cp.cloudflare.com/ (observatory); leastPing/leastLoad
+// decide from those measurements.
+const kindHelp: Record<string, string> = {
+  failover: '始终走第 1 个启用成员;它探测失败时切到第 2 个,恢复后切回。只用前两个成员,第 3 个起忽略。适合"主线路 + 备用线路"。',
+  loadbalance: '每条新连接在所有启用成员之间按策略挑一个;已建立的连接不迁移。适合多条等价线路分摊,或按延迟自动择优。',
+}
+const strategyOptions = [
+  { value: 'leastPing', label: 'leastPing · 最低延迟' },
+  { value: 'leastLoad', label: 'leastLoad · 最稳定' },
+  { value: 'random', label: 'random · 随机' },
+  { value: 'roundRobin', label: 'roundRobin · 轮询' },
+]
+const strategyHelp: Record<string, string> = {
+  leastPing: '新连接走最近一次探测往返时间最短的成员。Xray 每 30 秒探测一次所有成员;探测失败的成员不会被选中。线路延迟差异明显时用它。',
+  leastLoad: '综合最近多次探测的延迟及其波动,优先挑延迟低且稳定的成员,并在几个相近的成员间分摊。线路时好时坏时比 leastPing 更稳。',
+  random: '每条新连接随机挑一个成员,不看延迟。成员等价、只想均摊流量时用它;探测失败的成员仍会被排除。',
+  roundRobin: '按成员顺序依次分配新连接,各成员连接数大致相等。和随机类似,但分配更均匀。',
+}
 const errors = ref<Record<string, string>>({})
 const busy = ref(false)
 const addId = ref('')
@@ -53,11 +73,11 @@ async function save() {
   <Dialog v-model:open="open" :title="group ? '编辑出站组' : '新建出站组'" description="规则可以指向出站组。故障转移组按顺序取前两个启用成员为主/备;负载组在所有启用成员间按策略分配。">
     <div class="space-y-4">
       <Field label="名称" :error="errors.name"><Input v-model="form.name" placeholder="如 海外主备" /></Field>
-      <Field label="类型" :error="errors.kind">
+      <Field label="类型" :error="errors.kind" :hint="kindHelp[form.kind]">
         <Select v-model="form.kind" :options="[{ value: 'failover', label: '故障转移(主/备)' }, { value: 'loadbalance', label: '负载均衡' }]" />
       </Field>
-      <Field v-if="form.kind === 'loadbalance'" label="策略">
-        <Select v-model="form.strategy" :options="['leastPing', 'leastLoad', 'random', 'roundRobin'].map(v => ({ value: v, label: v }))" />
+      <Field v-if="form.kind === 'loadbalance'" label="策略" :hint="strategyHelp[form.strategy]">
+        <Select v-model="form.strategy" :options="strategyOptions" />
       </Field>
       <Field label="成员(有序)" :error="errors.member_ids">
         <ul class="space-y-1">
