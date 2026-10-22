@@ -1,11 +1,10 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { ref, watch } from 'vue'
 import { useQuery, useQueryClient } from '@tanstack/vue-query'
 import { Download, RefreshCw, RotateCcw } from 'lucide-vue-next'
 import Card from '@/components/ui/Card.vue'
 import Button from '@/components/ui/Button.vue'
 import Badge from '@/components/ui/Badge.vue'
-import Select from '@/components/ui/Select.vue'
 import Input from '@/components/ui/Input.vue'
 import Field from '@/components/ui/Field.vue'
 import Dialog from '@/components/ui/Dialog.vue'
@@ -71,9 +70,7 @@ async function startUpdate(name: string, version?: string) {
 const rollbackFor = ref<string | null>(null)
 const doRollback = () => compApi.rollback(rollbackFor.value!)
 
-// Options arrays are computed so the native <select> is not re-rendered (and
-// its open popup closed) every time the dialog re-renders.
-const versionOptions = computed(() => versions.value.map(v => ({ value: v.tag, label: v.tag + (v.prerelease ? '(预发布)' : '') })))
+const installedOf = (name: string) => compQ.data.value?.items.find(c => c.name === name)?.installed ?? ''
 const schedHint: Record<string, string> = {
   xray: '到点先查 GitHub,只有出现新版本才下载、校验并重启 Xray(时间按本机时区)。',
   mosdns: '到点先查 GitHub,只有出现新版本才下载、校验并重启 Mosdns(时间按本机时区)。',
@@ -90,8 +87,7 @@ const schedHint: Record<string, string> = {
     <div v-if="!compQ.data.value?.items.length" class="rounded-lg border border-border bg-surface-2 p-3 text-sm text-fg-muted">当前实例以 -no-reconcile 运行或更新模块未启用。</div>
     <div class="grid gap-4 lg:grid-cols-3">
       <Card v-for="c in compQ.data.value?.items ?? []" :key="c.name" :title="meta[c.name]?.label ?? c.name">
-        <p class="text-xs text-fg-subtle">{{ meta[c.name]?.hint }}</p>
-        <dl class="mt-3 grid grid-cols-[5rem_1fr] gap-y-1 text-sm">
+        <dl class="grid grid-cols-[5rem_1fr] gap-y-1 text-sm">
           <dt class="text-fg-muted">已安装</dt><dd class="font-mono">{{ c.installed || '未安装' }}</dd>
           <dt class="text-fg-muted">最新</dt>
           <dd class="font-mono">{{ c.latest || '-' }} <Badge v-if="c.latest && c.installed && c.latest !== c.installed" tone="warn">可更新</Badge><Badge v-else-if="c.latest && c.installed" tone="ok">最新</Badge></dd>
@@ -110,6 +106,7 @@ const schedHint: Record<string, string> = {
           <Button v-if="c.name !== 'edgeroutegw'" size="sm" variant="ghost" :disabled="!!jobOf(c)" @click="uploadFor = c.name">本地上传</Button>
           <Button v-if="c.name !== 'edgeroutegw'" size="sm" variant="ghost" :disabled="!c.has_previous || !!jobOf(c)" @click="rollbackFor = c.name"><RotateCcw class="h-3.5 w-3.5" /> 回退</Button>
         </div>
+        <p class="mt-4 border-t border-border pt-3 text-xs text-fg-subtle">{{ meta[c.name]?.hint }}</p>
       </Card>
     </div>
     <Card title="下载通道">
@@ -134,10 +131,24 @@ const schedHint: Record<string, string> = {
     </Dialog>
     <Dialog v-model:open="pickDialog" :title="`选择 ${meta[pickFor]?.label ?? pickFor} 版本`" size="sm">
       <p v-if="loadingVersions" class="text-sm text-fg-muted">读取 GitHub 发布列表…</p>
-      <Field v-else label="版本"><Select v-model="pickVersion" :options="versionOptions" /></Field>
+      <template v-else>
+        <p class="mb-2 text-xs text-fg-subtle">GitHub 最近 {{ versions.length }} 个发布,点选后安装。</p>
+        <ul class="max-h-72 divide-y divide-border overflow-y-auto rounded-md border border-border scroll-thin">
+          <li v-for="v in versions" :key="v.tag">
+            <button type="button" class="flex w-full items-center justify-between gap-3 px-3 py-2 text-left text-sm hover:bg-surface-2" :class="pickVersion === v.tag ? 'bg-accent-soft text-accent' : ''" @click="pickVersion = v.tag">
+              <span class="font-mono">{{ v.tag }}</span>
+              <span class="flex items-center gap-2 text-xs text-fg-subtle">
+                <Badge v-if="v.prerelease" tone="warn">预发布</Badge>
+                <Badge v-else-if="installedOf(pickFor) === v.tag" tone="ok">已安装</Badge>
+                <span v-if="v.published_at">{{ new Date(v.published_at).toLocaleDateString('zh-CN') }}</span>
+              </span>
+            </button>
+          </li>
+        </ul>
+      </template>
       <template #footer>
         <Button variant="secondary" @click="pickDialog = false">取消</Button>
-        <Button :disabled="!pickVersion" @click="startUpdate(pickFor, pickVersion)">安装</Button>
+        <Button :disabled="!pickVersion || loadingVersions" @click="startUpdate(pickFor, pickVersion)">安装 {{ pickVersion }}</Button>
       </template>
     </Dialog>
     <ConfirmDialog v-if="rollbackFor" :open="!!rollbackFor" :title="`回退 ${meta[rollbackFor]?.label}?`" description="恢复上一版本并重启对应服务。" confirm-text="回退" :action="doRollback" @update:open="v => { if (!v) rollbackFor = null }" />

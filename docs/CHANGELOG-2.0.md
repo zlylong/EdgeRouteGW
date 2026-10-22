@@ -1,5 +1,10 @@
 # EdgeRouteGW 2.0 变更记录
 
+## [2.0.0-rc.21] - 2026-10-22
+
+- 组件卡片:说明文字移到卡片底部,版本信息和操作按钮靠上。
+- 「选择版本」对话框不再用原生下拉(rc.20 的 option 修复在实机上仍打不开弹层):改为可滚动的版本列表,每行标出预发布 / 已安装与发布日期,点选后按钮显示将安装的版本。
+
 ## [2.0.0-rc.20] - 2026-10-22
 
 - 组件自动更新:Xray、Mosdns、GeoData 三张卡片各自带「自动更新」设置,可选关闭 / 每天 / 每周(选星期)/ 每月(选 1~28 日)加时间(本机时区);独立的「GeoData 自动更新」卡片移除。到点先查 GitHub,只有出现新版本才执行更新,所以 Xray/Mosdns 不会被每天无谓重启。设置存 `update.schedule.<name>`(GeoData 沿用 `geodata.auto_update`,与 1.x 导入和备份兼容);`GET/PUT /components/{name}/schedule`,`GET /components` 每项带 `schedule`。
