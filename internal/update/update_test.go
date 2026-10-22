@@ -243,16 +243,42 @@ func TestInstallMosdnsAndGeodata(t *testing.T) {
 func TestSchedule(t *testing.T) {
 	s, _, _ := newSvc(t)
 	ctx := context.Background()
-	if s.Schedule(ctx) != "off" {
+	if s.Schedule(ctx) != "off" || s.ScheduleOf(ctx, Xray) != "off" {
 		t.Fatal("default schedule")
 	}
-	if err := s.SetSchedule(ctx, "daily 25:00"); err == nil {
-		t.Fatal("bad time accepted")
+	for _, bad := range []string{"daily 25:00", "weekly fun 04:00", "monthly 31 04:00", "yearly 04:00"} {
+		if err := s.SetScheduleOf(ctx, Geodata, bad); err == nil {
+			t.Fatalf("%q accepted", bad)
+		}
 	}
 	if err := s.SetSchedule(ctx, "daily 04:30"); err != nil || s.Schedule(ctx) != "daily 04:30" {
 		t.Fatalf("set schedule %v %q", err, s.Schedule(ctx))
 	}
-	if d, _ := parseDaily("daily 04:30"); d != 4*time.Hour+30*time.Minute {
-		t.Fatalf("offset %v", d)
+	if err := s.SetScheduleOf(ctx, Xray, "Weekly  Sun 03:00"); err != nil || s.ScheduleOf(ctx, Xray) != "weekly sun 03:00" {
+		t.Fatalf("weekly %v %q", err, s.ScheduleOf(ctx, Xray))
+	}
+	if err := s.SetScheduleOf(ctx, Self, "daily 01:00"); err == nil {
+		t.Fatal("self must not be schedulable")
+	}
+	loc := time.FixedZone("t", 0)
+	now := time.Date(2026, 10, 22, 10, 0, 0, 0, loc) // Thursday
+	cases := map[string]time.Time{
+		"daily 04:30":      time.Date(2026, 10, 23, 4, 30, 0, 0, loc),
+		"daily 12:00":      time.Date(2026, 10, 22, 12, 0, 0, 0, loc),
+		"weekly thu 09:00": time.Date(2026, 10, 29, 9, 0, 0, 0, loc),
+		"weekly fri 09:00": time.Date(2026, 10, 23, 9, 0, 0, 0, loc),
+		"weekly 7 09:00":   time.Date(2026, 10, 25, 9, 0, 0, 0, loc),
+		"monthly 22 11:00": time.Date(2026, 10, 22, 11, 0, 0, 0, loc),
+		"monthly 22 09:00": time.Date(2026, 11, 22, 9, 0, 0, 0, loc),
+		"monthly 1 00:00":  time.Date(2026, 11, 1, 0, 0, 0, 0, loc),
+	}
+	for spec, want := range cases {
+		p, err := ParseSchedule(spec)
+		if err != nil {
+			t.Fatalf("%s: %v", spec, err)
+		}
+		if got, _ := p.Next(now); !got.Equal(want) {
+			t.Errorf("%s next = %v, want %v", spec, got, want)
+		}
 	}
 }

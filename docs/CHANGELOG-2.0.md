@@ -1,5 +1,10 @@
 # EdgeRouteGW 2.0 变更记录
 
+## [2.0.0-rc.20] - 2026-10-22
+
+- 组件自动更新:Xray、Mosdns、GeoData 三张卡片各自带「自动更新」设置,可选关闭 / 每天 / 每周(选星期)/ 每月(选 1~28 日)加时间(本机时区);独立的「GeoData 自动更新」卡片移除。到点先查 GitHub,只有出现新版本才执行更新,所以 Xray/Mosdns 不会被每天无谓重启。设置存 `update.schedule.<name>`(GeoData 沿用 `geodata.auto_update`,与 1.x 导入和备份兼容);`GET/PUT /components/{name}/schedule`,`GET /components` 每项带 `schedule`。
+- 修复:「选择版本」对话框里的下拉框点开立即关闭。原因是对话框任何一次重渲染都会让 Vue 重设每个 option 的 value,Chromium 遇到 option 变动就收起原生下拉;现在 Select 只在选项真的变化时才碰 option,版本列表也改为稳定的 computed。
+
 ## [2.0.0-rc.19] - 2026-10-22
 
 - 托管主机调优:每次部署成功后自动在主机上探测并应用(BBR + fq、缓冲区与 TCP 参数、文件数上限、网卡多队列或 RPS、conntrack(有 NAT 时)、内核 WireGuard),结果记在主机上;主机列表新增「调优」按钮查看报告或重跑(`POST /hosts/{id}/tune`)。

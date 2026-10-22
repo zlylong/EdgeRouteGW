@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, watch } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useQuery, useQueryClient } from '@tanstack/vue-query'
 import { Download, RefreshCw, RotateCcw } from 'lucide-vue-next'
 import Card from '@/components/ui/Card.vue'
@@ -10,6 +10,7 @@ import Input from '@/components/ui/Input.vue'
 import Field from '@/components/ui/Field.vue'
 import Dialog from '@/components/ui/Dialog.vue'
 import ConfirmDialog from '@/components/ui/ConfirmDialog.vue'
+import SchedulePicker from '@/components/system/SchedulePicker.vue'
 import { components as compApi } from '@/api/endpoints'
 import type { ComponentInfo, Release, UpdateJob } from '@/api/types'
 import { useToast } from '@/stores/toast'
@@ -20,7 +21,6 @@ const qc = useQueryClient()
 const toast = useToast()
 const gw = useGatewayState()
 const compQ = useQuery({ queryKey: ['components'], queryFn: () => compApi.list(false) })
-const schedQ = useQuery({ queryKey: ['geodata-schedule'], queryFn: compApi.schedule })
 const refreshing = ref(false)
 async function refresh() { refreshing.value = true; try { qc.setQueryData(['components'], await compApi.list(true)) } catch (e) { toast.error('检查失败', (e as Error).message) } finally { refreshing.value = false } }
 
@@ -71,10 +71,13 @@ async function startUpdate(name: string, version?: string) {
 const rollbackFor = ref<string | null>(null)
 const doRollback = () => compApi.rollback(rollbackFor.value!)
 
-const schedule = ref('off'); const schedTime = ref('04:30')
-watch(() => schedQ.data.value, d => { if (d) { schedule.value = d.schedule === 'off' ? 'off' : 'daily'; if (d.schedule.startsWith('daily ')) schedTime.value = d.schedule.slice(6) } }, { immediate: true })
-async function saveSchedule() {
-  try { await compApi.setSchedule(schedule.value === 'off' ? 'off' : `daily ${schedTime.value}`); toast.ok('GeoData 自动更新已保存'); qc.invalidateQueries({ queryKey: ['geodata-schedule'] }) } catch (e) { toast.error('保存失败', (e as Error).message) }
+// Options arrays are computed so the native <select> is not re-rendered (and
+// its open popup closed) every time the dialog re-renders.
+const versionOptions = computed(() => versions.value.map(v => ({ value: v.tag, label: v.tag + (v.prerelease ? '(预发布)' : '') })))
+const schedHint: Record<string, string> = {
+  xray: '到点先查 GitHub,只有出现新版本才下载、校验并重启 Xray(时间按本机时区)。',
+  mosdns: '到点先查 GitHub,只有出现新版本才下载、校验并重启 Mosdns(时间按本机时区)。',
+  geodata: '到点检查规则数据,有新版本才更新,更新后自动重新渲染 DNS 列表与路由(时间按本机时区)。',
 }
 </script>
 
@@ -99,6 +102,7 @@ async function saveSchedule() {
           <div class="mt-1 h-1.5 overflow-hidden rounded bg-surface-2"><div class="h-full bg-accent transition-all" :style="{ width: jobOf(c)!.percent + '%' }" /></div>
         </div>
         <p v-if="c.last_error" class="mt-2 break-words text-xs text-danger">{{ c.last_error }}</p>
+        <SchedulePicker v-if="schedHint[c.name]" :name="c.name" :label="meta[c.name]?.label ?? c.name" :schedule="c.schedule" :hint="schedHint[c.name]" :disabled="!!jobOf(c)" />
         <div class="mt-4 flex flex-wrap gap-2">
           <Button size="sm" :disabled="!!jobOf(c)" @click="startUpdate(c.name)"><Download class="h-3.5 w-3.5" /> {{ c.installed ? '更新到最新' : '在线安装' }}</Button>
           <Button v-if="c.bundled" size="sm" variant="secondary" :disabled="!!jobOf(c)" :title="`内置包版本 ${c.bundled.version}`" @click="installBundled(c.name)">从内置包安装 {{ c.bundled.version }}</Button>
@@ -116,13 +120,6 @@ async function saveSchedule() {
       </div>
       <div class="mt-3 flex justify-end"><Button variant="secondary" @click="saveDownload">保存</Button></div>
     </Card>
-    <Card title="GeoData 自动更新">
-      <div class="flex flex-wrap items-end gap-3">
-        <Field label="计划"><Select v-model="schedule" class="w-40" :options="[{ value: 'off', label: '关闭' }, { value: 'daily', label: '每天' }]" /></Field>
-        <Field v-if="schedule === 'daily'" label="时间(本机时区)"><Input v-model="schedTime" type="time" class="w-32" /></Field>
-        <Button variant="secondary" @click="saveSchedule">保存</Button>
-      </div>
-    </Card>
 
     <Dialog :open="!!uploadFor" :title="`本地上传安装 ${meta[uploadFor]?.label ?? uploadFor}`" size="sm" @update:open="v => { if (!v) uploadFor = '' }">
       <p class="mb-3 text-sm text-fg-muted">选择官方发布的压缩包:Xray 的 <code class="font-mono text-xs">Xray-linux-64.zip</code>、Mosdns 的 <code class="font-mono text-xs">mosdns-linux-amd64.zip</code> 或 GeoData 的 <code class="font-mono text-xs">rules.zip</code>。填入从发布页取得的 SHA-256 可在安装前校验;留空则按未校验安装并记录事件。</p>
@@ -137,7 +134,7 @@ async function saveSchedule() {
     </Dialog>
     <Dialog v-model:open="pickDialog" :title="`选择 ${meta[pickFor]?.label ?? pickFor} 版本`" size="sm">
       <p v-if="loadingVersions" class="text-sm text-fg-muted">读取 GitHub 发布列表…</p>
-      <Field v-else label="版本"><Select v-model="pickVersion" :options="versions.map(v => ({ value: v.tag, label: v.tag + (v.prerelease ? '(预发布)' : '') }))" /></Field>
+      <Field v-else label="版本"><Select v-model="pickVersion" :options="versionOptions" /></Field>
       <template #footer>
         <Button variant="secondary" @click="pickDialog = false">取消</Button>
         <Button :disabled="!pickVersion" @click="startUpdate(pickFor, pickVersion)">安装</Button>

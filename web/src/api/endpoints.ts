@@ -131,8 +131,8 @@ export const components = {
   },
   downloadSettings: () => api.get<T.DownloadSettings>(`${B}/components/download-settings`),
   setDownloadSettings: (d: T.DownloadSettings) => api.put<T.DownloadSettings>(`${B}/components/download-settings`, d),
-  schedule: () => api.get<{ schedule: string }>(`${B}/components/geodata-schedule`),
-  setSchedule: (schedule: string) => api.put<{ schedule: string }>(`${B}/components/geodata-schedule`, { schedule }),
+  schedule: (name: string) => api.get<{ schedule: string }>(`${B}/components/${name}/schedule`),
+  setSchedule: (name: string, schedule: string) => api.put<{ schedule: string }>(`${B}/components/${name}/schedule`, { schedule }),
 }
 
 export const backup = {

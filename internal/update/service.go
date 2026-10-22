@@ -45,6 +45,8 @@ type Status struct {
 	Running   *Job     `json:"job,omitempty"`
 	LastError string   `json:"last_error,omitempty"`
 	CheckedAt string   `json:"checked_at,omitempty"`
+	// Schedule is the auto-update spec: off | daily HH:MM | weekly <mon..sun> HH:MM | monthly <1..28> HH:MM.
+	Schedule string `json:"schedule,omitempty"`
 }
 
 // Job is an in-flight or finished update.
@@ -185,6 +187,9 @@ func (s *Service) Statuses(ctx context.Context, refresh bool) []Status {
 			st.Previous = true
 		}
 		st.Bundled = s.bundled(name)
+		if name != Self {
+			st.Schedule = s.ScheduleOf(ctx, name)
+		}
 		s.mu.Lock()
 		if j, ok := s.jobs[name]; ok {
 			c := *j
@@ -514,83 +519,4 @@ func (s *Service) installGeodata(ctx context.Context, job *Job) error {
 		_ = os.WriteFile(verPath+".prev", old, 0o644)
 	}
 	return os.WriteFile(verPath, []byte(tag+"\n"), 0o644)
-}
-
-// --- geodata schedule ---
-
-// ScheduleKey is the settings key: "" / "off" disables; "daily HH:MM" runs
-// every day at that local time.
-const ScheduleKey = "geodata.auto_update"
-
-// Schedule returns the stored schedule.
-func (s *Service) Schedule(ctx context.Context) string {
-	v, _ := s.Store.GetSetting(ctx, ScheduleKey)
-	if v == "" {
-		return "off"
-	}
-	return v
-}
-
-// SetSchedule validates and stores a schedule.
-func (s *Service) SetSchedule(ctx context.Context, v string) error {
-	v = strings.TrimSpace(v)
-	if v == "off" || v == "" {
-		return s.Store.SetSetting(ctx, ScheduleKey, "off")
-	}
-	if _, err := parseDaily(v); err != nil {
-		return err
-	}
-	return s.Store.SetSetting(ctx, ScheduleKey, v)
-}
-
-func parseDaily(v string) (time.Duration, error) {
-	hhmm, ok := strings.CutPrefix(v, "daily ")
-	if !ok {
-		return 0, fmt.Errorf("schedule must be \"off\" or \"daily HH:MM\"")
-	}
-	t, err := time.Parse("15:04", strings.TrimSpace(hhmm))
-	if err != nil {
-		return 0, fmt.Errorf("schedule time must be HH:MM")
-	}
-	return time.Duration(t.Hour())*time.Hour + time.Duration(t.Minute())*time.Minute, nil
-}
-
-// RunScheduler updates geodata at the configured time until ctx ends.
-func (s *Service) RunScheduler(ctx context.Context) error {
-	for {
-		sched := s.Schedule(ctx)
-		wait := time.Hour
-		if sched != "off" {
-			if offset, err := parseDaily(sched); err == nil {
-				now := time.Now()
-				next := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location()).Add(offset)
-				if !next.After(now) {
-					next = next.Add(24 * time.Hour)
-				}
-				wait = time.Until(next)
-			}
-		}
-		if wait > time.Hour {
-			wait = time.Hour // re-read the schedule at least hourly
-		}
-		t := time.NewTimer(wait)
-		select {
-		case <-ctx.Done():
-			t.Stop()
-			return nil
-		case <-t.C:
-		}
-		if sched == "off" {
-			continue
-		}
-		offset, _ := parseDaily(sched)
-		now := time.Now()
-		due := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location()).Add(offset)
-		if now.Sub(due).Abs() > 2*time.Minute {
-			continue // woke up for the hourly re-read, not for the run
-		}
-		if _, err := s.Start(ctx, Geodata, "", "update"); err != nil && !errors.Is(err, ErrBusy) {
-			s.Log.Warn("scheduled geodata update failed to start", "err", err)
-		}
-	}
 }

@@ -19,6 +19,8 @@ func (d Deps) registerComponents(r *router) {
 	r.handle(http.MethodPut, "/api/v2/components/download-settings", d.putDownloadSettings)
 	r.handle(http.MethodGet, "/api/v2/components/geodata-schedule", d.getGeodataSchedule)
 	r.handle(http.MethodPut, "/api/v2/components/geodata-schedule", d.putGeodataSchedule)
+	r.handle(http.MethodGet, "/api/v2/components/{name}/schedule", d.getComponentSchedule)
+	r.handle(http.MethodPut, "/api/v2/components/{name}/schedule", d.putComponentSchedule)
 }
 
 func (d Deps) listComponents(w http.ResponseWriter, r *http.Request) {
@@ -182,4 +184,32 @@ func (d Deps) putDownloadSettings(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, d.Updater.GetDownloadSettings(r.Context()))
+}
+
+func (d Deps) getComponentSchedule(w http.ResponseWriter, r *http.Request) {
+	sched := "off"
+	if d.Updater != nil {
+		sched = d.Updater.ScheduleOf(r.Context(), r.PathValue("name"))
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"schedule": sched})
+}
+
+func (d Deps) putComponentSchedule(w http.ResponseWriter, r *http.Request) {
+	if d.Updater == nil {
+		writeErr(w, http.StatusServiceUnavailable, "UNAVAILABLE", "updates are disabled", nil)
+		return
+	}
+	var in struct {
+		Schedule string `json:"schedule"`
+	}
+	if err := decode(r, &in); err != nil {
+		d.fail(w, r, err)
+		return
+	}
+	name := r.PathValue("name")
+	if err := d.Updater.SetScheduleOf(r.Context(), name, in.Schedule); err != nil {
+		d.fail(w, r, invalid("schedule", "%v", err))
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"schedule": d.Updater.ScheduleOf(r.Context(), name)})
 }

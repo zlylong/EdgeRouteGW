@@ -3,6 +3,7 @@ package v2
 import (
 	"database/sql"
 	"fmt"
+	"github.com/zlylong/EdgeRouteGW/internal/update"
 	"net/http"
 	"time"
 
@@ -36,6 +37,7 @@ type Backup struct {
 	DevicePolicies []model.DevicePolicy      `json:"device_policies"`
 	Bypass         []model.BypassDestination `json:"bypass"`
 	GeodataSched   string                    `json:"geodata_schedule,omitempty"`
+	UpdateSched    map[string]string         `json:"update_schedules,omitempty"` // xray / mosdns auto-update specs
 }
 
 type backupNode struct {
@@ -66,6 +68,14 @@ func (d Deps) exportBackup(w http.ResponseWriter, r *http.Request) {
 		b.Nodes = []backupNode{}
 	}
 	b.GeodataSched, _ = d.Store.GetSetting(ctx, "geodata.auto_update")
+	for _, name := range []string{update.Xray, update.Mosdns} {
+		if v, _ := d.Store.GetSetting(ctx, update.ScheduleKeyFor(name)); v != "" && v != "off" {
+			if b.UpdateSched == nil {
+				b.UpdateSched = map[string]string{}
+			}
+			b.UpdateSched[name] = v
+		}
+	}
 	name := "edgeroutegw-backup-" + time.Now().Format("20060102-150405") + ".json"
 	w.Header().Set("Content-Disposition", `attachment; filename="`+name+`"`)
 	w.Header().Set("Cache-Control", "no-store")
@@ -180,6 +190,13 @@ func (d Deps) restoreBackup(w http.ResponseWriter, r *http.Request) {
 	}
 	if b.GeodataSched != "" {
 		_ = d.Store.SetSetting(ctx, "geodata.auto_update", b.GeodataSched)
+	}
+	for _, name := range []string{update.Xray, update.Mosdns} {
+		if v := b.UpdateSched[name]; v != "" {
+			if _, err := update.ParseSchedule(v); err == nil {
+				_ = d.Store.SetSetting(ctx, update.ScheduleKeyFor(name), v)
+			}
+		}
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"generation": gen, "nodes": len(b.Nodes), "rules": len(b.Rules), "secrets_restored": b.IncludeSecrets})
 }

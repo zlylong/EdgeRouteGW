@@ -132,7 +132,7 @@ Base URL:`http://<gateway>/api/v2`。所有请求与响应均为 JSON(`/artifact
 | GET | `/components/{name}/versions` | 最近 20 个发布(含 prerelease 标记) |
 | POST | `/components/{name}/update` | `{"version"}` 可省略 = 最新 → 202 `{item: Job}`;同时只跑一个任务(409);SSE 推送 `update.progress`/`update.done` |
 | POST | `/components/{name}/rollback` | 恢复 `.prev` 版本并重启 |
-| GET / PUT | `/components/geodata-schedule` | `{"schedule": "off" | "daily HH:MM"}` |
+| GET / PUT | `/components/{name}/schedule` | `{"schedule": "off" \| "daily HH:MM" \| "weekly <mon..sun> HH:MM" \| "monthly <1..28> HH:MM"}`,name 为 xray / mosdns / geodata;`/components/geodata-schedule` 为 geodata 的旧别名 |
 
 | POST | `/components/{name}/install-bundled` | 从 `/usr/share/edgeroutegw/components`(edgeroutegw-components 包)安装;`GET /components` 的 `bundled.version` 显示可用版本 |
 | POST | `/components/{name}/upload` | multipart:`file`(官方 zip)+ 可选 `sha256`;无 sha256 时按未校验安装并记事件 |
