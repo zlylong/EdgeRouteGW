@@ -107,6 +107,9 @@ func (d *Driver) apply(ctx context.Context, plan driver.Plan, next *render.Artif
 				}
 				d.applied = true
 			} else {
+				if n := TuneConntrack(); n > 0 {
+					d.Log.Info("conntrack tuning applied", "keys", n)
+				}
 				if err := d.ensurePolicyRouting(ctx); err != nil {
 					return err
 				}
@@ -166,6 +169,36 @@ func (d *Driver) ensurePolicyRouting(ctx context.Context) error {
 func countRules(out, mark, table string) int {
 	re := regexp.MustCompile(`(?m)fwmark 0x` + mark + `(?:/0x[0-9a-f]+)? lookup (?:` + table + `|tproxy)\b`)
 	return len(re.FindAllStringIndex(out, -1))
+}
+
+// conntrackTuning mirrors the 1.x installer's conntrack sizing. The 2.0
+// ruleset itself never consults conntrack, so the keys only exist when
+// something else (NAT, a ct rule) loaded the module; apply best-effort.
+var conntrackTuning = map[string]string{
+	"net/netfilter/nf_conntrack_max":                     "1048576",
+	"net/netfilter/nf_conntrack_tcp_timeout_established": "3600",
+	"net/netfilter/nf_conntrack_tcp_timeout_time_wait":   "120",
+	"net/netfilter/nf_conntrack_tcp_timeout_close_wait":  "60",
+	"net/netfilter/nf_conntrack_tcp_timeout_fin_wait":    "120",
+}
+
+// TuneConntrack writes the sizing above when the keys exist. Values that
+// are already at least as large are left alone.
+func TuneConntrack() (applied int) {
+	for key, want := range conntrackTuning {
+		path := "/proc/sys/" + key
+		cur, err := os.ReadFile(path)
+		if err != nil {
+			continue
+		}
+		if strings.TrimSpace(string(cur)) == want {
+			continue
+		}
+		if err := os.WriteFile(path, []byte(want+"\n"), 0o644); err == nil {
+			applied++
+		}
+	}
+	return applied
 }
 
 func ipv6Disabled() bool {

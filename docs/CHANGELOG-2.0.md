@@ -1,5 +1,9 @@
 # EdgeRouteGW 2.0 变更记录
 
+## [2.0.0-rc.14] - 2026-10-22
+
+- 内核调优补齐 1.x 安装脚本的全部项:sysctl 文件新增 `tcp_fastopen=3`;conntrack 参数(max 1048576、established 3600s 等)由服务在 nf_conntrack 模块存在时运行时写入(2.0 的 TPROXY 规则本身不用 conntrack,不再强制加载模块)。`edgeroutegw doctor` 检查 BBR、fq_codel、fastopen 与 conntrack。
+
 ## [2.0.0-rc.13] - 2026-10-22
 
 - 观测 → 连接:目标旁显示它所属的 geoip/geosite 标签(最多 3 个,其余折叠),点击跳到 GeoData 查询;过滤框可按标签搜。

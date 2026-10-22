@@ -77,6 +77,10 @@ systemctl enable --now proxygw xray mosdns
 
 1.x 的目录和数据库未被改动。
 
+## 内核调优
+
+1.x 安装脚本写的 `/etc/sysctl.d/99-proxygw.conf` 与 2.0 的 `/etc/sysctl.d/99-edgeroutegw.conf` 内容一致(转发、端口/并发、BBR + fq_codel、缓冲区、tcp_fastopen),两份同时存在无害;conntrack 参数由 2.0 服务在模块存在时运行时写入。确认不回退 1.x 后可以删掉旧文件:`rm /etc/sysctl.d/99-proxygw.conf`。`edgeroutegw doctor` 会检查这些值。
+
 ## 文件与服务对照
 
 | | 1.x | 2.0 |

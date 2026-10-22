@@ -67,6 +67,22 @@ func cmdDoctor(args []string, stdout, stderr io.Writer, env config.LookupEnv) in
 		v := strings.TrimSpace(string(b))
 		check(v == "1", false, "net.ipv4.ip_forward", "= "+v)
 	}
+	for _, kv := range [][3]string{
+		{"net/ipv4/tcp_congestion_control", "bbr", "net.ipv4.tcp_congestion_control"},
+		{"net/core/default_qdisc", "fq_codel", "net.core.default_qdisc"},
+		{"net/ipv4/tcp_fastopen", "3", "net.ipv4.tcp_fastopen"},
+	} {
+		if b, err := os.ReadFile("/proc/sys/" + kv[0]); err == nil {
+			v := strings.TrimSpace(string(b))
+			check(v == kv[1], true, kv[2], "= "+v+map[bool]string{true: "", false: " (want " + kv[1] + "; sysctl -p /etc/sysctl.d/99-edgeroutegw.conf)"}[v == kv[1]])
+		}
+	}
+	if b, err := os.ReadFile("/proc/sys/net/netfilter/nf_conntrack_max"); err == nil {
+		v := strings.TrimSpace(string(b))
+		check(v == "1048576", true, "net.netfilter.nf_conntrack_max", "= "+v)
+	} else {
+		check(true, false, "conntrack", "module not loaded; the TPROXY ruleset does not need it")
+	}
 	for _, port := range []string{"53", "80"} {
 		ln, err := net.Listen("tcp", ":"+port)
 		if err == nil {
