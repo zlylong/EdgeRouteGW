@@ -227,6 +227,20 @@ func (s *Service) enqueue(ctx context.Context, h store.RemoteHost, kind string, 
 	return d.ID, nil
 }
 
+// acquire marks a host busy (one deploy or tune at a time); false when busy.
+func (s *Service) acquire(hostID string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.running == nil {
+		s.running = map[string]bool{}
+	}
+	if s.running[hostID] {
+		return false
+	}
+	s.running[hostID] = true
+	return true
+}
+
 func (s *Service) release(hostID string) {
 	s.mu.Lock()
 	delete(s.running, hostID)
@@ -294,6 +308,8 @@ func (s *Service) run(ctx context.Context, h store.RemoteHost, d store.RemoteDep
 		fail(fmt.Errorf("install script: %w", err))
 		return
 	}
+
+	s.tuneAfterDeploy(ctx, sess, h, d.ID)
 
 	nodeID, err := s.registerNode(ctx, h, d, params, nodeName)
 	if err != nil {

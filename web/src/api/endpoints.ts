@@ -106,6 +106,7 @@ export const hosts = {
   remove: (id: string, cleanup: boolean) => api.del<{ deleted: number; remote_cleaned: boolean }>(`${B}/hosts/${id}${cleanup ? '?cleanup=1' : ''}`),
   check: (id: string) => api.post<{ status: T.HostStatus; reason?: string }>(`${B}/hosts/${id}/check`),
   deploy: (id: string, req: T.DeployRequest) => api.post<{ deploy_id: string }>(`${B}/hosts/${id}/deploy`, req),
+  tune: (id: string) => api.post<T.HostTuneReport>(`${B}/hosts/${id}/tune`),
   rePin: (id: string, fingerprint: string) => api.post<{ host_key: string }>(`${B}/hosts/${id}/hostkey`, { fingerprint }),
   deploys: (hostId?: string) => api.get<T.ListResp<T.RemoteDeploy>>(`${B}/deploys${hostId ? `?host_id=${hostId}` : ''}`),
   deploy_get: (id: string) => api.get<T.ItemResp<T.RemoteDeploy>>(`${B}/deploys/${id}`),

@@ -209,7 +209,8 @@ export interface PreflightResult { ok: boolean; mode: string; routes: number; re
 
 export type HostStatus = 'unknown' | 'online' | 'offline' | 'deploying' | 'failed'
 export interface RemoteDeploy { id: string; host_id: string; kind: 'wg' | 'vless'; state: 'queued' | 'running' | 'succeeded' | 'failed' | 'rolled_back'; node_id?: string; started_at?: string; finished_at?: string; error?: string; created_at: string; params?: Record<string, unknown> }
-export interface RemoteHost { id: string; name: string; ssh_host: string; ssh_port: number; ssh_user: string; ssh_auth_kind: 'password' | 'key'; host_key: string; region: string; status: HostStatus; remark: string; created_at: string; updated_at: string; has_credential: boolean; last_deploy?: RemoteDeploy }
+export interface HostTuneReport { at: string; items: TuningItem[]; error?: string }
+export interface RemoteHost { id: string; name: string; ssh_host: string; ssh_port: number; ssh_user: string; ssh_auth_kind: 'password' | 'key'; host_key: string; region: string; status: HostStatus; remark: string; created_at: string; updated_at: string; has_credential: boolean; last_deploy?: RemoteDeploy; tune?: HostTuneReport }
 export interface HostInput { name: string; ssh_host: string; ssh_port: number; ssh_user: string; ssh_auth_kind: 'password' | 'key'; credential?: string; region?: string; remark?: string }
 export interface DeployRequest { kind: 'wg' | 'vless'; port?: number; server_name?: string; dest?: string; node_name?: string }
 export interface DeployLogLine { id: number; at: string; stream: 'stdout' | 'stderr' | 'system'; line: string }

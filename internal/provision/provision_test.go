@@ -134,7 +134,7 @@ func TestDeploySuccessRegistersNodeAndPinsKey(t *testing.T) {
 		t.Fatal(err)
 	}
 	d3 := waitDeploy(t, st, id3)
-	if d3.State != "succeeded" || len(fd.Scripts) != 3 || d3.NodeID != d.NodeID {
+	if d3.State != "succeeded" || len(fd.Scripts) != 6 || d3.NodeID != d.NodeID { // 3 installs + 3 tuning runs
 		t.Fatalf("rollback state=%s scripts=%d node=%s", d3.State, len(fd.Scripts), d3.NodeID)
 	}
 	p3, _ := s.RedactedParams(d3)
@@ -238,5 +238,48 @@ func TestReuseSkipsNodeOverwrittenByOtherKind(t *testing.T) {
 	nodes, _ := st.ListNodes(ctx)
 	if len(nodes) != 2 {
 		t.Fatalf("expected two nodes, got %d", len(nodes))
+	}
+}
+
+func TestTuneRunsScriptAndStoresReport(t *testing.T) {
+	fd := &FakeDialer{Fingerprint: "SHA256:abc", Handler: func(script string, onLine func(string, string)) error {
+		if strings.Contains(script, "TUNE_DONE") {
+			onLine("stdout", "TUNE|host|info|4 CPU, kernel 6.1, kvm|")
+			onLine("stdout", "TUNE|bbr|applied|已启用 bbr / fq|")
+			onLine("stdout", "TUNE|nic-queues|unavailable|只有 1 个队列|在宿主机开多队列")
+			onLine("stdout", "not a tune line")
+			onLine("stdout", "TUNE_DONE")
+			return nil
+		}
+		onLine("stdout", "REALITY smoke test passed")
+		return nil
+	}}
+	s, st, hostID := newSvc(t, fd)
+	ctx := context.Background()
+	rep, err := s.Tune(ctx, hostID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rep.Items) != 3 || rep.Items[1].Key != "bbr" || rep.Items[1].Status != "applied" || rep.Items[2].Hint != "在宿主机开多队列" || rep.Items[1].Title == "" {
+		t.Fatalf("report %+v", rep)
+	}
+	if got := s.LastTune(ctx, hostID); got == nil || len(got.Items) != 3 {
+		t.Fatalf("stored report %+v", got)
+	}
+	// A deploy also tunes the host and logs the items.
+	id, _ := s.Deploy(ctx, hostID, DeployRequest{Kind: "vless", Port: 8443, ServerName: "www.apple.com"})
+	d := waitDeploy(t, st, id)
+	if d.State != "succeeded" {
+		t.Fatalf("deploy %+v", d)
+	}
+	logs, _ := st.ListDeployLogs(ctx, id, 0, 500)
+	found := false
+	for _, l := range logs {
+		if strings.Contains(l.Line, "tune bbr: applied") {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("deploy log lacks tuning lines: %+v", logs)
 	}
 }

@@ -23,6 +23,7 @@ func (d Deps) registerProvision(r *router) {
 	r.handle(http.MethodPost, "/api/v2/hosts/{id}/check", d.checkHost)
 	r.handle(http.MethodPost, "/api/v2/hosts/{id}/deploy", d.deployHost)
 	r.handle(http.MethodPost, "/api/v2/hosts/{id}/hostkey", d.rePinHost)
+	r.handle(http.MethodPost, "/api/v2/hosts/{id}/tune", d.tuneHost)
 	r.handle(http.MethodGet, "/api/v2/deploys", d.listDeploys)
 	r.handle(http.MethodGet, "/api/v2/deploys/{id}", d.getDeploy)
 	r.handle(http.MethodGet, "/api/v2/deploys/{id}/logs", d.deployLogs)
@@ -32,8 +33,9 @@ func (d Deps) registerProvision(r *router) {
 // HostView is a host as returned by the API (no credential).
 type HostView struct {
 	store.RemoteHost
-	HasCredential bool                `json:"has_credential"`
-	LastDeploy    *store.RemoteDeploy `json:"last_deploy,omitempty"`
+	HasCredential bool                      `json:"has_credential"`
+	LastDeploy    *store.RemoteDeploy       `json:"last_deploy,omitempty"`
+	Tune          *provision.HostTuneReport `json:"tune,omitempty"`
 }
 
 // HostInput creates or edits a host. Credential is write-only.
@@ -76,7 +78,30 @@ func (d Deps) hostView(r *http.Request, h store.RemoteHost) HostView {
 	if deploys, err := d.Store.ListRemoteDeploys(r.Context(), h.ID, 1); err == nil && len(deploys) > 0 {
 		v.LastDeploy = &deploys[0]
 	}
+	if d.Provision != nil {
+		v.Tune = d.Provision.LastTune(r.Context(), h.ID)
+	}
 	return v
+}
+
+// tuneHost runs the environment tuning script on the host and returns the
+// report (also stored and shown on the host afterwards).
+func (d Deps) tuneHost(w http.ResponseWriter, r *http.Request) {
+	if d.Provision == nil {
+		writeErr(w, http.StatusServiceUnavailable, "UNAVAILABLE", "provisioning is disabled", nil)
+		return
+	}
+	rep, err := d.Provision.Tune(r.Context(), r.PathValue("id"))
+	switch {
+	case errors.Is(err, store.ErrNotFound):
+		d.fail(w, r, err)
+	case errors.Is(err, provision.ErrBusy):
+		writeErr(w, http.StatusConflict, codeConflict, err.Error(), nil)
+	case err != nil && rep == nil:
+		d.fail(w, r, err)
+	default:
+		writeJSON(w, http.StatusOK, rep)
+	}
 }
 
 func (d Deps) listHosts(w http.ResponseWriter, r *http.Request) {

@@ -16,6 +16,7 @@ import ImportDialog from '@/components/nodes/ImportDialog.vue'
 import GroupDialog from '@/components/nodes/GroupDialog.vue'
 import HostDialog from '@/components/hosts/HostDialog.vue'
 import DeployDialog from '@/components/hosts/DeployDialog.vue'
+import HostTuneDialog from '@/components/hosts/HostTuneDialog.vue'
 import { groups as groupsApi, hosts as hostsApi, nodes as nodesApi } from '@/api/endpoints'
 import type { Node, OutboundGroup, RemoteHost } from '@/api/types'
 import { useGatewayState } from '@/stores/state'
@@ -54,6 +55,14 @@ async function doRetrust() {
   const r = await hostsApi.check(h.id)
   if (r.status === 'online') toast.ok(`${h.name} 已重新信任并在线`); else toast.warn(`${h.name}:${r.status}`, r.reason)
   qc.invalidateQueries({ queryKey: ['hosts'] })
+}
+const tuneDialog = ref(false); const tuneHost = ref<RemoteHost | null>(null); const tuneBusy = ref(false)
+function openTune(h: RemoteHost) { tuneHost.value = h; tuneDialog.value = true }
+async function rerunTune() {
+  const h = tuneHost.value
+  if (!h) return
+  tuneBusy.value = true
+  try { const rep = await hostsApi.tune(h.id); tuneHost.value = { ...h, tune: rep }; const n = rep.items.filter(i => i.status === 'applied').length; toast.ok(`${h.name} 调优完成`, n ? `应用了 ${n} 项` : '没有需要改动的项'); qc.invalidateQueries({ queryKey: ['hosts'] }) } catch (e) { toast.error('调优失败', (e as Error).message) } finally { tuneBusy.value = false }
 }
 async function checkHost(h: RemoteHost) {
   checking.value = h.id
@@ -196,6 +205,7 @@ const probeTitle = (n: Node) => n.probe ? `${n.probe.via === 'xray' ? '经该节
           </td>
           <td class="px-3 py-2 text-right whitespace-nowrap">
             <Button variant="ghost" size="sm" :loading="checking === h.id" @click="checkHost(h)">检查连接</Button>
+            <Button variant="ghost" size="sm" :title="h.tune ? `上次调优 ${fmtAgo(h.tune.at)}` : '尚未调优'" @click="openTune(h)">调优<span v-if="h.tune?.items?.some(i => i.status === 'unavailable' || i.status === 'fallback')" class="ml-1 inline-block h-1.5 w-1.5 rounded-full bg-warn" /></Button>
             <Button variant="secondary" size="sm" :disabled="h.status === 'deploying'" @click="openDeploy(h)">部署</Button>
             <Button variant="ghost" size="sm" :disabled="!h.last_deploy || h.last_deploy.state !== 'succeeded' || h.status === 'deploying'" @click="rollbackHost(h)">重新下发</Button>
             <Button variant="ghost" size="sm" @click="editHost = h; hostDialog = true">编辑</Button>
@@ -207,6 +217,7 @@ const probeTitle = (n: Node) => n.probe ? `${n.probe.via === 'xray' ? '经该节
     <HostDialog v-model:open="hostDialog" :host="editHost" @saved="refresh" />
     <ConfirmDialog v-if="retrust" :open="!!retrust" title="主机密钥已变化" :description="`${retrust.host.name}(${retrust.host.ssh_host})现在给出的 SSH 主机密钥与上次钉定的不同。\n钉定:${retrust.pinned}\n现在:${retrust.got}\n如果这台主机确实重装或重新生成过密钥,可以重新信任;否则请先核实,中间人攻击也会表现为这样。`" confirm-text="重新信任" :action="doRetrust" @update:open="v => { if (!v) retrust = null }" @done="refresh" />
     <DeployDialog v-model:open="deployDialog" :host="deployHost" :deploy-id="viewDeployId" @finished="refresh" />
+    <HostTuneDialog v-model:open="tuneDialog" :host="tuneHost" :report="tuneHost?.tune ?? null" :busy="tuneBusy" @rerun="rerunTune" />
 
     <NodeDialog v-model:open="nodeDialog" :node="editNode" @saved="refresh" />
     <ImportDialog v-model:open="importDialog" @imported="refresh" />
