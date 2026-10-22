@@ -24,7 +24,7 @@ ip rule del fwmark 1 lookup tproxy 2>/dev/null || true
 能访问 GitHub 的网关:
 
 ```bash
-bash <(curl -fsSL https://raw.githubusercontent.com/zlylong/EdgeRouteGW/v2/scripts/install.sh)
+bash <(curl -fsSL https://raw.githubusercontent.com/zlylong/EdgeRouteGW/main/scripts/install.sh)
 ```
 
 **不能访问 GitHub 的网关(国内常见)**:在任何能下载的机器上取发布页的 `edgeroutegw-full_<版本>_<架构>.tar.gz`,scp 到网关后:

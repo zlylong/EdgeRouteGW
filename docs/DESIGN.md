@@ -309,7 +309,7 @@ sessions / api_tokens / settings(仅剩 UI 偏好、cron 等真正的 KV)
 
 ### 7.1 第 6 项的执行细节
 
-- `v2` 分支的第一个提交只保留 `LICENSE`、`docs/DESIGN-2.0.md` 与新骨架,不继承 `backend/`、`frontend/dist`、`core/`。
+- `v2` 分支的第一个提交只保留 `LICENSE`、`docs/DESIGN.md` 与新骨架,不继承 `backend/`、`frontend/dist`、`core/`。
 - 1.x 的 Daily workflow(自动提交 Xray/Mosdns 二进制与规则文本)在 `v2` 上禁用;2.0 的对应物是"推荐版本清单 + 校验和"文件,由 workflow 只改这个清单。
 - `main` 继续接收 1.x 的修复直到 2.0.0 发布;2.0.0 时 `main` 指向 `v2`,老 `main` 以 `v1-archive` tag 与 `v1` 分支保留,供 1.x 用户回看与紧急修复。
 - 仓库瘦身(剔除历史里的 157MB×2 Xray 二进制)通过 orphan 重建完成,不对已有 clone 做 `filter-repo`,避免打断 1.x 用户的 `git pull` 升级路径;`v1` 分支历史保持原样。

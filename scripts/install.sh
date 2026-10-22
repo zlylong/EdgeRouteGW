@@ -2,7 +2,7 @@
 # EdgeRouteGW 2.0 installer: downloads the latest 2.x .deb for this machine,
 # verifies it against the release's SHA256SUMS and installs it with apt.
 #
-#   bash <(curl -fsSL https://raw.githubusercontent.com/zlylong/EdgeRouteGW/v2/scripts/install.sh)
+#   bash <(curl -fsSL https://raw.githubusercontent.com/zlylong/EdgeRouteGW/main/scripts/install.sh)
 #   ERGW_VERSION=v2.0.0 bash install.sh      # pin a version
 #
 # Debian 12/13 and Ubuntu 22.04/24.04, amd64 or arm64, run as root.

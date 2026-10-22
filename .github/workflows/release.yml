@@ -72,7 +72,7 @@ jobs:
       - name: Release notes
         run: |
           TAG="${GITHUB_REF_NAME#v}"
-          awk -v ver="$TAG" '$0 ~ /^## \[/ { if (found) exit } index($0, "## [" ver "]") == 1 { found=1 } found { print }' docs/CHANGELOG-2.0.md > /tmp/notes.md
+          awk -v ver="$TAG" '$0 ~ /^## \[/ { if (found) exit } index($0, "## [" ver "]") == 1 { found=1 } found { print }' docs/CHANGELOG.md > /tmp/notes.md
           test -s /tmp/notes.md || printf 'EdgeRouteGW %s\n' "$GITHUB_REF_NAME" > /tmp/notes.md
       - uses: softprops/action-gh-release@v3
         with:

@@ -4,7 +4,7 @@ package model
 
 import "time"
 
-// Mode is the LAN takeover mode. See docs/DESIGN-2.0.md section 1.
+// Mode is the LAN takeover mode. See docs/DESIGN.md section 1.
 type Mode string
 
 const (

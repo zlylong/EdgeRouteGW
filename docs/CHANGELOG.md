@@ -1,4 +1,21 @@
-# EdgeRouteGW 2.0 变更记录
+# EdgeRouteGW 变更记录
+
+## [2.0.0] - 2026-10-23
+
+2.0 正式版。与 1.x 相比的整体变化(rc.1 ~ rc.28 的逐条记录见下文):
+
+- 单二进制 + SQLite 的声明式控制面:配置先成为期望状态,协调器渲染并下发 Xray / Mosdns / nftables / FRR / 内核 WireGuard,失败自动回退;deb 安装与自升级,不再 git pull。
+- 分流:规则集 + 有序规则,内置默认集固定在前,兜底策略与节点失效策略可见可改;geosite / geoip 从已装 GeoData 多选;页面内 Trace 与 GeoData 反查。
+- 节点:分享链接导入、故障转移 / 负载均衡组(四种策略,30 秒探测)、WireGuard 内核隧道(吞吐翻倍)、端到端探测。
+- DNS:默认 DoH / DoT,劫持 LAN 53 端口、拒绝 DoT 防泄露,ECS 客户端子网、内网域名转发、AAAA 过滤,解析结果记录用于连接标注。
+- 托管主机:一键部署 WireGuard / VLESS-REALITY,主机密钥 TOFU,部署后自动调优。
+- 组件更新:校验下载、冒烟测试、一键回退、按天 / 周 / 月自动更新;离线 full 包、本地上传、镜像与代理、GitHub Token;网关自升级。
+- 可观测:主机监控、组件状态、流量图、实时连接(geo 标签 + 域名)、事件、延迟;生成的配置随时可看。
+- 系统调优:环境探测式(sysctl、BBR、多队列 / RPS、内核 WireGuard、conntrack)。
+- 安全:argon2id、会话 + CSRF、API token 分级、凭证加密、systemd 沙箱加固;发布前安全审计并修复高 / 中危项(docs/SECURITY-AUDIT.md)。
+- 1.x 迁移:`edgeroutegw import-v1` 导入 proxygw.db(含托管主机凭证),文档 docs/UPGRADE-FROM-1.x.md。
+
+仓库自 2.0.0 起 `main` 分支即 2.0;1.x 的最后状态保留在标签 `v1-main-final` 与各 `v1.*` 发布标签。
 
 ## [2.0.0-rc.28] - 2026-10-22
 
@@ -25,7 +42,7 @@
 
 ## [2.0.0-rc.23] - 2026-10-22
 
-安全收尾审计(见 `docs/SECURITY-AUDIT-2.0.md`)的修复:
+安全收尾审计(见 `docs/SECURITY-AUDIT.md`)的修复:
 
 - 凭证只对浏览器会话开放:`GET /backup?include_secrets=1` 与 `GET /artifacts/*` 对 API token 返回 403(只读 token 曾能借此导出全部节点凭证);含凭证的导出写一条 warn 事件。
 - GitHub Token 不再回传:`GET /components/download-settings` 只给 `has_github_token`;PUT 留空保持、`clear_github_token` 清除;配置了镜像时 token 不随请求发出;镜像只接受 https;校验文件(.dgst / sha256sum / SHA256SUMS)优先直连 GitHub,镜像只在直连不通时兜底。
@@ -151,7 +168,7 @@
 
 ## [2.0.0-rc.1] - 2026-10-20
 
-从零重写。设计见 `docs/DESIGN-2.0.md`,与 1.x 的差异见 `docs/UPGRADE-FROM-1.x.md`。
+从零重写。设计见 `docs/DESIGN.md`,与 1.x 的差异见 `docs/UPGRADE-FROM-1.x.md`。
 
 ### 架构
 - 声明式下发:写操作只改期望状态,单一 Reconciler 渲染 Xray / Mosdns / nftables / 路由四类产物并按组件做最小动作(热更新、写文件、重启、原子换表),300ms 合并窗口,失败退避重试,30s 周期对齐。
