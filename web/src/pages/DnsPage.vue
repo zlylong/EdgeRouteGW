@@ -49,7 +49,7 @@ async function clearCache() {
   try { await network.clearDnsCache(); toast.ok('解析缓存已清空', 'Mode C 的域名会在下一轮重新解析') } catch (e) { toast.error('操作失败', (e as Error).message) }
 }
 function restoreDefaults() {
-  Object.assign(form, { local: '119.29.29.29\n223.5.5.5', remote: '1.1.1.1\n8.8.8.8', cache_size: 10240, lazy_cache: true, lazy_cache_ttl: 86400, log_level: 'info', hijack: true, block_dot: true })
+  Object.assign(form, { local: 'https://223.5.5.5/dns-query\ntls://1.12.12.12', remote: 'https://1.1.1.1/dns-query\ntls://8.8.8.8', cache_size: 10240, lazy_cache: true, lazy_cache_ttl: 86400, log_level: 'info', hijack: true, block_dot: true })
 }
 </script>
 
@@ -58,10 +58,10 @@ function restoreDefaults() {
     <Card title="上游与缓存">
       <template #actions><Button variant="ghost" size="sm" @click="restoreDefaults">恢复推荐值</Button></template>
       <div class="space-y-4">
-        <Field label="本地上游(国内域名)" hint="每行一个;IP、IP:端口或 tls:// https:// 地址" :error="errors.local_upstreams">
+        <Field label="本地上游(国内域名)" hint="每行一个;推荐加密形式 https://IP/dns-query(DoH)或 tls://IP(DoT),也接受 IP、IP:端口;用域名时会经 223.5.5.5 引导解析" :error="errors.local_upstreams">
           <Textarea v-model="form.local" rows="3" class="font-mono text-xs" />
         </Field>
-        <Field label="远端上游(其它域名)" hint="公网地址自动经本机 SOCKS 代理并强制 TCP,避免污染" :error="errors.remote_upstreams">
+        <Field label="远端上游(其它域名)" hint="公网上游自动经本机 SOCKS 走节点;DoH/DoT 保持加密,明文 IP 强制 TCP" :error="errors.remote_upstreams">
           <Textarea v-model="form.remote" rows="3" class="font-mono text-xs" />
         </Field>
         <div class="grid gap-4 md:grid-cols-3">

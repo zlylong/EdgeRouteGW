@@ -136,7 +136,7 @@ func TestXrayContent(t *testing.T) {
 	for _, r := range cfg.Routing.Rules {
 		tags = append(tags, r["ruleTag"].(string))
 	}
-	want := []string{"sys-api", "probe-n1", "probe-n2", "probe-none", "rule-r1", "rule-r2", "rule-r3", "rule-r4", "rule-r5", "rule-r7", "default"}
+	want := []string{"sys-api", "probe-n1", "probe-n2", "probe-none", "sys-dns-upstream-0", "sys-dns-upstream-1", "rule-r1", "rule-r2", "rule-r3", "rule-r4", "rule-r5", "rule-r7", "default"}
 	if strings.Join(tags, ",") != strings.Join(want, ",") {
 		t.Fatalf("rule order %v, want %v", tags, want)
 	}
@@ -157,8 +157,8 @@ func TestXrayContent(t *testing.T) {
 		t.Fatalf("r5 should go to default node: %v", r5)
 	}
 	def := cfg.Routing.Rules[len(cfg.Routing.Rules)-1]
-	if def["outboundTag"] != "direct" {
-		t.Fatalf("Mode A catch-all must be direct: %v", def)
+	if def["outboundTag"] != "node-n1" { // baseSnap: LAN default policy proxy -> default node, in every mode
+		t.Fatalf("catch-all must follow the LAN default policy: %v", def)
 	}
 	if len(cfg.Routing.Balancers) != 1 || cfg.Routing.Balancers[0]["tag"] != "group-g1" || cfg.Routing.Balancers[0]["fallbackTag"] != "node-n2" {
 		t.Fatalf("balancers %v", cfg.Routing.Balancers)
@@ -287,7 +287,7 @@ func TestMosdnsLists(t *testing.T) {
 		t.Fatalf("cn list %q", a.MosdnsCNDomains)
 	}
 	cfg := string(a.MosdnsConfig)
-	if !strings.Contains(cfg, `{ addr: "tcp://1.1.1.1", socks5: "127.0.0.1:10808" }, { addr: "https://dns.google/dns-query", socks5: "127.0.0.1:10808" }`) {
+	if !strings.Contains(cfg, `{ addr: "tcp://1.1.1.1", socks5: "127.0.0.1:10808", enable_pipeline: true }, { addr: "https://dns.google/dns-query", socks5: "127.0.0.1:10808", bootstrap: "223.5.5.5", idle_timeout: 30 }`) {
 		t.Fatalf("remote upstreams not proxied/tcp-forced:\n%s", cfg)
 	}
 	if !strings.Contains(cfg, `{ addr: "119.29.29.29" }, { addr: "223.5.5.5" }`) {
@@ -547,5 +547,70 @@ func TestNftDNSHijack(t *testing.T) {
 	}
 	if !strings.Contains(string(a.MosdnsConfig), `listen: ":53"`) {
 		t.Fatal("mosdns must listen dual-stack")
+	}
+}
+
+func TestMosdnsEncryptedUpstreams(t *testing.T) {
+	out := upstreams([]string{"https://223.5.5.5/dns-query", "tls://1.12.12.12", "119.29.29.29"}, false)
+	for _, want := range []string{`addr: "https://223.5.5.5/dns-query", idle_timeout: 30`, `addr: "tls://1.12.12.12", idle_timeout: 30, enable_pipeline: true`, `{ addr: "119.29.29.29" }`} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("local: missing %q in %s", want, out)
+		}
+	}
+	if strings.Contains(out, "socks5") || strings.Contains(out, "bootstrap") {
+		t.Fatalf("local upstreams must not be proxied or bootstrapped: %s", out)
+	}
+	out = upstreams([]string{"https://1.1.1.1/dns-query", "tls://8.8.8.8", "9.9.9.9", "https://dns.quad9.net/dns-query"}, true)
+	for _, want := range []string{`addr: "https://1.1.1.1/dns-query", socks5: "127.0.0.1:10808", idle_timeout: 30`, `addr: "tls://8.8.8.8", socks5: "127.0.0.1:10808"`, `addr: "tcp://9.9.9.9", socks5: "127.0.0.1:10808", enable_pipeline: true`, `addr: "https://dns.quad9.net/dns-query", socks5: "127.0.0.1:10808", bootstrap: "223.5.5.5"`} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("remote: missing %q in %s", want, out)
+		}
+	}
+	if strings.Contains(out, "tcp://https") {
+		t.Fatalf("encrypted scheme must survive forceTCP: %s", out)
+	}
+	if d := upstreams(nil, false); !strings.Contains(d, "https://223.5.5.5/dns-query") || !strings.Contains(d, "tls://1.12.12.12") {
+		t.Fatalf("defaults %s", d)
+	}
+}
+
+func TestRemoteDNSUpstreamsPinnedToProxyAndModeAFallback(t *testing.T) {
+	snap := baseSnap()
+	snap.DNS.RemoteUpstreams = []string{"https://1.1.1.1/dns-query", "tls://8.8.8.8", "https://dns.quad9.net/dns-query", "10.0.0.53"}
+	snap.Network.LANDefaultPolicy = "direct"
+	a, err := Render(snap, deps())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var rules []map[string]any
+	_ = json.Unmarshal(a.XrayRules, &rules)
+	pinned := 0
+	for _, r := range rules {
+		tag, _ := r["ruleTag"].(string)
+		if !strings.HasPrefix(tag, "sys-dns-upstream-") {
+			continue
+		}
+		pinned++
+		if ibs := r["inboundTag"].([]any); ibs[0] != TagSocksIn {
+			t.Fatalf("rule %s inbound %v", tag, ibs)
+		}
+		if r["outboundTag"] == TagDirect || r["outboundTag"] == TagBlock {
+			t.Fatalf("rule %s must go to the proxy, got %v", tag, r["outboundTag"])
+		}
+	}
+	if pinned != 3 { // the private 10.0.0.53 is not pinned
+		t.Fatalf("pinned %d upstream rules", pinned)
+	}
+	last := rules[len(rules)-1]
+	if last["outboundTag"] != TagDirect {
+		t.Fatalf("direct fallback: %v", last)
+	}
+	// Mode A honours a proxy fallback too (it used to be forced direct).
+	snap.Network.LANDefaultPolicy = "proxy"
+	a, _ = Render(snap, deps())
+	_ = json.Unmarshal(a.XrayRules, &rules)
+	last = rules[len(rules)-1]
+	if last["outboundTag"] == TagDirect {
+		t.Fatalf("Mode A with proxy fallback must not be direct: %v", last)
 	}
 }

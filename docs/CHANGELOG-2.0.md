@@ -1,5 +1,11 @@
 # EdgeRouteGW 2.0 变更记录
 
+## [2.0.0-rc.18] - 2026-10-22
+
+- DNS 上游默认改为加密:国内 `https://223.5.5.5/dns-query`(阿里 DoH)+ `tls://1.12.12.12`(DNSPod DoT),远端 `https://1.1.1.1/dns-query`(Cloudflare DoH)+ `tls://8.8.8.8`(Google DoT,经节点代理)。IP 形式不需要 bootstrap;域名形式自动加 `bootstrap: 223.5.5.5`;加密上游保持长连接(idle_timeout 30s),tcp/tls 开启 pipeline。迁移 0005 只把仍是原明文默认值的库切换过去,自定义列表不动。
+- 修复:Mosdns 的远端上游经本机 SOCKS 进入 Xray 后按兜底处理,兜底为直连时实际没有走节点;现在来自 socks_in、目的为远端上游的连接固定走默认代理出站(规则 `sys-dns-upstream-N`)。
+- 修复:Mode A 下兜底「代理」不生效(Xray 的 catch-all 被写死为直连);现在三种模式都按兜底策略处理,Trace 文案同步。
+
 ## [2.0.0-rc.17] - 2026-10-22
 
 - 防 DNS 泄露:经过网关的所有 53 端口查询(私网目的地址除外)在 nat 链 redirect 到本机 Mosdns,设备手动指定的 8.8.8.8 之类也落入分流逻辑;DoT/DoQ(853)拒绝,客户端退回普通 DNS。Mosdns 改为双栈监听。DNS 页两个开关,默认开启;迁移 0004;从 1.x 导入默认开启。DoH 无法通用识别,不在范围内。

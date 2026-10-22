@@ -3,6 +3,7 @@ package render
 import (
 	"bytes"
 	"fmt"
+	"net"
 	"sort"
 	"strings"
 
@@ -122,9 +123,24 @@ func joinLines(items []string) []byte {
 	return buf.Bytes()
 }
 
+// Default upstreams: encrypted (DoH + DoT), IP-form so no bootstrap lookup
+// is needed and certificates validate by IP SAN. Local = AliDNS + DNSPod,
+// remote = Cloudflare + Google through the proxy.
+var (
+	DefaultLocalUpstreams  = []string{"https://223.5.5.5/dns-query", "tls://1.12.12.12"}
+	DefaultRemoteUpstreams = []string{"https://1.1.1.1/dns-query", "tls://8.8.8.8"}
+)
+
+// BootstrapResolver resolves the hostname of a DoH/DoT upstream given by
+// name; plain so it works before any tunnel is up (only the resolver's own
+// name is exposed).
+const BootstrapResolver = "223.5.5.5"
+
 // upstreams renders a Mosdns upstream list. Remote (public) resolvers go
 // through the local SOCKS inbound so the query itself is proxied; SOCKS has
-// no UDP relay here, so plain IPs are forced to TCP.
+// no UDP relay here, so plain IPs are forced to TCP. Encrypted upstreams
+// (tls://, https://, quic://) keep their scheme; a hostname gets a
+// bootstrap resolver and encrypted ones keep idle connections open.
 func upstreams(list []string, viaProxy bool) string {
 	var items []string
 	for _, raw := range list {
@@ -132,24 +148,39 @@ func upstreams(list []string, viaProxy bool) string {
 		if err != nil {
 			continue
 		}
+		opts := []string{}
 		if viaProxy && rulespec.IsPublicAddr(rulespec.UpstreamHost(up)) {
-			items = append(items, fmt.Sprintf(`{ addr: "%s", socks5: "127.0.0.1:%d" }`, forceTCP(up), SocksPort))
-		} else {
-			items = append(items, fmt.Sprintf(`{ addr: "%s" }`, up))
+			up = forceTCP(up)
+			opts = append(opts, fmt.Sprintf(`socks5: "127.0.0.1:%d"`, SocksPort))
 		}
+		host := rulespec.UpstreamHost(up)
+		if net.ParseIP(host) == nil && host != "" {
+			opts = append(opts, fmt.Sprintf(`bootstrap: "%s"`, BootstrapResolver))
+		}
+		if strings.HasPrefix(up, "https://") || strings.HasPrefix(up, "tls://") || strings.HasPrefix(up, "quic://") {
+			opts = append(opts, "idle_timeout: 30")
+		}
+		if strings.HasPrefix(up, "tcp://") || strings.HasPrefix(up, "tls://") {
+			opts = append(opts, "enable_pipeline: true")
+		}
+		item := fmt.Sprintf(`addr: "%s"`, up)
+		if len(opts) > 0 {
+			item += ", " + strings.Join(opts, ", ")
+		}
+		items = append(items, "{ "+item+" }")
 	}
 	if len(items) == 0 {
 		if viaProxy {
-			return fmt.Sprintf(`[{ addr: "tcp://1.1.1.1", socks5: "127.0.0.1:%d" }, { addr: "tcp://8.8.8.8", socks5: "127.0.0.1:%d" }]`, SocksPort, SocksPort)
+			return upstreams(DefaultRemoteUpstreams, true)
 		}
-		return `[{ addr: "119.29.29.29" }, { addr: "223.5.5.5" }]`
+		return upstreams(DefaultLocalUpstreams, false)
 	}
 	return "[" + strings.Join(items, ", ") + "]"
 }
 
 func forceTCP(up string) string {
 	if strings.Contains(up, "://") {
-		return strings.Replace(up, "udp://", "tcp://", 1)
+		return strings.Replace(up, "udp://", "tcp://", 1) // tls/https/quic are already stream based
 	}
 	return "tcp://" + up
 }

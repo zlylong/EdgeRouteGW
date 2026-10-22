@@ -3,6 +3,7 @@ package render
 import (
 	"encoding/json"
 	"fmt"
+	"net"
 	"sort"
 	"strings"
 
@@ -136,6 +137,27 @@ func renderXray(snap *desired.Snapshot, d Deps, a *Artifacts) error {
 		rules = append(rules, map[string]any{"type": "field", "inboundTag": []string{TagProbeIn}, "user": []string{ProbeUser(slot)}, "outboundTag": "node-" + id, "ruleTag": "probe-" + id})
 	}
 	rules = append(rules, map[string]any{"type": "field", "inboundTag": []string{TagProbeIn}, "outboundTag": TagBlock, "ruleTag": "probe-none"})
+	// Mosdns reaches the remote (public) upstreams through the local SOCKS
+	// inbound; pin those flows to the proxy so the queries really leave
+	// through a node whatever the user rules and the fallback say.
+	for i, up := range snap.DNS.RemoteUpstreams {
+		norm, err := rulespec.NormalizeUpstream(up)
+		if err != nil {
+			continue
+		}
+		host := rulespec.UpstreamHost(norm)
+		if host == "" || !rulespec.IsPublicAddr(host) {
+			continue
+		}
+		xr := map[string]any{"type": "field", "inboundTag": []string{TagSocksIn}, "ruleTag": fmt.Sprintf("sys-dns-upstream-%d", i)}
+		if net.ParseIP(host) != nil {
+			xr["ip"] = []string{host}
+		} else {
+			xr["domain"] = []string{"full:" + host}
+		}
+		r.defaultTarget().apply(xr)
+		rules = append(rules, xr)
+	}
 	for _, rule := range snap.ActiveRules() {
 		xr, ok := r.rule(rule)
 		if ok {
@@ -300,10 +322,10 @@ func (r *xrayRenderer) missingTarget(what string) target {
 	return r.defaultTarget()
 }
 
+// catchAll is the outbound for traffic no rule matched: the LAN default
+// policy, in every mode (nft intercepts everything, so this is the only
+// place the policy takes effect).
 func (r *xrayRenderer) catchAll() target {
-	if r.snap.Network.Mode == model.ModeA {
-		return target{outbound: TagDirect}
-	}
 	if r.snap.Network.LANDefaultPolicy == "proxy" {
 		return r.defaultTarget()
 	}

@@ -69,8 +69,6 @@ func Run(snap *desired.Snapshot, src Sources, target string) Result {
 	}
 	res.Action = "default"
 	switch {
-	case snap.Network.Mode == model.ModeA:
-		res.Outbound, res.Reason = render.TagDirect, "no rule matched; Mode A sends unmatched traffic direct"
 	case snap.Network.LANDefaultPolicy == "proxy":
 		res.Outbound, res.Via = defaultOutbound(snap)
 		res.Reason = "no rule matched; LAN default policy is proxy"
