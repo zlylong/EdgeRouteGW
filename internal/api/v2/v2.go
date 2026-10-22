@@ -29,6 +29,7 @@ import (
 	"github.com/zlylong/EdgeRouteGW/internal/render"
 	"github.com/zlylong/EdgeRouteGW/internal/secret"
 	"github.com/zlylong/EdgeRouteGW/internal/store"
+	"github.com/zlylong/EdgeRouteGW/internal/tune"
 	"github.com/zlylong/EdgeRouteGW/internal/update"
 )
 
@@ -70,6 +71,8 @@ type Deps struct {
 	Provision *provision.Service
 	// Updater installs components; nil disables.
 	Updater *update.Service
+	// Tuner holds the environment tuning report; nil with -no-reconcile.
+	Tuner *tune.Tuner
 	// Traffic and Latency are the telemetry collectors; nil when not running.
 	Traffic *observe.TrafficSampler
 	Latency *observe.LatencyProber
@@ -81,6 +84,7 @@ func Register(mux *http.ServeMux, d Deps) {
 	d.registerAuth(r)
 	d.registerObserve(r)
 	d.registerNetwork(r)
+	d.registerTuning(r)
 	d.registerProvision(r)
 	d.registerComponents(r)
 	d.registerBackup(r)

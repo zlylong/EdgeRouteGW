@@ -224,3 +224,5 @@ export interface TrafficResponse { range: string; bucket_s: number; series: Traf
 export interface LatencyResult { node_id: string; ms: number; error?: string }
 export interface DownloadSettings { proxy: string; github_mirror: string }
 export interface GeoTags { kind: 'geosite' | 'geoip'; installed: boolean; version?: string; items: string[] }
+export interface TuningItem { key: string; title: string; status: 'ok' | 'applied' | 'fallback' | 'unavailable' | 'info'; detail: string; hint?: string }
+export interface TuningReport { at: string; applied: boolean; host: { cpus: number; kernel: string; virt: string; iface: string }; items: TuningItem[] }

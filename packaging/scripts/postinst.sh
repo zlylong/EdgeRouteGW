@@ -6,6 +6,7 @@ install -d -m 0750 /var/lib/edgeroutegw /etc/edgeroutegw
 install -d -m 0755 /var/lib/edgeroutegw/components /var/lib/edgeroutegw/geodata /var/lib/edgeroutegw/xray /var/lib/edgeroutegw/mosdns
 
 modprobe wireguard >/dev/null 2>&1 || true
+modprobe tcp_bbr >/dev/null 2>&1 || true
 if command -v sysctl >/dev/null 2>&1; then
     sysctl -q -p /etc/sysctl.d/99-edgeroutegw.conf >/dev/null 2>&1 || true
 fi

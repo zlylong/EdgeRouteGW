@@ -33,6 +33,8 @@ export const system = {
   connections: (limit = 200, q = '') => api.get<T.ListResp<T.Connection>>(`${B}/connections?limit=${limit}&q=${encodeURIComponent(q)}`),
   trace: (target: string) => api.get<T.TraceResult>(`${B}/trace?target=${encodeURIComponent(target)}`),
   traffic: (range: '1h' | '24h' | '7d' | '30d') => api.get<T.TrafficResponse>(`${B}/traffic?range=${range}`),
+  tuning: () => api.get<T.TuningReport>(`${B}/tuning`),
+  applyTuning: () => api.post<T.TuningReport>(`${B}/tuning/apply`),
   revert: (changesetId: string) => api.post<{ generation: number; restored_generation: number }>(`${B}/changesets/${changesetId}/revert`),
 }
 

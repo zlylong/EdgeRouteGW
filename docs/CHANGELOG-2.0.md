@@ -1,5 +1,9 @@
 # EdgeRouteGW 2.0 变更记录
 
+## [2.0.0-rc.16] - 2026-10-22
+
+- 「系统 → 系统调优」:环境探测式调优成为功能。启动时(和点「重新检测并应用」时)探测并处理:固定 sysctl 值校验、BBR 可用性(无 tcp_bbr 则报告回退 cubic)、网卡多队列(能升则 `ethtool -L` 到 min(上限, CPU 数);上限为 1 的虚拟机给出宿主机设置提示并启用 RPS 把软中断分散到所有 CPU)、内核 WireGuard 模块、conntrack 容量。每项显示已生效 / 本次应用 / 已回退 / 不可用及建议;`edgeroutegw doctor` 打印同一份报告;`GET /tuning`、`POST /tuning/apply`。deb 新增依赖 ethtool,modules-load 加 tcp_bbr。
+
 ## [2.0.0-rc.15] - 2026-10-22
 
 - WireGuard 节点改走内核:有 wireguard 内核模块时,每个 WireGuard 节点变成一个内核接口(`ergw-xxxxxxxx`)+ 专用路由表 + fwmark 规则,Xray 的该节点出站变为带 mark 的 freedom,隧道加解密不再在 Xray 用户态进行(实验环境实测用户态 WG 只有约 260 Mbps 且吃满 2.4 核)。无模块、带 reserved 字节(WARP)或参数不全的节点自动回退用户态实现。新组件「WireGuard(内核)」显示握手健康。

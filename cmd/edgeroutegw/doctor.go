@@ -5,6 +5,9 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"github.com/zlylong/EdgeRouteGW/internal/driver/execx"
+	"github.com/zlylong/EdgeRouteGW/internal/netinfo"
+	"github.com/zlylong/EdgeRouteGW/internal/tune"
 	"io"
 	"net"
 	"os"
@@ -67,26 +70,15 @@ func cmdDoctor(args []string, stdout, stderr io.Writer, env config.LookupEnv) in
 		v := strings.TrimSpace(string(b))
 		check(v == "1", false, "net.ipv4.ip_forward", "= "+v)
 	}
-	for _, kv := range [][3]string{
-		{"net/ipv4/tcp_congestion_control", "bbr", "net.ipv4.tcp_congestion_control"},
-		{"net/core/default_qdisc", "fq_codel", "net.core.default_qdisc"},
-		{"net/ipv4/tcp_fastopen", "3", "net.ipv4.tcp_fastopen"},
-	} {
-		if b, err := os.ReadFile("/proc/sys/" + kv[0]); err == nil {
-			v := strings.TrimSpace(string(b))
-			check(v == kv[1], true, kv[2], "= "+v+map[bool]string{true: "", false: " (want " + kv[1] + "; sysctl -p /etc/sysctl.d/99-edgeroutegw.conf)"}[v == kv[1]])
+	// Environment tuning report (inspection only; the service applies).
+	tuner := tune.New(execx.Real{Timeout: 10 * time.Second}, func() string { di, _ := netinfo.DefaultIface(); return di })
+	for _, it := range tuner.Run(context.Background(), false).Items {
+		ok := it.Status == tune.StatusOK || it.Status == tune.StatusApplied || it.Status == tune.StatusInfo
+		detail := it.Detail
+		if it.Hint != "" {
+			detail += " (" + it.Hint + ")"
 		}
-	}
-	if _, err := os.Stat("/sys/module/wireguard"); err == nil {
-		check(true, false, "wireguard kernel module", "loaded; WireGuard nodes use kernel interfaces")
-	} else {
-		check(true, true, "wireguard kernel module", "not loaded; WireGuard nodes run in Xray userspace (slower): modprobe wireguard")
-	}
-	if b, err := os.ReadFile("/proc/sys/net/netfilter/nf_conntrack_max"); err == nil {
-		v := strings.TrimSpace(string(b))
-		check(v == "1048576", true, "net.netfilter.nf_conntrack_max", "= "+v)
-	} else {
-		check(true, false, "conntrack", "module not loaded; the TPROXY ruleset does not need it")
+		check(ok, true, "tuning: "+it.Title, detail)
 	}
 	for _, port := range []string{"53", "80"} {
 		ln, err := net.Listen("tcp", ":"+port)

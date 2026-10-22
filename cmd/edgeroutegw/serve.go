@@ -39,6 +39,7 @@ import (
 	"github.com/zlylong/EdgeRouteGW/internal/routes"
 	"github.com/zlylong/EdgeRouteGW/internal/secret"
 	"github.com/zlylong/EdgeRouteGW/internal/store"
+	"github.com/zlylong/EdgeRouteGW/internal/tune"
 	"github.com/zlylong/EdgeRouteGW/internal/update"
 	"github.com/zlylong/EdgeRouteGW/internal/version"
 )
@@ -196,6 +197,28 @@ func cmdServe(args []string, stdout, stderr io.Writer, env config.LookupEnv) int
 		return append(arts.ResolveDomains, routes.ProtectedDomains(snap)...), nil
 	}, rec.Notify, log)
 
+	// Environment tuning: detect what the host offers and apply what it can
+	// (NIC queues or RPS, BBR, conntrack sizing); the report is served to
+	// the UI and printed by doctor.
+	var tuner *tune.Tuner
+	if !*noReconcile {
+		tuner = tune.New(run, func() string {
+			if cfg, err := st.NetworkConfig(ctx); err == nil && cfg.ServiceIface != "" {
+				return cfg.ServiceIface
+			}
+			di, _ := netinfo.DefaultIface()
+			return di
+		})
+		rep := tuner.Run(ctx, true)
+		for _, it := range rep.Items {
+			switch it.Status {
+			case tune.StatusApplied:
+				log.Info("tuning applied", "item", it.Key, "detail", it.Detail)
+			case tune.StatusFallback, tune.StatusUnavailable:
+				log.Warn("tuning", "item", it.Key, "detail", it.Detail, "hint", it.Hint)
+			}
+		}
+	}
 	prov := provision.New(st, kr, bus, rec.Notify, log)
 	updater.Notify = rec.Notify
 	go func() {
@@ -207,7 +230,7 @@ func cmdServe(args []string, stdout, stderr io.Writer, env config.LookupEnv) int
 	h := api.NewHandler(api.Deps{
 		Store: st, Keyring: kr, Reconciler: rec, Bus: bus, Paths: p, Log: log, StartedAt: time.Now(),
 		Auth: authSvc, GeoSite: geoSite, GeoIP: geoIP, SiteIndex: siteIdx, IPIndex: ipIdx, Connections: conns, FRR: frrDriver, ResolverKick: resLoop.Kick,
-		IfaceAddr: render.SystemInterfaceAddr, DefaultIface: netinfo.DefaultIface, Provision: prov, Updater: updater, Traffic: traffic, Latency: latency,
+		IfaceAddr: render.SystemInterfaceAddr, DefaultIface: netinfo.DefaultIface, Provision: prov, Tuner: tuner, Updater: updater, Traffic: traffic, Latency: latency,
 	})
 
 	g, gctx := errgroup.WithContext(ctx)

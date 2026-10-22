@@ -20,6 +20,7 @@ depends:
   - nftables
   - ca-certificates
   - iproute2
+  - ethtool
 recommends:
   - frr
 
