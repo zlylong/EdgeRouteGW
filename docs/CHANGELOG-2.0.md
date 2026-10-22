@@ -1,5 +1,9 @@
 # EdgeRouteGW 2.0 变更记录
 
+## [Unreleased]
+
+- 修复:网关自升级在新版本发布后一两分钟内点「更新到最新」会报「no 2.x release found」(GitHub 的 releases 列表接口此时返回空数组),现在列表为空或限流时退回用发布页跳转取最新标签。
+
 ## [2.0.0-rc.26] - 2026-10-22
 
 - 观测页 DNS 关联:nftables 在 output 链把 Mosdns 发给设备的 UDP 应答复制一份到 nflog(组 100),控制面记录「设备 → 解析到的 IP → 域名」(保留 30 分钟);连接列表里 IP 目标后面显示 `≈ 域名`,geosite 标签也按该域名补上,搜索可按域名过滤。旁路复制,不在 DNS 路径上,不影响分流;DNS 页「观测 → 记录解析结果」开关(迁移 0006,默认开)。deb 的 modules-load 加 nfnetlink_log。

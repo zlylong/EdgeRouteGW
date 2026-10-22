@@ -32,17 +32,26 @@ func SelfDebAsset(tag string) (string, error) {
 // offered only to a gateway that already runs one.
 func (s *Service) selfLatest(ctx context.Context) (string, error) {
 	rels, err := s.GitHub.Releases(ctx, RepoSelf, 30)
+	if err == nil {
+		allowPre := strings.Contains(version.Get().Version, "-")
+		for _, r := range rels {
+			if r.Prerelease && !allowPre {
+				continue
+			}
+			if strings.HasPrefix(r.Tag, "v2.") {
+				return r.Tag, nil
+			}
+		}
+	}
+	// The list API answers with an empty array for a minute or two right
+	// after a release is published, and is rate limited per IP; the
+	// release page redirect has neither problem and names the latest
+	// non-prerelease tag.
+	if rel, err2 := s.GitHub.latestByRedirect(ctx, RepoSelf); err2 == nil && strings.HasPrefix(rel.Tag, "v2.") {
+		return rel.Tag, nil
+	}
 	if err != nil {
 		return "", err
-	}
-	allowPre := strings.Contains(version.Get().Version, "-")
-	for _, r := range rels {
-		if r.Prerelease && !allowPre {
-			continue
-		}
-		if strings.HasPrefix(r.Tag, "v2.") {
-			return r.Tag, nil
-		}
 	}
 	return "", fmt.Errorf("no 2.x release found")
 }
