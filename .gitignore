@@ -17,3 +17,6 @@
 /web/test-results/
 /web/playwright-report/
 /.e2e-data/
+
+# local dev instance data (never commit)
+.dev-data/
