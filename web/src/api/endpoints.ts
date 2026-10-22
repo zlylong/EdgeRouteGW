@@ -56,6 +56,8 @@ export const groups = {
 
 export const geo = {
   tags: (kind: 'geosite' | 'geoip') => api.get<T.GeoTags>(`${B}/geo/tags?kind=${kind}`),
+  lookup: (target: string) => api.get<T.GeoLookup>(`${B}/geo/lookup?target=${encodeURIComponent(target)}`),
+  entries: (kind: 'geosite' | 'geoip', tag: string, q = '', limit = 300) => api.get<T.GeoEntries>(`${B}/geo/entries?kind=${kind}&tag=${encodeURIComponent(tag)}&q=${encodeURIComponent(q)}&limit=${limit}`),
 }
 
 export const routing = {

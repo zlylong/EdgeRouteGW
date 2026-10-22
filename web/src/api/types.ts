@@ -155,7 +155,9 @@ export interface ApplyLogEntry { id: number; generation: number; component: Comp
 export type EventLevel = 'debug' | 'info' | 'warn' | 'error'
 export interface Event { id: number; ts: string; level: EventLevel; module: string; type: string; message: string; trace_id?: string; actor?: string; details?: string }
 
-export interface Connection { at: string; source: string; network: string; target: string; inbound: string; outbound: string; accepted: boolean }
+export interface Connection { at: string; source: string; network: string; target: string; inbound: string; outbound: string; accepted: boolean; geo?: string[] }
+export interface GeoLookup { target: string; kind: 'domain' | 'ip'; geosite: string[]; geoip: string[] }
+export interface GeoEntries { kind: 'geosite' | 'geoip'; tag: string; total: number; items: string[] }
 
 export interface TraceResult {
   target: string

@@ -17,9 +17,12 @@ import { system } from '@/api/endpoints'
 import type { Connection } from '@/api/types'
 import { useGatewayState } from '@/stores/state'
 import { fmtAgo, fmtBytes, fmtTime } from '@/lib/utils'
+import { useRouter } from 'vue-router'
 import type { Changeset, TrafficRates } from '@/api/types'
 
 const qc = useQueryClient()
+const router = useRouter()
+const openGeo = (label: string) => router.push({ path: '/routing', query: { tab: 'geo', q: label } })
 const gw = useGatewayState()
 const tab = ref('connections')
 
@@ -62,7 +65,7 @@ const showSystem = ref(false)
 const connections = computed(() => {
   const q = filter.value.trim().toLowerCase()
   return live.value.filter(c => (showSystem.value || !isSystem(c))
-    && (!q || (c.source + ' ' + c.target + ' ' + c.outbound + ' ' + outboundLabel(c.outbound) + ' ' + inboundOf(c)).toLowerCase().includes(q)))
+    && (!q || (c.source + ' ' + c.target + ' ' + c.outbound + ' ' + outboundLabel(c.outbound) + ' ' + inboundOf(c) + ' ' + (c.geo ?? []).join(' ')).toLowerCase().includes(q)))
 })
 
 // Events
@@ -114,7 +117,11 @@ const actionTone = (a: string) => a.includes('restart') ? 'warn' : a.includes('h
         <tr v-for="(c, i) in connections" :key="c.at + c.source + i" :class="['font-mono text-xs', !c.accepted && 'text-fg-subtle']">
           <td class="px-3 py-1 text-fg-subtle" :title="fmtTime(c.at)">{{ fmtAgo(c.at) }}</td>
           <td class="px-3 py-1" :title="`入站:${c.inbound}`">{{ c.source }}<span v-if="c.inbound !== 'tproxy_in'" class="ml-1 rounded bg-surface-2 px-1 text-[10px] text-fg-muted">{{ inboundOf(c) }}</span></td>
-          <td class="px-3 py-1"><span class="mr-1 rounded bg-surface-2 px-1 text-[10px] uppercase text-fg-muted">{{ c.network }}</span>{{ c.target }}</td>
+          <td class="px-3 py-1"><span class="mr-1 rounded bg-surface-2 px-1 text-[10px] uppercase text-fg-muted">{{ c.network }}</span>{{ c.target }}
+            <template v-if="c.geo?.length">
+              <button v-for="g in c.geo.slice(0, 3)" :key="g" type="button" class="ml-1 rounded bg-accent/10 px-1 text-[10px] text-accent hover:bg-accent/20" :title="`在 GeoData 查询里打开 ${g}`" @click="openGeo(g)">{{ g }}</button>
+              <span v-if="c.geo.length > 3" class="ml-1 text-[10px] text-fg-subtle" :title="c.geo.slice(3).join(' ')">+{{ c.geo.length - 3 }}</span>
+            </template></td>
           <td class="px-3 py-1"><Badge :tone="outboundTone(c.outbound)" :title="c.outbound">{{ outboundLabel(c.outbound) }}</Badge><span v-if="!c.accepted" class="ml-1 text-[10px] text-danger">已拒绝</span></td>
         </tr>
       </Table>

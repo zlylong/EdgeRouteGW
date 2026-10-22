@@ -52,8 +52,11 @@ type Deps struct {
 	// Auth is required: login/logout/me and the middleware come from it.
 	Auth *auth.Service
 	// Optional runtime sources.
-	GeoSite     *geo.Site
-	GeoIP       *geo.IP
+	GeoSite *geo.Site
+	GeoIP   *geo.IP
+	// SiteIndex/IPIndex answer reverse lookups (target -> tags); nil without geodata.
+	SiteIndex   *geo.SiteIndex
+	IPIndex     *geo.IPIndex
 	Connections *observe.ConnTracker
 	// FRR exposes OSPF neighbours; nil without drivers.
 	FRR *frr.Driver
@@ -115,6 +118,8 @@ func Register(mux *http.ServeMux, d Deps) {
 
 	r.handle(http.MethodGet, "/api/v2/rules", d.listRules)
 	r.handle(http.MethodGet, "/api/v2/geo/tags", d.geoTags)
+	r.handle(http.MethodGet, "/api/v2/geo/lookup", d.geoLookup)
+	r.handle(http.MethodGet, "/api/v2/geo/entries", d.geoEntries)
 	r.handle(http.MethodPost, "/api/v2/rules", d.createRules)
 	r.handle(http.MethodPut, "/api/v2/rules/{id}", d.updateRule)
 	r.handle(http.MethodDelete, "/api/v2/rules/{id}", d.deleteRule)

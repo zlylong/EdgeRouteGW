@@ -134,7 +134,16 @@ func cmdServe(args []string, stdout, stderr io.Writer, env config.LookupEnv) int
 	} else {
 		log.Warn("geoip.dat not installed; geoip rules will not be published as routes", "path", p.GeoIP())
 	}
+	var siteIdx *geo.SiteIndex
+	var ipIdx *geo.IPIndex
+	if geoSite != nil {
+		siteIdx = geo.NewSiteIndex(geoSite)
+	}
+	if geoIP != nil {
+		ipIdx = geo.NewIPIndex(geoIP)
+	}
 	conns := observe.NewConnTracker(p.XrayAccessLog(), bus, log)
+	conns.Enrich = func(target string) []string { return geo.Labels(siteIdx, ipIdx, target) }
 	latency := observe.NewLatencyProber(st, bus, log)
 	if !*noReconcile {
 		latency.EnableXray(fmt.Sprintf("127.0.0.1:%d", render.ProbePort))
@@ -185,7 +194,7 @@ func cmdServe(args []string, stdout, stderr io.Writer, env config.LookupEnv) int
 
 	h := api.NewHandler(api.Deps{
 		Store: st, Keyring: kr, Reconciler: rec, Bus: bus, Paths: p, Log: log, StartedAt: time.Now(),
-		Auth: authSvc, GeoSite: geoSite, GeoIP: geoIP, Connections: conns, FRR: frrDriver, ResolverKick: resLoop.Kick,
+		Auth: authSvc, GeoSite: geoSite, GeoIP: geoIP, SiteIndex: siteIdx, IPIndex: ipIdx, Connections: conns, FRR: frrDriver, ResolverKick: resLoop.Kick,
 		IfaceAddr: render.SystemInterfaceAddr, DefaultIface: netinfo.DefaultIface, Provision: prov, Updater: updater, Traffic: traffic, Latency: latency,
 	})
 

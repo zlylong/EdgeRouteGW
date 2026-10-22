@@ -25,6 +25,9 @@ type Connection struct {
 	Inbound  string    `json:"inbound"`  // inbound tag
 	Outbound string    `json:"outbound"` // outbound or balancer tag
 	Accepted bool      `json:"accepted"`
+	// Geo lists the geoip/geosite tags the target belongs to ("geoip:cn"),
+	// so an operator can see which rule would catch it.
+	Geo []string `json:"geo,omitempty"`
 }
 
 // EventConnection is the bus type for new connections.
@@ -41,6 +44,8 @@ type ConnTracker struct {
 	Log  *slog.Logger
 	// Capacity is the ring size.
 	Capacity int
+	// Enrich tags a target ("host:port") with geo labels; nil disables it.
+	Enrich func(target string) []string
 
 	mu   sync.RWMutex
 	ring []Connection
@@ -80,6 +85,9 @@ func (t *ConnTracker) Recent(limit int, q string) []Connection {
 }
 
 func (t *ConnTracker) add(c Connection) {
+	if t.Enrich != nil && c.Geo == nil {
+		c.Geo = t.Enrich(c.Target)
+	}
 	t.mu.Lock()
 	if t.Capacity <= 0 {
 		t.Capacity = 2000

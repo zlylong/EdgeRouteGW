@@ -14,6 +14,8 @@ import Dialog from '@/components/ui/Dialog.vue'
 import Field from '@/components/ui/Field.vue'
 import Table from '@/components/ui/Table.vue'
 import RuleDialog from '@/components/routing/RuleDialog.vue'
+import GeoLookupPanel from '@/components/routing/GeoLookupPanel.vue'
+import { useRoute } from 'vue-router'
 import TraceBox from '@/components/routing/TraceBox.vue'
 import DevicePolicyDialog from '@/components/routing/DevicePolicyDialog.vue'
 import { config as cfgApi, groups as groupsApi, nodes as nodesApi, routing } from '@/api/endpoints'
@@ -24,7 +26,9 @@ import { useGatewayState } from '@/stores/state'
 const qc = useQueryClient()
 const toast = useToast()
 const gw = useGatewayState()
-const tab = ref('rules')
+const route = useRoute()
+const tab = ref(typeof route.query.tab === 'string' ? route.query.tab : 'rules')
+watch(() => route.query.tab, v => { if (typeof v === 'string') tab.value = v })
 
 const setsQ = useQuery({ queryKey: ['rule-sets'], queryFn: routing.sets })
 const rulesQ = useQuery({ queryKey: ['rules'], queryFn: () => routing.rules() })
@@ -136,7 +140,7 @@ const deviceActionTone = (a: string) => ({ proxy: 'accent', direct: 'ok', reject
 <template>
   <div class="space-y-4">
     <TraceBox @matched="onMatched" />
-    <Tabs v-model="tab" :tabs="[{ value: 'rules', label: '规则', count: allRules.length }, { value: 'devices', label: '设备策略', count: devices.length }, { value: 'bypass', label: '绕过目标', count: bypass.length }]" />
+    <Tabs v-model="tab" :tabs="[{ value: 'rules', label: '规则', count: allRules.length }, { value: 'devices', label: '设备策略', count: devices.length }, { value: 'bypass', label: '绕过目标', count: bypass.length }, { value: 'geo', label: 'GeoData 查询' }]" />
 
     <div v-if="tab === 'rules'" class="grid gap-4 lg:grid-cols-[16rem_1fr]">
       <!-- Rule sets -->
@@ -230,6 +234,10 @@ const deviceActionTone = (a: string) => ({ proxy: 'accent', direct: 'ok', reject
           </td>
         </tr>
       </Table>
+    </div>
+
+    <div v-else-if="tab === 'geo'">
+      <GeoLookupPanel />
     </div>
 
     <div v-else>

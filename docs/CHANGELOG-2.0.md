@@ -1,5 +1,10 @@
 # EdgeRouteGW 2.0 变更记录
 
+## [2.0.0-rc.13] - 2026-10-22
+
+- 观测 → 连接:目标旁显示它所属的 geoip/geosite 标签(最多 3 个,其余折叠),点击跳到 GeoData 查询;过滤框可按标签搜。
+- 分流 → GeoData 查询:输入域名或 IP 看属于哪些标签,输入 `geosite:xxx` / `geoip:xxx` 看标签内容(可过滤)。新增 `GET /geo/lookup?target=` 与 `GET /geo/entries?kind=&tag=&q=&limit=`;反查索引按需建立、GeoData 更新后自动重建。
+
 ## [2.0.0-rc.12] - 2026-10-21
 
 - 修复:LAN 默认策略为「直连」时 nftables 不再拦截未命中流量,导致域名规则失效、Mode B 的 Fake-IP 和 Mode C 的发布路由流量被投递到网关自身(连接立刻被拒)。现在所有 LAN 流量都进 Xray,默认策略只决定 Xray 的兜底出站。

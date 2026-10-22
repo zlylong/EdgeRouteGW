@@ -140,6 +140,26 @@ func (s *Site) Entries(tag string) ([]Entry, error) {
 	return entries, nil
 }
 
+// EntriesUncached decodes a tag without keeping the result in the per-tag
+// cache; the reverse index walks every tag once and must not pin all of
+// them in memory.
+func (s *Site) EntriesUncached(tag string) ([]Entry, error) {
+	tag = strings.ToLower(tag)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err := s.ensure(); err != nil {
+		return nil, err
+	}
+	if e, ok := s.decoded[tag]; ok {
+		return e, nil
+	}
+	raw, ok := s.raw[tag]
+	if !ok {
+		return nil, fmt.Errorf("%w: %q", ErrTagNotFound, tag)
+	}
+	return decodeGeoSite(raw)
+}
+
 // ErrTagNotFound is returned for unknown tags.
 var ErrTagNotFound = fmt.Errorf("geo tag not found")
 
