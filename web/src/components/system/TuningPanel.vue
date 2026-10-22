@@ -20,7 +20,7 @@ async function apply() {
   try { const r = await system.applyTuning(); qc.setQueryData(['tuning'], r); const n = r.items.filter(i => i.status === 'applied').length; toast.ok('已重新检测', n ? `应用了 ${n} 项` : '没有需要改动的项') } catch (e) { toast.error('失败', (e as Error).message) } finally { busy.value = false }
 }
 const tone: Record<string, 'ok' | 'info' | 'warn' | 'danger' | 'neutral'> = { ok: 'ok', applied: 'ok', info: 'neutral', fallback: 'warn', unavailable: 'warn' }
-const label: Record<string, string> = { ok: '已生效', applied: '本次应用', info: '说明', fallback: '已回退', unavailable: '不可用' }
+const label: Record<string, string> = { ok: '已生效', applied: '本次应用', info: '说明', fallback: '已回退', unavailable: '需外部处理' }
 const virtLabel = (v: string) => v === 'none' ? '物理机' : `虚拟机(${v})`
 </script>
 
@@ -38,7 +38,7 @@ const virtLabel = (v: string) => v === 'none' ? '物理机' : `虚拟机(${v})`
       <Spinner v-if="q.isPending.value" />
       <ul v-else class="divide-y divide-border/60">
         <li v-for="it in q.data.value?.items ?? []" :key="it.key" class="flex flex-wrap items-start gap-3 py-2.5">
-          <Badge :tone="tone[it.status] ?? 'neutral'" class="mt-0.5 w-16 justify-center">{{ label[it.status] ?? it.status }}</Badge>
+          <Badge :tone="tone[it.status] ?? 'neutral'" class="mt-0.5 w-20 justify-center">{{ label[it.status] ?? it.status }}</Badge>
           <div class="min-w-0 flex-1">
             <div class="text-sm">{{ it.title }}</div>
             <div class="text-xs text-fg-muted">{{ it.detail }}</div>

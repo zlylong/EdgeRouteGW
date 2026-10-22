@@ -77,12 +77,10 @@ watch(() => gw.lastEvent, e => { if (e?.type === 'apply.finished') qc.invalidate
   <div class="space-y-4">
     <Tabs v-model="tab" :tabs="[{ value: 'security', label: '安全' }, { value: 'components', label: '组件更新' }, { value: 'tuning', label: '系统调优' }, { value: 'configs', label: '生成的配置' }, { value: 'about', label: '关于' }]" />
 
-    <div v-if="tab === 'security'" class="grid gap-4 lg:grid-cols-2">
-      <Card title="管理员密码">
-        <p class="text-sm text-fg-muted">更换密码会注销其它所有会话。</p>
-        <RouterLink to="/change-password" class="mt-3 inline-block"><Button variant="secondary">修改密码</Button></RouterLink>
-      </Card>
-      <Card title="登录会话">
+    <div v-if="tab === 'security'" class="grid gap-4">
+      <Card title="账户与会话">
+        <template #actions><RouterLink to="/change-password"><Button variant="secondary" size="sm">修改密码</Button></RouterLink></template>
+        <p class="mb-3 text-xs text-fg-muted">单管理员账户 <span class="font-mono">admin</span>;更换密码会注销其它所有会话。下面是当前已登录的会话。</p>
         <EmptyState v-if="!sessionsQ.data.value?.items.length" title="无会话" />
         <ul v-else class="divide-y divide-border text-sm">
           <li v-for="s in sessionsQ.data.value!.items" :key="s.id" class="flex items-center gap-3 py-2">
@@ -94,7 +92,7 @@ watch(() => gw.lastEvent, e => { if (e?.type === 'apply.finished') qc.invalidate
           </li>
         </ul>
       </Card>
-      <Card title="备份与恢复" class="lg:col-span-2">
+      <Card title="备份与恢复">
         <p class="text-sm text-fg-muted">导出当前期望状态(节点、出站组、规则、设备策略、DNS 与网络设置)为 JSON。含凭证的导出包含节点密码和私钥,请妥善保管。恢复会整体替换现有配置。</p>
         <div class="mt-3 flex flex-wrap items-center gap-2">
           <Button variant="secondary" @click="downloadBackup(false)">导出(不含凭证)</Button>
@@ -103,7 +101,7 @@ watch(() => gw.lastEvent, e => { if (e?.type === 'apply.finished') qc.invalidate
           <Button variant="danger" :disabled="!restoreFile" @click="restoreDialog = true">恢复</Button>
         </div>
       </Card>
-      <Card title="API Token" class="lg:col-span-2">
+      <Card title="API Token">
         <template #actions><Button size="sm" @click="tokenDialog = true"><Plus class="h-4 w-4" /> 新建</Button></template>
         <p class="mb-3 text-sm text-fg-muted">给脚本和自动化用的长期凭证,以 <code class="rounded bg-surface-2 px-1 font-mono text-xs">Authorization: Bearer ergw_…</code> 调用。只读 token 只能发起 GET。</p>
         <EmptyState v-if="!tokensQ.data.value?.items.length" title="没有 token" />
