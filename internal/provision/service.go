@@ -93,19 +93,30 @@ func (s *Service) Probe(ctx context.Context, hostID string) (status string, err 
 	if h.HostKey == "" && fp != "" {
 		_ = s.Store.SetRemoteHostKey(ctx, hostID, fp)
 	}
-	kind := ""
+	// Every service with a successful deploy on this host is checked; a
+	// host carrying both WireGuard and VLESS must have both up.
+	var kinds []string
 	if deploys, err := s.Store.ListRemoteDeploys(ctx, hostID, 20); err == nil {
+		seen := map[string]bool{}
 		for _, d := range deploys {
-			if d.State == "succeeded" {
-				kind = d.Kind
-				break
+			if d.State == "succeeded" && !seen[d.Kind] {
+				seen[d.Kind] = true
+				kinds = append(kinds, d.Kind)
 			}
 		}
 	}
+	script := "true"
+	if len(kinds) > 0 {
+		parts := make([]string, 0, len(kinds))
+		for _, k := range kinds {
+			parts = append(parts, "( "+CheckScript(k)+" )")
+		}
+		script = strings.Join(parts, " && ")
+	}
 	var out []string
-	runErr := sess.Run(ctx, CheckScript(kind), 20*time.Second, func(_, line string) { out = append(out, line) })
+	runErr := sess.Run(ctx, script, 20*time.Second, func(_, line string) { out = append(out, line) })
 	status = "online"
-	if kind != "" && runErr != nil {
+	if len(kinds) > 0 && runErr != nil {
 		status = "failed"
 		err = fmt.Errorf("service check failed: %v (%s)", runErr, strings.Join(out, " | "))
 	}

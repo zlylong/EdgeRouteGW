@@ -602,8 +602,35 @@ func Import(ctx context.Context, st *store.Store, kr *secret.Keyring, opts Optio
 	rep.Generation = gen
 	_ = st.SetSetting(ctx, "geodata.auto_update", geodataSchedule)
 
-	// Hosts are not desired state (no generation); import after.
+	// Hosts are not desired state (no generation); import after. 1.x kept one
+	// row per deployed service; 2.0 keeps one host with several deploys, so
+	// rows sharing user@host:port collapse into the first one.
+	byEndpoint := map[string]string{}
 	for _, h := range hosts {
+		endpoint := fmt.Sprintf("%s@%s:%d", h.User, h.Host, h.Port)
+		if existing, ok := byEndpoint[endpoint]; ok {
+			if dp, ok := hostDeploys[h.ID]; ok {
+				raw, _ := json.Marshal(dp.params)
+				penc, err := kr.Encrypt(string(raw))
+				if err != nil {
+					return rep, err
+				}
+				d := store.RemoteDeploy{ID: uuid.NewString(), HostID: existing, Kind: dp.kind, ParamsEnc: penc, State: "succeeded"}
+				if err := st.InsertRemoteDeploy(ctx, d); err == nil {
+					_ = st.SetRemoteDeployState(ctx, d.ID, "succeeded", "")
+					for _, n := range nodes {
+						if n.Address == h.Host && n.Port == dp.port {
+							_ = st.LinkDeployNode(ctx, d.ID, n.newID)
+							break
+						}
+					}
+					_, _ = st.AppendDeployLog(ctx, d.ID, "system", "imported from 1.x remote_node "+strconv.FormatInt(h.ID, 10)+" (merged into host sharing "+endpoint+")")
+				}
+			}
+			rep.warn("host %s merged into the earlier host with the same SSH endpoint %s", h.Name, endpoint)
+			rep.Hosts--
+			continue
+		}
 		cred := ""
 		if h.Cred != "" {
 			if opts.OldKey == nil {
@@ -628,6 +655,7 @@ func Import(ctx context.Context, st *store.Store, kr *secret.Keyring, opts Optio
 			rep.warn("host %s not imported: %v", h.Name, err)
 			continue
 		}
+		byEndpoint[endpoint] = rh.ID
 		if dp, ok := hostDeploys[h.ID]; ok {
 			raw, _ := json.Marshal(dp.params)
 			penc, err := kr.Encrypt(string(raw))

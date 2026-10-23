@@ -97,7 +97,7 @@ func TestImportProductionShape(t *testing.T) {
 	if err != nil {
 		t.Fatalf("import: %v (report %+v)", err, rep)
 	}
-	if rep.Nodes != 4 || rep.Groups != 2 || rep.RuleSets != 2 || rep.Rules != 8 || rep.DevicePolicies != 2 || rep.Bypass != 2 || rep.Hosts != 2 || rep.Deploys != 2 || rep.Mode != "A" || dry.Rules != rep.Rules {
+	if rep.Nodes != 4 || rep.Groups != 2 || rep.RuleSets != 2 || rep.Rules != 8 || rep.DevicePolicies != 2 || rep.Bypass != 2 || rep.Hosts != 1 || rep.Deploys != 2 || rep.Mode != "A" || dry.Rules != rep.Rules {
 		t.Fatalf("report %+v", rep)
 	}
 	joined := strings.Join(rep.Warnings, "\n")
@@ -167,9 +167,13 @@ func TestImportProductionShape(t *testing.T) {
 	if len(devs) != 2 || devs[0].Value != "aa:bb:cc:dd:ee:01" || devs[1].Kind != "cidr" {
 		t.Fatalf("devices %+v", devs)
 	}
+	// SG01 and SGWG01 share admin@13.228.66.113:22: one host, two deploys.
 	hosts, _ := st.ListRemoteHosts(ctx)
-	if len(hosts) != 2 || hosts[0].HostKey != "SHA256:abc" {
+	if len(hosts) != 1 || hosts[0].HostKey != "SHA256:abc" {
 		t.Fatalf("hosts %+v", hosts)
+	}
+	if !strings.Contains(strings.Join(rep.Warnings, "\n"), "merged into the earlier host") {
+		t.Fatalf("expected merge warning in %v", rep.Warnings)
 	}
 	if cred, _ := kr.Decrypt(hosts[0].CredentialEnc); cred != "-----KEY-----" {
 		t.Fatalf("host credential %q", cred)
@@ -192,7 +196,7 @@ func TestImportProductionShape(t *testing.T) {
 		t.Fatal("import into a populated store must be refused")
 	}
 	rep, err = Import(ctx, st, kr, Options{SourceDB: src, Replace: true})
-	if err != nil || rep.HostsNoCred != 2 {
+	if err != nil || rep.HostsNoCred != 1 { // one merged host, one missing credential
 		t.Fatalf("replace import %v %+v", err, rep)
 	}
 }

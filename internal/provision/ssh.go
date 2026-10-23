@@ -97,10 +97,15 @@ func (d SSHDialer) Dial(ctx context.Context, t Target) (Session, string, error) 
 		conn.Close()
 		return nil, seen, err
 	}
-	return &sshSession{client: ssh.NewClient(c, chans, reqs)}, seen, nil
+	return &sshSession{client: ssh.NewClient(c, chans, reqs), sudo: t.User != "root"}, seen, nil
 }
 
-type sshSession struct{ client *ssh.Client }
+type sshSession struct {
+	client *ssh.Client
+	// sudo wraps every script in `sudo -n` because the login user is not
+	// root; deploy, check and tune scripts all need root.
+	sudo bool
+}
 
 func (s *sshSession) Run(ctx context.Context, script string, timeout time.Duration, onLine func(stream, line string)) error {
 	sess, err := s.client.NewSession()
@@ -131,7 +136,13 @@ func (s *sshSession) Run(ctx context.Context, script string, timeout time.Durati
 	go pump(stderr, "stderr")
 	// Feed the script through stdin so no temp file with secrets lands on
 	// the remote filesystem.
-	if err := sess.Start("bash -s"); err != nil {
+	cmd := "bash -s"
+	if s.sudo {
+		// A non-root login must have passwordless sudo; sudo's own error
+		// ("a password is required") lands in the deploy log otherwise.
+		cmd = "sudo -n bash -s"
+	}
+	if err := sess.Start(cmd); err != nil {
 		return err
 	}
 	done := make(chan error, 1)
