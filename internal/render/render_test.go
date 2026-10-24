@@ -645,3 +645,38 @@ func TestMosdnsECSForwardAndIPv6(t *testing.T) {
 		t.Fatalf("ipv6 all / no ecs:\n%s", cfg)
 	}
 }
+
+func TestLoadBalanceGroupHasFallback(t *testing.T) {
+	snap := baseSnap()
+	// A load-balancing group over two nodes that are not the default node.
+	a := snap.Nodes[0]
+	b := a
+	b.ID, b.Name, b.IsDefault = "n-b", "B", false
+	c := a
+	c.ID, c.Name, c.IsDefault = "n-c", "C", false
+	snap.Nodes = append(snap.Nodes, b, c)
+	snap.Groups = append(snap.Groups, model.OutboundGroup{ID: "g-lb", Name: "LB", Kind: model.GroupLoadBalance, MemberIDs: []string{"n-b", "n-c"}, Strategy: `{"strategy":"leastPing"}`})
+	snap.Rules = append(snap.Rules, model.Rule{ID: "r-lb", SetID: snap.RuleSets[0].ID, MatchKind: model.MatchGeosite, MatchValue: "cn", ActionKind: model.ActionGroup, ActionRef: "g-lb", Enabled: true})
+	for _, tc := range []struct{ mode, want string }{{"normal", NodeTag(a.ID)}, {"strict", TagBlock}} {
+		snap.Network.NodeFailoverMode = tc.mode
+		art, err := Render(snap, deps())
+		if err != nil {
+			t.Fatal(err)
+		}
+		var cfg map[string]any
+		_ = json.Unmarshal(art.Xray, &cfg)
+		found := false
+		for _, raw := range cfg["routing"].(map[string]any)["balancers"].([]any) {
+			bl := raw.(map[string]any)
+			if bl["tag"] == GroupTag("g-lb") {
+				found = true
+				if bl["fallbackTag"] != tc.want {
+					t.Fatalf("%s: fallbackTag %v, want %s", tc.mode, bl["fallbackTag"], tc.want)
+				}
+			}
+		}
+		if !found {
+			t.Fatalf("%s: balancer for g-lb not rendered", tc.mode)
+		}
+	}
+}

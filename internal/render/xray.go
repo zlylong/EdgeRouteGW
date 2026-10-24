@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net"
+	"slices"
 	"sort"
 	"strings"
 
@@ -407,7 +408,19 @@ func (r *xrayRenderer) groupTarget(rule model.Rule) target {
 		if json.Unmarshal([]byte(g.Strategy), &st) == nil && st.Strategy != "" {
 			strategy = st.Strategy
 		}
-		r.balancers[tag] = map[string]any{"tag": tag, "selector": live, "strategy": map[string]any{"type": strategy}}
+		// When the observatory marks every member unhealthy, a balancer
+		// without fallbackTag makes Xray drop the connection with
+		// "balancing strategy returns empty tag". Strict mode fails closed;
+		// normal mode falls back to the default outbound (or direct when
+		// the default node is itself one of the dead members).
+		fallback := TagBlock
+		if !r.strict {
+			fallback = TagDirect
+			if n := r.snap.DefaultNode(); n != nil && r.liveTags[NodeTag(n.ID)] && !slices.Contains(live, NodeTag(n.ID)) {
+				fallback = NodeTag(n.ID)
+			}
+		}
+		r.balancers[tag] = map[string]any{"tag": tag, "selector": live, "strategy": map[string]any{"type": strategy}, "fallbackTag": fallback}
 	}
 	return target{balancer: tag}
 }
