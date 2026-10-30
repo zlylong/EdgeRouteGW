@@ -90,6 +90,28 @@ func TestTrojanAndWireGuard(t *testing.T) {
 	}
 }
 
+func TestHysteria2(t *testing.T) {
+	p, err := Parse("hysteria2://letmein@example.com:123,5000-6000/?insecure=1&obfs=salamander&obfs-password=gawrgura&pinSHA256=deadbeef&sni=real.example.com#cool-server")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p.Node.Protocol != model.ProtocolHysteria || p.Node.Name != "cool-server" || p.Node.Address != "example.com" || p.Node.Port != 123 || p.Credential != "letmein" {
+		t.Fatalf("%+v", p)
+	}
+	var params map[string]any
+	_ = json.Unmarshal([]byte(p.Node.Params), &params)
+	if params["sni"] != "real.example.com" || params["pin"] != "deadbeef" || params["obfs"] != "salamander" || params["obfs_password"] != "gawrgura" || params["hop"] != "123,5000-6000" {
+		t.Fatalf("params %v", params)
+	}
+	p, err = Parse("hy2://user%3Apass@[2001:db8::1]/?sni=x.example.com")
+	if err != nil || p.Node.Port != 443 || p.Node.Address != "2001:db8::1" || p.Credential != "user:pass" {
+		t.Fatalf("defaults: %+v %v", p, err)
+	}
+	if _, err := Parse("hysteria2://pw@h.example.com:443/?insecure=1"); err == nil {
+		t.Fatal("insecure without pin must be rejected")
+	}
+}
+
 func TestRejects(t *testing.T) {
 	for _, bad := range []string{"", "http://x", "vless://@host:443", "ss://not-base64!!", "vmess://%%%", "wireguard://k@h:1"} {
 		if _, err := Parse(bad); err == nil {

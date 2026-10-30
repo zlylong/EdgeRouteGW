@@ -4,6 +4,7 @@
 
 - 新增:系统 → 「日志与保留」。可设历史记录(事件、变更、下发记录、部署输出)与流量样本的保留天数、/run 运行时日志的单文件上限、systemd journal 的保留天数与总上限(写 `/etc/systemd/journald.conf.d/60-edgeroutegw.conf` 并立即 vacuum);每小时自动清理,保存即生效;「立即清理」额外清空运行时日志、压缩数据库、收紧 journal。面板显示各项当前占用。生产机上 1.x 留下的 2.1 GB journal 就是这里一键收掉的。默认 90 天 / 90 天 / 64 MB / 30 天 / 500 MB。API:`GET/PUT /system/retention`、`POST /system/retention/cleanup`。
 - 变更:流量样本的 90 天固定保留改由上述设置控制。
+- 新增:Hysteria 2 节点,走 Xray 原生 `hysteria` 出站(QUIC 传输 + TLS,ALPN h3)。表单支持 SNI、证书指纹(pinSHA256)、Salamander 混淆、Brutal 上下行带宽(留空用 BBR)、端口跳跃范围;`hysteria2://` / `hy2://` 分享链接可导入(含多端口写法)。Xray 已移除 `allowInsecure`,`insecure=1` 且没有指纹的链接会被拒绝并说明原因。
 ## [2.0.3] - 2026-10-30
 
 - 修复:`/run/edgeroutegw` 下的 Xray access log 与 Mosdns 日志没有任何封顶,生产上 8 天写了 281 MB,tmpfs(390 MB)眼看要满。控制面现在每分钟检查,超过 64 MB 就原地截断(两者都以追加方式打开,截断后继续写;连接跟踪器会自动重开),这些文件只是实时视图,持久数据都在库里。

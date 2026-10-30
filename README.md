@@ -8,7 +8,7 @@ EdgeRouteGW 是一台放在局域网里的 Linux 透明代理网关:设备把网
 
 - **三种接管模式**:Mode A 全局 TPROXY 网关;Mode B Fake-IP + OSPF 旁路(只有代理域名的流量过来);Mode C 真实 IP + OSPF 旁路(域名规则周期解析成 IP 宣告给主路由)。
 - **分流规则**:规则集 + 规则的有序列表,匹配 `domain / geosite / geoip / ip`,动作 直连 / 默认代理 / 拦截 / 指定节点 / 出站组;内置默认集(私网、国内直连)固定在最前,末尾的兜底策略与节点失效策略可见可改;页面内 Trace 直接看任一目标的去向。
-- **节点与出站组**:VLESS / VMess / Trojan / Shadowsocks / SOCKS / HTTP / WireGuard;分享链接导入;故障转移组与负载均衡组(leastPing / leastLoad / random / roundRobin),每 30 秒探测;WireGuard 节点走内核隧道(吞吐比用户态高一倍以上),WARP 等自动退回用户态。
+- **节点与出站组**:VLESS / VMess / Trojan / Shadowsocks / Hysteria 2 / SOCKS / HTTP / WireGuard;分享链接导入;故障转移组与负载均衡组(leastPing / leastLoad / random / roundRobin),每 30 秒探测;WireGuard 节点走内核隧道(吞吐比用户态高一倍以上),WARP 等自动退回用户态。
 - **DNS**:Mosdns 分流,国内域名走本地上游、其余经节点走远端上游,默认 DoH/DoT;劫持 LAN 所有 53 端口查询、拒绝 DoT 防泄露;ECS 客户端子网、内网域名转发、AAAA 过滤;解析结果记录让观测页把 IP 标成域名。
 - **托管主机**:填一台 VPS 的 SSH,一键在上面部署 WireGuard 或 VLESS-REALITY 服务端并生成对应节点,部署后自动做内核/网卡调优;主机密钥 TOFU。
 - **组件更新**:Xray / Mosdns / GeoData 在页面内校验下载、冒烟测试、一键回退;按天/周/月自动更新;GitHub 不可达时可用内置离线包、本地上传、镜像前缀或代理;网关本体也能自升级。

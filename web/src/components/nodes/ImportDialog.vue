@@ -34,7 +34,7 @@ async function doImport() {
 </script>
 
 <template>
-  <Dialog v-model:open="open" title="导入分享链接" description="支持 vless:// vmess:// trojan:// ss:// wireguard://,每行一条。先预览解析结果,确认后再入库。" size="lg">
+  <Dialog v-model:open="open" title="导入分享链接" description="支持 vless:// vmess:// trojan:// ss:// wireguard:// hysteria2://,每行一条。先预览解析结果,确认后再入库。" size="lg">
     <Textarea v-model="text" rows="6" class="font-mono text-xs" placeholder="vless://uuid@host:443?security=reality&sni=...#名称" @input="preview = null" />
     <div v-if="preview" class="mt-4 space-y-1.5">
       <div v-for="(r, i) in preview" :key="i" class="flex items-center gap-2 rounded-md border border-border px-3 py-2 text-sm">

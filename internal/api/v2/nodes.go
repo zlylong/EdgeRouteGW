@@ -42,12 +42,12 @@ type NodeInput struct {
 
 var protocols = map[model.Protocol]bool{
 	model.ProtocolVMess: true, model.ProtocolVLESS: true, model.ProtocolTrojan: true, model.ProtocolShadowsocks: true,
-	model.ProtocolSocks: true, model.ProtocolHTTP: true, model.ProtocolWireGuard: true, model.ProtocolCustom: true,
+	model.ProtocolSocks: true, model.ProtocolHTTP: true, model.ProtocolWireGuard: true, model.ProtocolCustom: true, model.ProtocolHysteria: true,
 }
 
 // credentialRequired lists protocols that cannot work without a secret.
 var credentialRequired = map[model.Protocol]bool{
-	model.ProtocolVMess: true, model.ProtocolVLESS: true, model.ProtocolTrojan: true, model.ProtocolShadowsocks: true, model.ProtocolWireGuard: true,
+	model.ProtocolVMess: true, model.ProtocolVLESS: true, model.ProtocolTrojan: true, model.ProtocolShadowsocks: true, model.ProtocolWireGuard: true, model.ProtocolHysteria: true,
 }
 
 func (in *NodeInput) validate(hasCredential bool) (model.Node, error) {

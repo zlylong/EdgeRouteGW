@@ -1,5 +1,5 @@
 // Package sharelink parses proxy share links (vmess://, vless://, trojan://,
-// ss://, wireguard://) into a Node plus its credential. The output params use
+// ss://, wireguard://, hysteria2://) into a Node plus its credential. The output params use
 // the shorthand keys the renderer understands, so a parsed link renders the
 // same way as a node entered by hand.
 package sharelink
@@ -39,6 +39,8 @@ func Parse(link string) (Parsed, error) {
 		return parseShadowsocks(link)
 	case "wireguard", "wg":
 		return parseWireGuard(link)
+	case "hysteria2", "hy2":
+		return parseHysteria2(link)
 	default:
 		return Parsed{}, fmt.Errorf("unsupported share link scheme %q", scheme)
 	}
@@ -313,6 +315,76 @@ func parseWireGuard(link string) (Parsed, error) {
 		name = host
 	}
 	return Parsed{Node: model.Node{Name: name, Protocol: model.ProtocolWireGuard, Address: host, Port: port, Params: mustJSON(map[string]any{"settings": settings}), Enabled: true}, Credential: priv}, nil
+}
+
+// parseHysteria2 handles hysteria2://auth@host[:port]/?sni=&obfs=salamander&
+// obfs-password=&pinSHA256=&insecure=#name (also hy2://). The port may be a
+// port-hopping spec ("443,20000-30000"): the first port is the node port and
+// the whole spec becomes the hop range. url.Parse rejects such a port, so
+// the authority is split by hand.
+func parseHysteria2(link string) (Parsed, error) {
+	rest := link[strings.Index(link, "://")+3:]
+	name := ""
+	if i := strings.LastIndex(rest, "#"); i >= 0 {
+		name, _ = url.QueryUnescape(rest[i+1:])
+		rest = rest[:i]
+	}
+	query := ""
+	if i := strings.Index(rest, "?"); i >= 0 {
+		query = rest[i+1:]
+		rest = rest[:i]
+	}
+	rest = strings.TrimSuffix(rest, "/")
+	auth := ""
+	if at := strings.LastIndex(rest, "@"); at >= 0 {
+		auth, _ = url.PathUnescape(rest[:at])
+		rest = rest[at+1:]
+	}
+	host, portSpec := rest, "443"
+	if strings.HasPrefix(rest, "[") {
+		if i := strings.Index(rest, "]"); i >= 0 {
+			host = rest[1:i]
+			if len(rest) > i+1 && rest[i+1] == ':' {
+				portSpec = rest[i+2:]
+			}
+		}
+	} else if i := strings.LastIndex(rest, ":"); i >= 0 {
+		host, portSpec = rest[:i], rest[i+1:]
+	}
+	first := portSpec
+	if i := strings.IndexAny(portSpec, ",-"); i >= 0 {
+		first = portSpec[:i]
+	}
+	port, _ := strconv.Atoi(first)
+	if host == "" || auth == "" || port <= 0 || port > 65535 {
+		return Parsed{}, fmt.Errorf("hysteria2: missing host, auth or port")
+	}
+	q, _ := url.ParseQuery(query)
+	params := map[string]any{}
+	if v := q.Get("sni"); v != "" {
+		params["sni"] = v
+	}
+	if v := q.Get("pinSHA256"); v != "" {
+		params["pin"] = v
+	}
+	if q.Get("insecure") == "1" && q.Get("pinSHA256") == "" {
+		return Parsed{}, fmt.Errorf("hysteria2: insecure=1 without pinSHA256 is not supported (Xray no longer skips certificate verification; pin the server certificate or use a valid one)")
+	}
+	switch obfs := q.Get("obfs"); obfs {
+	case "":
+	case "salamander":
+		params["obfs"] = obfs
+		params["obfs_password"] = q.Get("obfs-password")
+	default:
+		return Parsed{}, fmt.Errorf("hysteria2: unsupported obfs %q", obfs)
+	}
+	if portSpec != first {
+		params["hop"] = portSpec
+	}
+	if name == "" {
+		name = host
+	}
+	return Parsed{Node: model.Node{Name: name, Protocol: model.ProtocolHysteria, Address: host, Port: port, Params: mustJSON(params), Enabled: true}, Credential: auth}, nil
 }
 
 func decodeB64(s string) ([]byte, error) {

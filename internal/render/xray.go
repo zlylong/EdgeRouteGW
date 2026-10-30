@@ -470,7 +470,7 @@ func (r *xrayRenderer) rule(rule model.Rule) (map[string]any, bool) {
 
 // shorthandKeys are the flat node parameters the UI/importer may store; they
 // are folded into settings/streamSettings and must not leak into the outbound.
-var shorthandKeys = []string{"flow", "type", "security", "sni", "fp", "pbk", "sid", "method", "encryption", "alterId", "headerType", "spx"}
+var shorthandKeys = []string{"flow", "type", "security", "sni", "fp", "pbk", "sid", "method", "encryption", "alterId", "headerType", "spx", "pin", "obfs", "obfs_password", "up", "down", "hop"}
 
 // buildOutbound converts a node into an Xray outbound object. Params may be a
 // full outbound fragment (settings/streamSettings/...), shorthand keys, or
@@ -516,6 +516,8 @@ func buildOutbound(n model.Node) (map[string]any, error) {
 				srv["users"] = []any{map[string]any{"user": user, "pass": pass}}
 			}
 			ob["settings"] = map[string]any{"servers": []any{srv}}
+		case "hysteria":
+			ob["settings"] = map[string]any{"version": 2, "address": n.Address, "port": n.Port}
 		case "wireguard":
 			return nil, fmt.Errorf("wireguard node needs params.settings (secretKey is taken from the credential)")
 		case "custom":
@@ -531,6 +533,10 @@ func buildOutbound(n model.Node) (map[string]any, error) {
 		injectEndpoint(settings, n)
 		if proto == "wireguard" && n.Credential != "" {
 			settings["secretKey"] = n.Credential
+		}
+		if proto == "hysteria" {
+			// Hysteria settings are flat (no vnext/servers list).
+			settings["version"], settings["address"], settings["port"] = 2, n.Address, n.Port
 		}
 	}
 
@@ -559,6 +565,12 @@ func buildOutbound(n model.Node) (map[string]any, error) {
 		}
 		ob["streamSettings"] = ss
 	}
+	// Hysteria 2 keeps everything (QUIC transport, TLS, obfuscation, Brutal)
+	// under streamSettings; the form and the hysteria2:// importer store it
+	// as shorthand.
+	if _, has := ob["streamSettings"]; !has && proto == "hysteria" {
+		ob["streamSettings"] = hysteriaStream(n, str)
+	}
 	for _, k := range shorthandKeys {
 		delete(ob, k)
 	}
@@ -569,10 +581,64 @@ func buildOutbound(n model.Node) (map[string]any, error) {
 		ob["streamSettings"] = ss
 	}
 	ss["sockopt"] = map[string]any{"mark": OutboundMark}
+	if proto == "hysteria" && n.Credential != "" {
+		// Explicit streamSettings (advanced JSON): the password still comes
+		// from the credential unless the JSON set one.
+		hs, _ := ss["hysteriaSettings"].(map[string]any)
+		if hs == nil {
+			hs = map[string]any{"version": 2}
+			ss["hysteriaSettings"] = hs
+		}
+		if a, _ := hs["auth"].(string); a == "" {
+			hs["auth"] = n.Credential
+		}
+	}
 
 	ob["protocol"] = proto
 	ob["tag"] = NodeTag(n.ID)
 	return ob, nil
+}
+
+// hysteriaStream builds the Hysteria 2 transport from shorthand: sni, pin
+// (certificate SHA-256, hex), obfs + obfs_password (salamander), up / down
+// (Brutal rates, "50 mbps"; empty = BBR) and hop (port-hopping range).
+// TLS is mandatory for Hysteria; ALPN h3 is what the official server expects.
+func hysteriaStream(n model.Node, str func(string) string) map[string]any {
+	sni := str("sni")
+	if sni == "" {
+		sni = n.Address
+	}
+	tls := map[string]any{"serverName": sni, "alpn": []string{"h3"}}
+	if pin := str("pin"); pin != "" {
+		tls["pinnedPeerCertSha256"] = pin
+	}
+	ss := map[string]any{
+		"network":          "hysteria",
+		"hysteriaSettings": map[string]any{"version": 2, "auth": n.Credential},
+		"security":         "tls",
+		"tlsSettings":      tls,
+	}
+	fm := map[string]any{}
+	if str("obfs") == "salamander" {
+		fm["udp"] = []any{map[string]any{"type": "salamander", "settings": map[string]any{"password": str("obfs_password")}}}
+	}
+	qp := map[string]any{}
+	if up := str("up"); up != "" {
+		qp["brutalUp"] = up
+	}
+	if down := str("down"); down != "" {
+		qp["brutalDown"] = down
+	}
+	if hop := str("hop"); hop != "" {
+		qp["udpHop"] = map[string]any{"ports": hop, "interval": 30}
+	}
+	if len(qp) > 0 {
+		fm["quicParams"] = qp
+	}
+	if len(fm) > 0 {
+		ss["finalmask"] = fm
+	}
+	return ss
 }
 
 func isVmessCipher(s string) bool {

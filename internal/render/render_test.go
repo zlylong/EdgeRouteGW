@@ -526,6 +526,45 @@ func TestKernelWireGuardOutbound(t *testing.T) {
 	}
 }
 
+func TestHysteriaOutbound(t *testing.T) {
+	snap := baseSnap()
+	hy := model.Node{ID: "hy1", Name: "hy", Protocol: model.ProtocolHysteria, Address: "hy.example.com", Port: 443, Enabled: true, Credential: "secret",
+		Params: `{"sni":"real.example.com","pin":"deadbeef","obfs":"salamander","obfs_password":"pw","up":"50 mbps","hop":"20000-30000"}`}
+	raw := hy
+	raw.ID, raw.Name = "hy2", "raw"
+	raw.Params = `{"settings":{"version":2,"address":"x","port":1},"streamSettings":{"network":"hysteria","hysteriaSettings":{"version":2},"security":"tls","tlsSettings":{"serverName":"x"}}}`
+	snap.Nodes = append(snap.Nodes, hy, raw)
+	a, err := Render(snap, deps())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var ob map[string]any
+	_ = json.Unmarshal(a.XrayOutbounds["node-hy1"], &ob)
+	if ob["protocol"] != "hysteria" || ob["settings"].(map[string]any)["version"] != float64(2) || ob["settings"].(map[string]any)["address"] != "hy.example.com" {
+		t.Fatalf("outbound %v", ob)
+	}
+	if _, leaked := ob["sni"]; leaked {
+		t.Fatal("shorthand leaked into the outbound")
+	}
+	ss := ob["streamSettings"].(map[string]any)
+	if ss["network"] != "hysteria" || ss["security"] != "tls" || ss["hysteriaSettings"].(map[string]any)["auth"] != "secret" {
+		t.Fatalf("stream %v", ss)
+	}
+	tls := ss["tlsSettings"].(map[string]any)
+	if tls["serverName"] != "real.example.com" || tls["pinnedPeerCertSha256"] != "deadbeef" {
+		t.Fatalf("tls %v", tls)
+	}
+	fm := ss["finalmask"].(map[string]any)
+	if fm["udp"].([]any)[0].(map[string]any)["type"] != "salamander" || fm["quicParams"].(map[string]any)["brutalUp"] != "50 mbps" || fm["quicParams"].(map[string]any)["udpHop"].(map[string]any)["ports"] != "20000-30000" {
+		t.Fatalf("finalmask %v", fm)
+	}
+	// Explicit streamSettings: address/port and auth are still injected.
+	_ = json.Unmarshal(a.XrayOutbounds["node-hy2"], &ob)
+	if ob["settings"].(map[string]any)["address"] != "hy.example.com" || ob["streamSettings"].(map[string]any)["hysteriaSettings"].(map[string]any)["auth"] != "secret" {
+		t.Fatalf("raw outbound %v", ob)
+	}
+}
+
 func TestNftDNSHijack(t *testing.T) {
 	snap := baseSnap()
 	snap.DNS.Hijack, snap.DNS.BlockDoT = true, true

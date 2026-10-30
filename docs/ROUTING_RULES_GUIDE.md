@@ -40,7 +40,7 @@
 
 ## 5. 节点与出站组
 
-- 节点:VLESS(含 REALITY)、VMess、Trojan、Shadowsocks、SOCKS、HTTP、WireGuard。可从分享链接批量导入。每个节点每 30 秒经探测入站访问 `cp.cloudflare.com` 一次,延迟和错误显示在节点页和总览。
+- 节点:VLESS(含 REALITY)、VMess、Trojan、Shadowsocks、Hysteria 2、SOCKS、HTTP、WireGuard。可从分享链接批量导入。每个节点每 30 秒经探测入站访问 `cp.cloudflare.com` 一次,延迟和错误显示在节点页和总览。
 - WireGuard 节点默认走**内核隧道**(每个节点一个 `ergw-xxxx` 接口、一张 `3xx` 路由表、`fwmark 0x1xx` 规则),吞吐比 Xray 用户态高一倍以上;WARP 这类带 reserved 字段的、或内核没有 wireguard 模块的,自动退回用户态。
 - 出站组:
   - **故障转移**:按成员顺序,主成员探测健康就用它,挂了切下一个。Xray 侧是带 observatory 的 balancer,主成员为 selector,其余为 fallback。

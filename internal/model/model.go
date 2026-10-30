@@ -69,6 +69,7 @@ const (
 	ProtocolSocks       Protocol = "socks"
 	ProtocolHTTP        Protocol = "http"
 	ProtocolWireGuard   Protocol = "wireguard"
+	ProtocolHysteria    Protocol = "hysteria" // Hysteria 2 (Xray native outbound)
 	ProtocolCustom      Protocol = "custom"
 )
 

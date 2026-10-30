@@ -47,7 +47,7 @@ export interface PlanResponse {
   artifact_sizes: Record<string, number>
 }
 
-export type Protocol = 'vmess' | 'vless' | 'trojan' | 'shadowsocks' | 'socks' | 'http' | 'wireguard' | 'custom'
+export type Protocol = 'vmess' | 'vless' | 'trojan' | 'shadowsocks' | 'hysteria' | 'socks' | 'http' | 'wireguard' | 'custom'
 
 export interface Node {
   id: string

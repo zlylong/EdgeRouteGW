@@ -21,23 +21,25 @@ const toast = useToast()
 
 const protocols: { value: Protocol; label: string }[] = [
   { value: 'vless', label: 'VLESS' }, { value: 'vmess', label: 'VMess' }, { value: 'trojan', label: 'Trojan' },
-  { value: 'shadowsocks', label: 'Shadowsocks' }, { value: 'socks', label: 'SOCKS5' }, { value: 'http', label: 'HTTP' },
+  { value: 'shadowsocks', label: 'Shadowsocks' }, { value: 'hysteria', label: 'Hysteria 2' }, { value: 'socks', label: 'SOCKS5' }, { value: 'http', label: 'HTTP' },
   { value: 'wireguard', label: 'WireGuard' }, { value: 'custom', label: '自定义 (Xray JSON)' },
 ]
 const transports = ['tcp', 'ws', 'grpc', 'xhttp', 'h2'].map(v => ({ value: v, label: v }))
 const securities = [{ value: 'none', label: '无' }, { value: 'tls', label: 'TLS' }, { value: 'reality', label: 'REALITY' }]
+const obfsKinds = [{ value: 'none', label: '无' }, { value: 'salamander', label: 'Salamander' }]
 const ssMethods = ['aes-256-gcm', 'aes-128-gcm', 'chacha20-ietf-poly1305', '2022-blake3-aes-256-gcm', '2022-blake3-aes-128-gcm'].map(v => ({ value: v, label: v }))
 
 const form = reactive({
   name: '', protocol: 'vless' as Protocol, address: '', port: 443, enabled: true, credential: '',
   type: 'tcp', security: 'reality', sni: '', fp: 'chrome', pbk: '', sid: '', flow: 'xtls-rprx-vision', method: 'aes-256-gcm',
+  pin: '', obfs: 'none', obfsPassword: '', up: '', down: '', hop: '',
   rawParams: '{}', advanced: false,
 })
 const errors = ref<Record<string, string>>({})
 const busy = ref(false)
 const editing = computed(() => !!props.node)
 const credentialLabel = computed(() => ({
-  vmess: 'UUID', vless: 'UUID', trojan: '密码', shadowsocks: '密码', socks: '用户名:密码(可选)', http: '用户名:密码(可选)', wireguard: '客户端私钥', custom: '凭证(可选,注入 settings 时使用)',
+  vmess: 'UUID', vless: 'UUID', trojan: '密码', shadowsocks: '密码', socks: '用户名:密码(可选)', http: '用户名:密码(可选)', hysteria: '认证密码', wireguard: '客户端私钥', custom: '凭证(可选,注入 settings 时使用)',
 }[form.protocol]))
 const showTransport = computed(() => ['vless', 'vmess', 'trojan'].includes(form.protocol))
 const needsSettings = computed(() => form.protocol === 'wireguard' || form.protocol === 'custom')
@@ -47,7 +49,7 @@ watch(open, (o) => { if (o) reset() })
 function reset() {
   errors.value = {}
   const n = props.node
-  Object.assign(form, { name: '', protocol: 'vless', address: '', port: 443, enabled: true, credential: '', type: 'tcp', security: 'reality', sni: '', fp: 'chrome', pbk: '', sid: '', flow: 'xtls-rprx-vision', method: 'aes-256-gcm', rawParams: '{}', advanced: false })
+  Object.assign(form, { name: '', protocol: 'vless', address: '', port: 443, enabled: true, credential: '', type: 'tcp', security: 'reality', sni: '', fp: 'chrome', pbk: '', sid: '', flow: 'xtls-rprx-vision', method: 'aes-256-gcm', pin: '', obfs: 'none', obfsPassword: '', up: '', down: '', hop: '', rawParams: '{}', advanced: false })
   if (!n) return
   Object.assign(form, { name: n.name, protocol: n.protocol, address: n.address, port: n.port, enabled: n.enabled, rawParams: n.params || '{}' })
   try {
@@ -57,8 +59,9 @@ function reset() {
     if (str('security')) form.security = str('security')
     else if (!('streamSettings' in p)) form.security = 'none'
     form.sni = str('sni'); form.fp = str('fp') || form.fp; form.pbk = str('pbk'); form.sid = str('sid'); form.flow = str('flow'); form.method = str('method') || form.method
+    form.pin = str('pin'); form.obfs = str('obfs') || 'none'; form.obfsPassword = str('obfs_password'); form.up = str('up'); form.down = str('down'); form.hop = str('hop')
     // Anything beyond the shorthand keys means the form cannot represent it.
-    const known = new Set(['type', 'security', 'sni', 'fp', 'pbk', 'sid', 'flow', 'method'])
+    const known = new Set(['type', 'security', 'sni', 'fp', 'pbk', 'sid', 'flow', 'method', 'pin', 'obfs', 'obfs_password', 'up', 'down', 'hop'])
     form.advanced = Object.keys(p).some(k => !known.has(k)) || needsSettings.value
   } catch { form.advanced = true }
 }
@@ -77,6 +80,14 @@ function buildParams(): string {
     if (form.protocol === 'vless' && form.flow) p.flow = form.flow
   }
   if (form.protocol === 'shadowsocks') p.method = form.method
+  if (form.protocol === 'hysteria') {
+    if (form.sni) p.sni = form.sni
+    if (form.pin) p.pin = form.pin
+    if (form.obfs !== 'none') { p.obfs = form.obfs; p.obfs_password = form.obfsPassword }
+    if (form.up) p.up = form.up
+    if (form.down) p.down = form.down
+    if (form.hop) p.hop = form.hop
+  }
   return JSON.stringify(p)
 }
 
@@ -122,6 +133,16 @@ async function save() {
         <Field label="Short ID (sid)"><Input v-model="form.sid" class="font-mono" /></Field>
       </template>
       <Field v-if="form.protocol === 'vless'" label="Flow"><Input v-model="form.flow" placeholder="xtls-rprx-vision 或留空" /></Field>
+    </div>
+    <div v-if="form.protocol === 'hysteria' && !form.advanced" class="mt-4 grid gap-4 rounded-lg border border-border bg-surface-2/50 p-4 sm:grid-cols-2">
+      <Field label="SNI" hint="留空用地址"><Input v-model="form.sni" placeholder="与服务端证书一致" /></Field>
+      <Field label="证书指纹 (pinSHA256)" hint="自签证书必填"><Input v-model="form.pin" class="font-mono" placeholder="sha256 hex,可带冒号" /></Field>
+      <Field label="混淆"><Select v-model="form.obfs" :options="obfsKinds" /></Field>
+      <Field v-if="form.obfs === 'salamander'" label="混淆密码"><Input v-model="form.obfsPassword" type="password" autocomplete="off" /></Field>
+      <Field label="上行带宽 (Brutal)" hint="留空用 BBR"><Input v-model="form.up" placeholder="50 mbps" /></Field>
+      <Field label="下行带宽 (Brutal)" hint="留空用 BBR"><Input v-model="form.down" placeholder="200 mbps" /></Field>
+      <Field label="端口跳跃范围" hint="服务端开了才填"><Input v-model="form.hop" placeholder="20000-50000" /></Field>
+      <p class="text-xs text-fg-subtle sm:col-span-2">Xray 原生 Hysteria 2 出站(QUIC + TLS,ALPN h3)。Xray 不再支持跳过证书校验(insecure),自签证书请填指纹。</p>
     </div>
     <div v-if="form.protocol === 'shadowsocks' && !form.advanced" class="mt-4">
       <Field label="加密方式"><Select v-model="form.method" :options="ssMethods" /></Field>
