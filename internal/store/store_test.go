@@ -54,6 +54,73 @@ func TestMigrateIsIdempotent(t *testing.T) {
 	}
 }
 
+// TestNodesRebuildKeepsReferences applies the schema up to 0007, creates a
+// node that is a group member and a deploy target, then runs the remaining
+// migrations: the 0008 table rebuild must keep both references.
+func TestNodesRebuildKeepsReferences(t *testing.T) {
+	ctx := context.Background()
+	s, err := OpenMemory(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	all, err := Migrations()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.db.ExecContext(ctx, `CREATE TABLE schema_migrations (version TEXT PRIMARY KEY, applied_at TEXT NOT NULL DEFAULT '')`); err != nil {
+		t.Fatal(err)
+	}
+	for _, m := range all {
+		if m.Version >= "0008" {
+			break
+		}
+		if _, err := s.db.ExecContext(ctx, m.SQL); err != nil {
+			t.Fatalf("%s: %v", m.Version, err)
+		}
+		if _, err := s.db.ExecContext(ctx, `INSERT INTO schema_migrations (version) VALUES (?)`, m.Version); err != nil {
+			t.Fatal(err)
+		}
+	}
+	exec := func(q string, args ...any) {
+		if _, err := s.db.ExecContext(ctx, q, args...); err != nil {
+			t.Fatalf("%s: %v", q, err)
+		}
+	}
+	exec(`INSERT INTO nodes (id, name, protocol, address, port) VALUES ('n1','n','http',1,1)`)
+	exec(`INSERT INTO outbound_groups (id, name, kind) VALUES ('g1','g','failover')`)
+	exec(`INSERT INTO outbound_group_members (group_id, node_id, position) VALUES ('g1','n1',0)`)
+	exec(`INSERT INTO remote_hosts (id, name, ssh_host, ssh_user, ssh_auth_kind) VALUES ('h1','h','1.2.3.4','root','key')`)
+	exec(`INSERT INTO remote_deploys (id, host_id, kind, state, node_id) VALUES ('d1','h1','wg','succeeded','n1')`)
+	if _, err := s.db.ExecContext(ctx, `INSERT INTO nodes (id, name, protocol, address, port) VALUES ('n2','hy','hysteria',1,1)`); err == nil {
+		t.Fatal("hysteria must be rejected before 0008")
+	}
+	ran, err := s.Migrate(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(ran) == 0 || ran[0] != "0008_nodes_hysteria" {
+		t.Fatalf("ran %v", ran)
+	}
+	var members, deployNode int
+	if err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM outbound_group_members WHERE node_id='n1'`).Scan(&members); err != nil || members != 1 {
+		t.Fatalf("group member lost: %d %v", members, err)
+	}
+	if err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM remote_deploys WHERE node_id='n1'`).Scan(&deployNode); err != nil || deployNode != 1 {
+		t.Fatalf("deploy node_id lost: %d %v", deployNode, err)
+	}
+	exec(`INSERT INTO nodes (id, name, protocol, address, port) VALUES ('n2','hy','hysteria',1,1)`)
+	var fk int
+	if err := s.db.QueryRowContext(ctx, `PRAGMA foreign_keys`).Scan(&fk); err != nil || fk != 1 {
+		t.Fatalf("foreign_keys after migration: %d %v", fk, err)
+	}
+	// Cascades still work against the rebuilt table.
+	exec(`DELETE FROM nodes WHERE id='n1'`)
+	if err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM outbound_group_members`).Scan(&members); err != nil || members != 0 {
+		t.Fatalf("cascade after rebuild: %d %v", members, err)
+	}
+}
+
 func TestSchemaVersionBeforeMigrate(t *testing.T) {
 	ctx := context.Background()
 	st, err := Open(ctx, filepath.Join(t.TempDir(), "fresh.db"))

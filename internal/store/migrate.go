@@ -40,6 +40,12 @@ func Migrations() ([]Migration, error) {
 	return out, nil
 }
 
+// fkOffMarker on the first line of a migration runs it with foreign keys
+// disabled: a table rebuild (create new, copy, drop old, rename) would
+// otherwise fire the old table's ON DELETE actions when it is dropped. The
+// migration is checked with foreign_key_check before it commits.
+const fkOffMarker = "-- migrate:foreign_keys=off"
+
 // Migrate applies every migration not yet recorded in schema_migrations, each
 // in its own transaction, and returns the versions it applied. A migration
 // that fails is rolled back and stops the run; nothing after it is attempted.
@@ -63,13 +69,18 @@ func (s *Store) Migrate(ctx context.Context) ([]string, error) {
 		if applied[m.Version] {
 			continue
 		}
-		err := s.WithTx(ctx, func(tx *sql.Tx) error {
-			if _, err := tx.ExecContext(ctx, m.SQL); err != nil {
+		var err error
+		if strings.HasPrefix(m.SQL, fkOffMarker) {
+			err = s.migrateWithoutFK(ctx, m)
+		} else {
+			err = s.WithTx(ctx, func(tx *sql.Tx) error {
+				if _, err := tx.ExecContext(ctx, m.SQL); err != nil {
+					return err
+				}
+				_, err := tx.ExecContext(ctx, `INSERT INTO schema_migrations (version) VALUES (?)`, m.Version)
 				return err
-			}
-			_, err := tx.ExecContext(ctx, `INSERT INTO schema_migrations (version) VALUES (?)`, m.Version)
-			return err
-		})
+			})
+		}
 		if err != nil {
 			return ran, fmt.Errorf("migration %s: %w", m.Version, err)
 		}
@@ -79,6 +90,45 @@ func (s *Store) Migrate(ctx context.Context) ([]string, error) {
 		return ran, fmt.Errorf("built-in rule set: %w", err)
 	}
 	return ran, nil
+}
+
+// migrateWithoutFK runs one migration on a dedicated connection with
+// foreign_keys off (the pragma cannot change inside a transaction), verifies
+// referential integrity before committing, and restores the pragma.
+func (s *Store) migrateWithoutFK(ctx context.Context, m Migration) error {
+	conn, err := s.db.Conn(ctx)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+	if _, err := conn.ExecContext(ctx, `PRAGMA foreign_keys=OFF`); err != nil {
+		return err
+	}
+	defer func() { _, _ = conn.ExecContext(ctx, `PRAGMA foreign_keys=ON`) }()
+	tx, err := conn.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback() //nolint:errcheck
+	if _, err := tx.ExecContext(ctx, m.SQL); err != nil {
+		return err
+	}
+	rows, err := tx.QueryContext(ctx, `PRAGMA foreign_key_check`)
+	if err != nil {
+		return err
+	}
+	violations := 0
+	for rows.Next() {
+		violations++
+	}
+	rows.Close()
+	if violations > 0 {
+		return fmt.Errorf("%d foreign key violation(s) after rebuild", violations)
+	}
+	if _, err := tx.ExecContext(ctx, `INSERT INTO schema_migrations (version) VALUES (?)`, m.Version); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 // SchemaVersion returns the latest applied migration version, or "" if none.
