@@ -30,7 +30,9 @@ tail -f /run/edgeroutegw/mosdns.log
 
 页面上:总览(组件状态、最近下发是否失败、主机监控)、观测(实时连接、事件、流量、节点延迟)、系统 → 生成的配置(Xray / Mosdns / nftables 当前渲染结果)。远程机器上跑 `journalctl` 记得带 `--since`,否则很慢。
 
-控制面以 root 运行但受 systemd 沙箱约束(ProtectSystem=strict、ProtectKernelModules 等),所以它自己不 `modprobe`、不写 `/usr`;需要的内核模块由 `modules-load.d` 在开机时加载。
+**日志会不会堆满?** 系统 → 日志与保留。历史记录与流量样本按天清理(默认 90 天),/run 下的 Xray / Mosdns 日志超过上限(默认 64 MB)原地清空,systemd journal 由本服务写的 `/etc/systemd/journald.conf.d/60-edgeroutegw.conf` 限定(默认 30 天 / 500 MB)。每小时自动跑一次;「立即清理」把这些立刻做完并压缩数据库。1.x 在同一台机器上留下的几 GB journal 也在这里清。
+
+控制面以 root 运行但受 systemd 沙箱约束(ProtectSystem=strict、ProtectKernelModules 等),所以它自己不 `modprobe`、不写 `/usr`(日志保留需要的 journald 目录是显式放开的例外);需要的内核模块由 `modules-load.d` 在开机时加载。
 
 ## 3. 备份与恢复
 

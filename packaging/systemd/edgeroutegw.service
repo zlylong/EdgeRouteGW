@@ -37,6 +37,8 @@ SystemCallArchitectures=native
 RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
 UMask=0027
 ReadWritePaths=/var/lib/edgeroutegw /etc/edgeroutegw /etc/frr /etc/nftables.conf
+# Retention settings own a journald drop-in and vacuum the journal.
+ReadWritePaths=-/etc/systemd/journald.conf.d -/var/log/journal -/run/log/journal
 RuntimeDirectory=edgeroutegw
 RuntimeDirectoryMode=0750
 RuntimeDirectoryPreserve=yes

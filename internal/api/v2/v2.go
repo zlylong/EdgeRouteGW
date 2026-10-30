@@ -22,6 +22,7 @@ import (
 	"github.com/zlylong/EdgeRouteGW/internal/driver/frr"
 	"github.com/zlylong/EdgeRouteGW/internal/events"
 	"github.com/zlylong/EdgeRouteGW/internal/geo"
+	"github.com/zlylong/EdgeRouteGW/internal/janitor"
 	"github.com/zlylong/EdgeRouteGW/internal/observe"
 	"github.com/zlylong/EdgeRouteGW/internal/paths"
 	"github.com/zlylong/EdgeRouteGW/internal/provision"
@@ -75,6 +76,8 @@ type Deps struct {
 	Updater *update.Service
 	// Tuner holds the environment tuning report; nil with -no-reconcile.
 	Tuner *tune.Tuner
+	// Janitor applies the retention settings; nil disables the endpoints.
+	Janitor *janitor.Janitor
 	// Traffic and Latency are the telemetry collectors; nil when not running.
 	Traffic *observe.TrafficSampler
 	Latency *observe.LatencyProber
@@ -87,6 +90,7 @@ func Register(mux *http.ServeMux, d Deps) {
 	d.registerObserve(r)
 	d.registerNetwork(r)
 	d.registerTuning(r)
+	d.registerRetention(r)
 	d.registerProvision(r)
 	d.registerComponents(r)
 	d.registerBackup(r)

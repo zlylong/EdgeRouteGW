@@ -233,5 +233,9 @@ export interface TrafficResponse { range: string; bucket_s: number; series: Traf
 export interface LatencyResult { node_id: string; ms: number; error?: string }
 export interface DownloadSettings { proxy: string; github_mirror: string; github_token: string; has_github_token: boolean; clear_github_token?: boolean }
 export interface GeoTags { kind: 'geosite' | 'geoip'; installed: boolean; version?: string; items: string[] }
+export interface RetentionSettings { history_days: number; traffic_days: number; runlog_mb: number; journal_days: number; journal_mb: number }
+export interface RetentionUsage { db: { db_bytes: number; wal_bytes: number; events: number; apply_log: number; changesets: number; deploy_logs: number; traffic_samples: number; node_traffic_samples: number }; runtime_logs: { path: string; bytes: number }[]; run_fs_used: number; run_fs_total: number; journal_bytes: number; journal_managed: boolean; last_prune_at?: string }
+export interface RetentionReport { at: string; pruned: { events: number; apply_log: number; changesets: number; deploys: number; deploy_logs: number; traffic: number }; runtime_log_bytes_freed: number; db_bytes_before: number; db_bytes_after: number; journal_bytes_before: number; journal_bytes_after: number; warnings: string[] }
+export interface RetentionView { settings: RetentionSettings; usage: RetentionUsage; report?: RetentionReport }
 export interface TuningItem { key: string; title: string; status: 'ok' | 'applied' | 'fallback' | 'unavailable' | 'info'; detail: string; hint?: string }
 export interface TuningReport { at: string; applied: boolean; host: { cpus: number; kernel: string; virt: string; iface: string }; items: TuningItem[] }

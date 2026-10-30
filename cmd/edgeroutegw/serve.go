@@ -29,6 +29,7 @@ import (
 	"github.com/zlylong/EdgeRouteGW/internal/events"
 	"github.com/zlylong/EdgeRouteGW/internal/geo"
 	"github.com/zlylong/EdgeRouteGW/internal/httpserver"
+	"github.com/zlylong/EdgeRouteGW/internal/janitor"
 	"github.com/zlylong/EdgeRouteGW/internal/netinfo"
 	"github.com/zlylong/EdgeRouteGW/internal/observe"
 	"github.com/zlylong/EdgeRouteGW/internal/paths"
@@ -166,6 +167,13 @@ func cmdServe(args []string, stdout, stderr io.Writer, env config.LookupEnv) int
 	traffic := observe.NewTrafficSampler(st, bus, observe.XrayStats(run, p.XrayBinary()), log)
 	metrics := observe.NewSysMetrics(log)
 	logCap := observe.NewLogCap(log, p.XrayAccessLog(), p.MosdnsLog())
+	// Retention: history tables, runtime log cap, systemd journal. Journal
+	// management needs systemd; without drivers it is left alone.
+	var janitorSD janitor.UnitRestarter
+	if !*noReconcile {
+		janitorSD = systemd.NewDBus()
+	}
+	jan := janitor.New(st, logCap, run, janitorSD, p.RunDir, log)
 
 	var drivers []driver.Driver
 	var frrDriver *frr.Driver
@@ -235,7 +243,7 @@ func cmdServe(args []string, stdout, stderr io.Writer, env config.LookupEnv) int
 	h := api.NewHandler(api.Deps{
 		Store: st, Keyring: kr, Reconciler: rec, Bus: bus, Paths: p, Log: log, StartedAt: time.Now(),
 		Auth: authSvc, GeoSite: geoSite, GeoIP: geoIP, SiteIndex: siteIdx, IPIndex: ipIdx, Connections: conns, FRR: frrDriver, ResolverKick: resLoop.Kick,
-		IfaceAddr: render.SystemInterfaceAddr, DefaultIface: netinfo.DefaultIface, Provision: prov, Tuner: tuner, Updater: updater, Traffic: traffic, Latency: latency, Metrics: metrics,
+		IfaceAddr: render.SystemInterfaceAddr, DefaultIface: netinfo.DefaultIface, Provision: prov, Tuner: tuner, Updater: updater, Traffic: traffic, Latency: latency, Metrics: metrics, Janitor: jan,
 	})
 
 	g, gctx := errgroup.WithContext(ctx)
@@ -243,25 +251,13 @@ func cmdServe(args []string, stdout, stderr io.Writer, env config.LookupEnv) int
 	g.Go(func() error { return conns.Run(gctx) })
 	g.Go(func() error { return metrics.Run(gctx) })
 	g.Go(func() error { return logCap.Run(gctx) })
+	g.Go(func() error { return jan.Run(gctx) })
 	g.Go(func() error { return dnsTap.Run(gctx) })
 	g.Go(func() error { return resLoop.Run(gctx) })
 	g.Go(func() error { return updater.RunScheduler(gctx) })
 	g.Go(func() error { return latency.Run(gctx) })
 	if !*noReconcile {
 		g.Go(func() error { return traffic.Run(gctx) })
-		g.Go(func() error {
-			// Keep 90 days of per-minute samples.
-			t := time.NewTicker(6 * time.Hour)
-			defer t.Stop()
-			for {
-				select {
-				case <-gctx.Done():
-					return nil
-				case <-t.C:
-					_ = st.PruneTraffic(gctx, 90*24*time.Hour)
-				}
-			}
-		})
 	}
 	g.Go(func() error { return httpserver.Serve(gctx, cfg.ListenAddr, h, log, nil) })
 	if err := g.Wait(); err != nil {

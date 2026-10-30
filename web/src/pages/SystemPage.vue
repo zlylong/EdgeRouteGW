@@ -12,6 +12,7 @@ import Field from '@/components/ui/Field.vue'
 import Table from '@/components/ui/Table.vue'
 import CodeBlock from '@/components/ui/CodeBlock.vue'
 import TuningPanel from '@/components/system/TuningPanel.vue'
+import RetentionPanel from '@/components/system/RetentionPanel.vue'
 import Dialog from '@/components/ui/Dialog.vue'
 import ConfirmDialog from '@/components/ui/ConfirmDialog.vue'
 import EmptyState from '@/components/ui/EmptyState.vue'
@@ -75,7 +76,7 @@ watch(() => gw.lastEvent, e => { if (e?.type === 'apply.finished') qc.invalidate
 
 <template>
   <div class="space-y-4">
-    <Tabs v-model="tab" :tabs="[{ value: 'security', label: '安全' }, { value: 'components', label: '组件更新' }, { value: 'tuning', label: '系统调优' }, { value: 'configs', label: '生成的配置' }, { value: 'about', label: '关于' }]" />
+    <Tabs v-model="tab" :tabs="[{ value: 'security', label: '安全' }, { value: 'components', label: '组件更新' }, { value: 'tuning', label: '系统调优' }, { value: 'retention', label: '日志与保留' }, { value: 'configs', label: '生成的配置' }, { value: 'about', label: '关于' }]" />
 
     <div v-if="tab === 'security'" class="grid gap-4">
       <Card title="账户与会话">
@@ -120,6 +121,7 @@ watch(() => gw.lastEvent, e => { if (e?.type === 'apply.finished') qc.invalidate
 
     <ComponentsPanel v-else-if="tab === 'components'" />
     <TuningPanel v-else-if="tab === 'tuning'" />
+    <RetentionPanel v-else-if="tab === 'retention'" />
 
     <div v-else-if="tab === 'configs'">
       <div class="mb-3 flex items-center gap-3">

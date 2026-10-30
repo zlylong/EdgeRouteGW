@@ -27,7 +27,7 @@ func TestLogCapTruncatesOversizedFilesOnly(t *testing.T) {
 	}
 	defer f.Close()
 	c := NewLogCap(slog.New(slog.NewTextHandler(io.Discard, nil)), big, small, missing)
-	c.MaxBytes = 1024
+	c.SetMaxBytes(1024)
 	if n := c.Check(); n != 1 {
 		t.Fatalf("truncated %d files, want 1", n)
 	}
