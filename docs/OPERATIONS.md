@@ -8,7 +8,7 @@
 | Xray / Mosdns | `edgeroutegw-xray.service`、`edgeroutegw-mosdns.service`(`PartOf` 控制面,随它重启) |
 | FRR | 系统的 `frr.service`,只在 Mode B / C 启用 |
 | 数据目录 | `/var/lib/edgeroutegw`:`edgeroutegw.db`(SQLite,0600)、`keys/master.key`(凭证加密主密钥,0600)、`components/`(Xray、Mosdns 二进制与上一版 `.prev`)、`geodata/`、`xray/`、`mosdns/`、`nft/ruleset.nft`、`bootstrap_password.txt`(改密后删除) |
-| 运行时目录 | `/run/edgeroutegw`(tmpfs):`xray_access.log`、`mosdns.log` |
+| 运行时目录 | `/run/edgeroutegw`(tmpfs):`xray_access.log`、`mosdns.log`,任一超过 64 MB 由控制面原地截断(只是实时视图) |
 | 环境文件 | `/etc/edgeroutegw/edgeroutegw.env`:`ERGW_LISTEN`、`ERGW_DATA_DIR`、`ERGW_LOG_LEVEL`、`ERGW_SECURE_COOKIES`(TLS 反代后置 1) |
 | 内核参数 | `/etc/sysctl.d/99-edgeroutegw.conf`、`/etc/modules-load.d/edgeroutegw.conf`(wireguard、tcp_bbr、nfnetlink_log) |
 | 内置组件包 | `edgeroutegw-components` deb → `/usr/share/edgeroutegw/components`(离线 full 包自带,首次启动种子化) |

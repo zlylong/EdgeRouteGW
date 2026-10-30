@@ -165,6 +165,7 @@ func cmdServe(args []string, stdout, stderr io.Writer, env config.LookupEnv) int
 	}
 	traffic := observe.NewTrafficSampler(st, bus, observe.XrayStats(run, p.XrayBinary()), log)
 	metrics := observe.NewSysMetrics(log)
+	logCap := observe.NewLogCap(log, p.XrayAccessLog(), p.MosdnsLog())
 
 	var drivers []driver.Driver
 	var frrDriver *frr.Driver
@@ -241,6 +242,7 @@ func cmdServe(args []string, stdout, stderr io.Writer, env config.LookupEnv) int
 	g.Go(func() error { return rec.Run(gctx) })
 	g.Go(func() error { return conns.Run(gctx) })
 	g.Go(func() error { return metrics.Run(gctx) })
+	g.Go(func() error { return logCap.Run(gctx) })
 	g.Go(func() error { return dnsTap.Run(gctx) })
 	g.Go(func() error { return resLoop.Run(gctx) })
 	g.Go(func() error { return updater.RunScheduler(gctx) })
