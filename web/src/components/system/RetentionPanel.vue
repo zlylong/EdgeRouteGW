@@ -74,7 +74,7 @@ function describe(r: RetentionView): string {
   if (rep.runtime_log_bytes_freed) parts.push(`运行时日志释放 ${fmtBytes(rep.runtime_log_bytes_freed)}`)
   if (rep.journal_bytes_before > rep.journal_bytes_after) parts.push(`系统日志 ${fmtBytes(rep.journal_bytes_before)} → ${fmtBytes(rep.journal_bytes_after)}`)
   if (rep.db_bytes_before > rep.db_bytes_after) parts.push(`数据库 ${fmtBytes(rep.db_bytes_before)} → ${fmtBytes(rep.db_bytes_after)}`)
-  if (rep.warnings.length) parts.push(`警告:${rep.warnings.join(';')}`)
+  if (rep.warnings?.length) parts.push(`警告:${rep.warnings.join(';')}`)
   return parts.length ? parts.join(',') : '没有需要清理的内容'
 }
 const runPct = computed(() => {

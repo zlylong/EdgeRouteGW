@@ -152,7 +152,7 @@ func (j *Janitor) SetSettings(ctx context.Context, s Settings) (Report, error) {
 		}
 	}
 	j.LogCap.SetMaxBytes(int64(s.RunLogMB) << 20)
-	var warnings []string
+	warnings := []string{}
 	if prev.JournalDays != s.JournalDays || prev.JournalMB != s.JournalMB {
 		if err := j.applyJournal(ctx, s, true); err != nil {
 			warnings = append(warnings, err.Error())
