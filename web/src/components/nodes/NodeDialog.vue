@@ -142,7 +142,7 @@ async function save() {
       <Field label="上行带宽 (Brutal)" hint="留空用 BBR"><Input v-model="form.up" placeholder="50 mbps" /></Field>
       <Field label="下行带宽 (Brutal)" hint="留空用 BBR"><Input v-model="form.down" placeholder="200 mbps" /></Field>
       <Field label="端口跳跃范围" hint="服务端开了才填"><Input v-model="form.hop" placeholder="20000-50000" /></Field>
-      <p class="text-xs text-fg-subtle sm:col-span-2">Xray 原生 Hysteria 2 出站(QUIC + TLS,ALPN h3)。Xray 不再支持跳过证书校验(insecure),自签证书请填指纹。</p>
+      <p class="text-xs text-fg-subtle sm:col-span-2">Xray 原生 Hysteria 2 出站(QUIC + TLS,ALPN h3),需要 Xray 26.10 或更新(系统 → 组件更新;26.3 的实现两端互联会认证失败)。Xray 不再支持跳过证书校验(insecure),自签证书请填指纹。</p>
     </div>
     <div v-if="form.protocol === 'shadowsocks' && !form.advanced" class="mt-4">
       <Field label="加密方式"><Select v-model="form.method" :options="ssMethods" /></Field>
