@@ -7,6 +7,7 @@ import (
 	"io"
 	"log/slog"
 	"path/filepath"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -25,6 +26,7 @@ type fakeDriver struct {
 	applies atomic.Int32
 	plans   atomic.Int32
 	failN   atomic.Int32 // fail this many applies
+	repair  atomic.Bool  // report drift on the next plan
 	seen    []byte
 }
 
@@ -32,6 +34,9 @@ func (f *fakeDriver) Component() model.Component { return f.comp }
 func (f *fakeDriver) Plan(_ context.Context, prev, next *render.Artifacts) (driver.Plan, error) {
 	f.plans.Add(1)
 	if prev != nil && string(prev.Xray) == string(next.Xray) && string(prev.Nft) == string(next.Nft) {
+		if f.repair.Swap(false) {
+			return driver.Plan{Component: f.comp, Actions: []driver.Action{{Kind: driver.ActionRepair, Detail: "restore ip rule"}}}, nil
+		}
 		return driver.Plan{Component: f.comp, Actions: []driver.Action{{Kind: driver.ActionNoop}}}, nil
 	}
 	return driver.Plan{Component: f.comp, Actions: []driver.Action{{Kind: driver.ActionWrite}}}, nil
@@ -196,5 +201,33 @@ func TestPlanOnlyHasNoSideEffects(t *testing.T) {
 	}
 	if fd.applies.Load() != 0 {
 		t.Fatal("PlanOnly must not apply")
+	}
+}
+
+func TestRepairedDriftIsAppliedAndLoggedAsWarning(t *testing.T) {
+	r, st, fd := setup(t)
+	ctx := context.Background()
+	if err := r.ReconcileNow(ctx); err != nil {
+		t.Fatal(err)
+	}
+	fd.repair.Store(true)
+	if err := r.ReconcileNow(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if fd.applies.Load() != 2 {
+		t.Fatalf("a repair plan must be applied, applies=%d", fd.applies.Load())
+	}
+	evs, _ := st.ListEvents(ctx, store.EventFilter{Module: "reconcile"})
+	found := false
+	for _, e := range evs {
+		if e.Type == "drift.repaired" && e.Level == model.LevelWarn && strings.Contains(e.Message, "restore ip rule") {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("expected a drift.repaired warning, events %+v", evs)
+	}
+	if r.Status().LastError != "" {
+		t.Fatalf("repair is not a failure: %+v", r.Status())
 	}
 }

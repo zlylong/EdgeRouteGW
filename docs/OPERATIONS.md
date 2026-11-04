@@ -11,6 +11,7 @@
 | 运行时目录 | `/run/edgeroutegw`(tmpfs):`xray_access.log`、`mosdns.log`,任一超过 64 MB 由控制面原地截断(只是实时视图) |
 | 环境文件 | `/etc/edgeroutegw/edgeroutegw.env`:`ERGW_LISTEN`、`ERGW_DATA_DIR`、`ERGW_LOG_LEVEL`、`ERGW_SECURE_COOKIES`(TLS 反代后置 1) |
 | 内核参数 | `/etc/sysctl.d/99-edgeroutegw.conf`、`/etc/modules-load.d/edgeroutegw.conf`(wireguard、tcp_bbr、nfnetlink_log) |
+| networkd 保护 | `/etc/systemd/networkd.conf.d/50-edgeroutegw.conf`(`ManageForeignRoutingPolicyRules=no`、`ManageForeignRoutes=no`):让 systemd-networkd 重启时不删网关的 ip rule / 路由;networkd 下次启动生效 |
 | 内置组件包 | `edgeroutegw-components` deb → `/usr/share/edgeroutegw/components`(离线 full 包自带,首次启动种子化) |
 
 端口:80 管理面;53 Mosdns(双栈);12345 TPROXY 入站(只接受带标记的包,直连会被 input 链丢弃);10808 / 10809 本机 SOCKS / HTTP(只监听 127.0.0.1,Mosdns 远端上游经它走节点);10810 探测入站;10085 Xray API;5353 Fake-IP DNS(Mode B)。
@@ -75,6 +76,25 @@ cat /var/lib/edgeroutegw/bootstrap_password.txt
 2. `ip rule` 里要有 `fwmark 0x1 lookup 100`,`ip route show table 100` 是 `local default dev lo`。1.x 遗留的 `/etc/iproute2/rt_tables` 会把 100 显示成 `tproxy`,用 `ip -N rule` 看数字。
 3. `journalctl -u edgeroutegw-xray` 看 Xray 是否因端口被占(12345 / 10808)起不来;总览上的「最近一次下发失败」会写明原因。
 4. 设备确实把网关和 DNS 指向了本机?`dig @<网关> www.google.com` 能解析、`curl -I https://www.google.com` 能通。
+
+### 设备突然全部断公网,内网正常,服务却是 active
+
+典型诱因是 systemd-networkd 被重启(unattended-upgrades 升了包后 needrestart 顺带重启,或手工 `systemctl restart systemd-networkd`):networkd 启动时会删除所有不是它配置的策略路由规则,`ip -4 rule` 里的 `fwmark 0x1 lookup 100`(TPROXY)和 `fwmark 0x100 lookup 300`(内核 WireGuard)随之消失,nft 仍在打标,包就按 main 表转发到上游网关而不是进本机 TPROXY。
+
+2.0.5 起控制面会在条目被删后约 1 秒内自动补回(事件页出现 `reconcile / drift.repaired` 警告,日志有 `policy routing removed externally; restoring`),deb 包同时安装 networkd 的 drop-in 让它不再删。排查顺序:
+
+1. `ip -N -4 rule` 应有 `fwmark 0x1 lookup 100`;`ip -N route show table 100` 应有 `local default dev lo`。
+2. `edgeroutegw doctor` 看「policy routing (tproxy)」与「systemd-networkd 保留外来策略路由」两项。
+3. 缺 drop-in 的主机手工补上(内容如下)并 `systemctl daemon-reload`;不必马上重启 networkd,它在 networkd 下次启动时读取:
+
+```
+# /etc/systemd/networkd.conf.d/50-edgeroutegw.conf
+[Network]
+ManageForeignRoutingPolicyRules=no
+ManageForeignRoutes=no
+```
+
+4. 旧版本(≤ 2.0.4)没有自愈,`systemctl restart edgeroutegw` 即恢复。
 
 ### DNS 解析异常
 - `dig @127.0.0.1 x.com`、`dig @8.8.8.8 x.com`(第二条也会被劫持到 Mosdns,除非目的是私网 DNS);Mosdns 起不来看 `/run/edgeroutegw/mosdns.log` 第一屏。

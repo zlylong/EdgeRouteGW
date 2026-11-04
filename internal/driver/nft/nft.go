@@ -16,6 +16,7 @@ import (
 	"github.com/zlylong/EdgeRouteGW/internal/driver/execx"
 	"github.com/zlylong/EdgeRouteGW/internal/model"
 	"github.com/zlylong/EdgeRouteGW/internal/paths"
+	"github.com/zlylong/EdgeRouteGW/internal/policyroute"
 	"github.com/zlylong/EdgeRouteGW/internal/render"
 )
 
@@ -26,6 +27,11 @@ type Driver struct {
 	Log   *slog.Logger
 	// NftBinary and IPBinary default to "nft" and "ip".
 	NftBinary, IPBinary string
+	// Verify lists the policy-routing entries missing from the kernel. It
+	// runs on every plan once the driver has applied, so an entry removed
+	// behind our back (systemd-networkd drops foreign rules when it
+	// restarts) is re-installed on the next pass. nil disables the check.
+	Verify func() ([]string, error)
 
 	lastErr   string
 	lastApply time.Time
@@ -36,7 +42,13 @@ type Driver struct {
 
 // New builds a driver.
 func New(p paths.Paths, run execx.Runner, log *slog.Logger) *Driver {
-	return &Driver{Paths: p, Run: run, Log: log, NftBinary: "nft", IPBinary: "ip"}
+	return &Driver{Paths: p, Run: run, Log: log, NftBinary: "nft", IPBinary: "ip", Verify: VerifyPolicyRouting}
+}
+
+// VerifyPolicyRouting lists the TPROXY policy-routing entries that are
+// missing from the kernel (empty when everything is in place).
+func VerifyPolicyRouting() ([]string, error) {
+	return policyroute.TProxyMissing(uint32(render.TProxyMark), render.TProxyRouteTbl)
 }
 
 // Component implements driver.Driver.
@@ -65,6 +77,8 @@ func (d *Driver) Plan(ctx context.Context, prev, next *render.Artifacts) (driver
 	}
 	if !d.applied {
 		plan.Actions = append(plan.Actions, driver.Action{Kind: driver.ActionExec, Detail: "ensure ip rule fwmark lookup + local route"})
+	} else if missing := d.missingPolicyRouting(); len(missing) > 0 {
+		plan.Actions = append(plan.Actions, driver.Action{Kind: driver.ActionRepair, Detail: "restore policy routing: " + strings.Join(missing, ", ")})
 	}
 	if len(plan.Actions) == 0 {
 		plan.Actions = []driver.Action{{Kind: driver.ActionNoop, Detail: "ruleset unchanged and loaded"}}
@@ -114,9 +128,28 @@ func (d *Driver) apply(ctx context.Context, plan driver.Plan, next *render.Artif
 					return err
 				}
 			}
+		case driver.ActionRepair:
+			d.Log.Warn("policy routing removed externally; restoring (a systemd-networkd restart drops foreign ip rules unless ManageForeignRoutingPolicyRules=no)", "missing", strings.TrimPrefix(a.Detail, "restore policy routing: "))
+			if err := d.ensurePolicyRouting(ctx); err != nil {
+				return err
+			}
 		}
 	}
 	return nil
+}
+
+// missingPolicyRouting runs Verify, logging (not failing) when the kernel
+// cannot be queried.
+func (d *Driver) missingPolicyRouting() []string {
+	if d.Verify == nil {
+		return nil
+	}
+	missing, err := d.Verify()
+	if err != nil {
+		d.Log.Warn("policy routing check failed", "err", err)
+		return nil
+	}
+	return missing
 }
 
 // ensurePolicyRouting installs "ip rule fwmark <mark> lookup <table>" and the
@@ -126,7 +159,7 @@ func (d *Driver) ensurePolicyRouting(ctx context.Context) error {
 	mark := fmt.Sprintf("%d", render.TProxyMark)
 	table := fmt.Sprintf("%d", render.TProxyRouteTbl)
 	for _, fam := range []string{"-4", "-6"} {
-		if fam == "-6" && ipv6Disabled() {
+		if fam == "-6" && policyroute.IPv6Disabled() {
 			continue
 		}
 		// -N keeps table numbers numeric: /etc/iproute2/rt_tables may name
@@ -201,11 +234,6 @@ func TuneConntrack() (applied int) {
 	return applied
 }
 
-func ipv6Disabled() bool {
-	b, err := os.ReadFile("/proc/sys/net/ipv6/conf/all/disable_ipv6")
-	return err == nil && strings.TrimSpace(string(b)) == "1"
-}
-
 // Health implements driver.Driver.
 func (d *Driver) Health(ctx context.Context) model.ComponentHealth {
 	h := model.ComponentHealth{Name: model.ComponentNftables, Status: model.StatusUnknown, LastError: d.lastErr}
@@ -229,6 +257,10 @@ func (d *Driver) Health(ctx context.Context) model.ComponentHealth {
 		h.Status = model.StatusDegraded
 	default:
 		h.Status = model.StatusActive
+		if missing := d.missingPolicyRouting(); len(missing) > 0 {
+			h.Status = model.StatusDegraded
+			h.LastError = "policy routing incomplete (restored on the next pass): " + strings.Join(missing, ", ")
+		}
 	}
 	return h
 }

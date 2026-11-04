@@ -12,6 +12,7 @@ import (
 	"golang.zx2c4.com/wireguard/wgctrl"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 
+	"github.com/zlylong/EdgeRouteGW/internal/policyroute"
 	"github.com/zlylong/EdgeRouteGW/internal/render"
 )
 
@@ -90,6 +91,36 @@ func (Netlink) Ensure(w render.WGIface) error {
 		}
 	}
 	return nil
+}
+
+// Verify implements Backend.
+func (Netlink) Verify(w render.WGIface) ([]string, error) {
+	link, err := netlink.LinkByName(w.Name)
+	if err != nil {
+		return []string{"link " + w.Name}, nil
+	}
+	var missing []string
+	for _, fam := range families(w) {
+		f := "-4"
+		if fam == netlink.FAMILY_V6 {
+			f = "-6"
+		}
+		ok, err := policyroute.HasRule(fam, uint32(w.Mark), w.Table)
+		if err != nil {
+			return nil, err
+		}
+		if !ok {
+			missing = append(missing, fmt.Sprintf("ip %s rule fwmark %#x lookup %d", f, w.Mark, w.Table))
+		}
+		ok, err = policyroute.HasDefaultVia(fam, w.Table, link.Attrs().Index)
+		if err != nil {
+			return nil, err
+		}
+		if !ok {
+			missing = append(missing, fmt.Sprintf("ip %s route default dev %s table %d", f, w.Name, w.Table))
+		}
+	}
+	return missing, nil
 }
 
 func families(w render.WGIface) []int {

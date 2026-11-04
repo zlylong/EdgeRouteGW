@@ -98,3 +98,39 @@ func TestApplyReportsBackendFailure(t *testing.T) {
 		t.Fatalf("health %+v", h)
 	}
 }
+
+func TestExternallyRemovedRuleIsRestored(t *testing.T) {
+	ctx := context.Background()
+	f := NewFake()
+	d := New(f, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	a := iface("a", 300)
+	next := &render.Artifacts{WG: []render.WGIface{a}}
+	plan, _ := d.Plan(ctx, nil, next)
+	if err := d.Apply(ctx, plan, next); err != nil {
+		t.Fatal(err)
+	}
+	f.Handshake[a.Name] = time.Now()
+	if plan, _ = d.Plan(ctx, next, next); plan.Changes() {
+		t.Fatalf("expected noop, got %+v", plan)
+	}
+	// systemd-networkd restarted and dropped the fwmark rule.
+	f.Missing = map[string][]string{a.Name: {"ip -4 rule fwmark 0x100 lookup 300"}}
+	if h := d.Health(ctx); h.Status != model.StatusDegraded || !strings.Contains(h.LastError, "fwmark 0x100") {
+		t.Fatalf("health %+v", h)
+	}
+	plan, _ = d.Plan(ctx, next, next)
+	if len(plan.Repairs()) != 1 || !strings.Contains(plan.Repairs()[0], a.Name) {
+		t.Fatalf("expected a repair, got %+v", plan.Actions)
+	}
+	calls := len(f.Calls)
+	if err := d.Apply(ctx, plan, next); err != nil {
+		t.Fatal(err)
+	}
+	if len(f.Calls) != calls+1 || f.Calls[calls] != "ensure "+a.Name {
+		t.Fatalf("expected one re-ensure, calls %v", f.Calls)
+	}
+	f.Missing = nil
+	if h := d.Health(ctx); h.Status != model.StatusActive {
+		t.Fatalf("health after repair %+v", h)
+	}
+}

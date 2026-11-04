@@ -29,6 +29,12 @@ type Backend interface {
 	// Ensure creates or updates the interface: link, keys, peers, addresses,
 	// MTU, up, the table's default route and the fwmark rule.
 	Ensure(iface render.WGIface) error
+	// Verify lists what is missing from the kernel for an interface that
+	// Ensure already set up: the link, the fwmark rule, the table's default
+	// route. Other agents remove these (systemd-networkd drops foreign ip
+	// rules when it restarts), so the driver re-runs Ensure when the list
+	// is not empty.
+	Verify(iface render.WGIface) ([]string, error)
 	// Remove deletes the interface and its rule/table.
 	Remove(name string, table, mark int) error
 	// List returns the names of interfaces with the given prefix.
@@ -55,6 +61,8 @@ func (d *Driver) Component() model.Component { return model.ComponentWG }
 
 type planState struct {
 	add, update, remove []render.WGIface
+	repair              []render.WGIface
+	repairNotes         []string
 	removeNames         []string
 }
 
@@ -87,6 +95,9 @@ func (d *Driver) Plan(ctx context.Context, prev, next *render.Artifacts) (driver
 			st.add = append(st.add, w)
 		} else if prev == nil || !sameIface(old, w) {
 			st.update = append(st.update, w)
+		} else if missing := d.missing(w); len(missing) > 0 {
+			st.repair = append(st.repair, w)
+			st.repairNotes = append(st.repairNotes, w.Name+": "+strings.Join(missing, ", "))
 		}
 	}
 	for name, old := range have {
@@ -97,8 +108,15 @@ func (d *Driver) Plan(ctx context.Context, prev, next *render.Artifacts) (driver
 	}
 	sort.Slice(st.add, func(i, j int) bool { return st.add[i].Name < st.add[j].Name })
 	sort.Slice(st.update, func(i, j int) bool { return st.update[i].Name < st.update[j].Name })
+	sort.Slice(st.repair, func(i, j int) bool { return st.repair[i].Name < st.repair[j].Name })
+	sort.Strings(st.repairNotes)
 	sort.Strings(st.removeNames)
 	if len(st.add)+len(st.update)+len(st.remove) == 0 {
+		if len(st.repair) > 0 {
+			plan.Actions = []driver.Action{{Kind: driver.ActionRepair, Detail: "restore kernel path: " + strings.Join(st.repairNotes, "; ")}}
+			plan.Diff = "~ " + strings.Join(st.repairNotes, "\n~ ")
+			return plan, nil
+		}
 		detail := fmt.Sprintf("%d kernel interface(s) unchanged", len(next.WG))
 		if len(next.WG) == 0 {
 			detail = "no WireGuard nodes on the kernel path"
@@ -107,6 +125,9 @@ func (d *Driver) Plan(ctx context.Context, prev, next *render.Artifacts) (driver
 		return plan, nil
 	}
 	plan.Actions = append(plan.Actions, driver.Action{Kind: driver.ActionExec, Detail: fmt.Sprintf("wireguard interfaces +%d ~%d -%d", len(st.add), len(st.update), len(st.remove))})
+	if len(st.repair) > 0 {
+		plan.Actions = append(plan.Actions, driver.Action{Kind: driver.ActionRepair, Detail: "restore kernel path: " + strings.Join(st.repairNotes, "; ")})
+	}
 	var b strings.Builder
 	for _, w := range st.add {
 		fmt.Fprintf(&b, "+ %s (node %s) table %d mark %#x\n", w.Name, w.NodeID, w.Table, w.Mark)
@@ -117,8 +138,22 @@ func (d *Driver) Plan(ctx context.Context, prev, next *render.Artifacts) (driver
 	for _, n := range st.removeNames {
 		fmt.Fprintf(&b, "- %s\n", n)
 	}
+	for _, n := range st.repairNotes {
+		fmt.Fprintf(&b, "~ %s\n", n)
+	}
 	plan.Diff = b.String()
 	return plan, nil
+}
+
+// missing runs the backend's Verify, logging (not failing) when the kernel
+// cannot be queried.
+func (d *Driver) missing(w render.WGIface) []string {
+	missing, err := d.Backend.Verify(w)
+	if err != nil {
+		d.Log.Warn("wireguard kernel path check failed", "iface", w.Name, "err", err)
+		return nil
+	}
+	return missing
 }
 
 func sameIface(a, b render.WGIface) bool {
@@ -158,6 +193,14 @@ func (d *Driver) Apply(ctx context.Context, plan driver.Plan, next *render.Artif
 			firstErr = fmt.Errorf("configure %s: %w", w.Name, err)
 		}
 	}
+	if len(st.repair) > 0 {
+		d.Log.Warn("wireguard policy routing removed externally; restoring (a systemd-networkd restart drops foreign ip rules unless ManageForeignRoutingPolicyRules=no)", "missing", strings.Join(st.repairNotes, "; "))
+	}
+	for _, w := range st.repair {
+		if err := d.Backend.Ensure(w); err != nil && firstErr == nil {
+			firstErr = fmt.Errorf("restore %s: %w", w.Name, err)
+		}
+	}
 	if firstErr != nil {
 		d.lastErr = firstErr.Error()
 		return firstErr
@@ -186,8 +229,11 @@ func (d *Driver) Health(ctx context.Context) model.ComponentHealth {
 		h.Status = model.StatusDegraded
 		return h
 	}
-	var stale []string
+	var stale, incomplete []string
 	for _, w := range d.wanted {
+		if missing := d.missing(w); len(missing) > 0 {
+			incomplete = append(incomplete, w.Name+": "+strings.Join(missing, ", "))
+		}
 		peers, err := d.Backend.Peers(w.Name)
 		if err != nil {
 			h.Status = model.StatusDown
@@ -200,6 +246,11 @@ func (d *Driver) Health(ctx context.Context) model.ComponentHealth {
 				break
 			}
 		}
+	}
+	if len(incomplete) > 0 {
+		h.Status = model.StatusDegraded
+		h.LastError = "kernel path incomplete (restored on the next pass): " + strings.Join(incomplete, "; ")
+		return h
 	}
 	if len(stale) > 0 {
 		h.Status = model.StatusDegraded

@@ -33,6 +33,7 @@ func TestApplySequence(t *testing.T) {
 		return execx.Result{}, nil
 	}
 	d := New(paths.New(t.TempDir()), run, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	d.Verify = nil
 	ctx := context.Background()
 	a := &render.Artifacts{Nft: []byte("table inet edgeroutegw {}\n")}
 
@@ -122,5 +123,61 @@ func TestCountRulesToleratesNamedTableAndDedupes(t *testing.T) {
 	}
 	if dels != 1 || run.Count("ip", "-4", "rule", "add") != 0 || run.Count("ip", "-4", "route", "replace") != 0 {
 		t.Fatalf("dels=%d calls=%+v", dels, run.Calls)
+	}
+}
+
+func TestPolicyRoutingDriftIsRepaired(t *testing.T) {
+	run := &execx.Fake{}
+	run.Handler = func(name string, args []string) (execx.Result, error) {
+		joined := strings.Join(args, " ")
+		switch {
+		case name == "nft" && joined == "list tables inet":
+			return execx.Result{Output: []byte("table inet edgeroutegw\n")}, nil
+		case name == "ip" && strings.Contains(joined, "rule show"):
+			return execx.Result{Output: []byte("0:\tfrom all lookup local\n")}, nil
+		case name == "ip" && strings.Contains(joined, "route show table"):
+			return execx.Result{Output: []byte("local default dev lo scope host\n")}, nil
+		}
+		return execx.Result{}, nil
+	}
+	d := New(paths.New(t.TempDir()), run, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	var missing []string
+	d.Verify = func() ([]string, error) { return missing, nil }
+	ctx := context.Background()
+	a := &render.Artifacts{Nft: []byte("table inet edgeroutegw {}\n")}
+	plan, _ := d.Plan(ctx, nil, a)
+	if err := d.Apply(ctx, plan, a); err != nil {
+		t.Fatal(err)
+	}
+	run.Reset()
+	// Nothing missing: steady state is a noop and health is active.
+	if plan, _ = d.Plan(ctx, a, a); plan.Changes() {
+		t.Fatalf("expected noop, got %+v", plan.Actions)
+	}
+	if h := d.Health(ctx); h.Status != "active" {
+		t.Fatalf("health %+v", h)
+	}
+	// networkd restarted and dropped the rule: the plan repairs it, health
+	// says so until the apply, and the rule is added back.
+	missing = []string{"ip -4 rule fwmark 0x1 lookup 100"}
+	if h := d.Health(ctx); h.Status != "degraded" || !strings.Contains(h.LastError, "fwmark 0x1") {
+		t.Fatalf("health %+v", h)
+	}
+	plan, _ = d.Plan(ctx, a, a)
+	if len(plan.Repairs()) != 1 || !plan.Changes() {
+		t.Fatalf("expected a repair action, got %+v", plan.Actions)
+	}
+	if run.Count("nft", "-f") != 0 {
+		t.Fatal("repairing a rule must not reload the ruleset")
+	}
+	if err := d.Apply(ctx, plan, a); err != nil {
+		t.Fatal(err)
+	}
+	if run.Count("ip", "-4", "rule", "add") != 1 || run.Count("nft", "-f") != 0 {
+		t.Fatalf("rule not restored: %+v", run.Calls)
+	}
+	missing = nil
+	if h := d.Health(ctx); h.Status != "active" {
+		t.Fatalf("health after repair %+v", h)
 	}
 }

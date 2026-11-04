@@ -26,6 +26,17 @@ const (
 	WGDefaultMTU  = 1420
 )
 
+// PolicyTables lists every kernel routing table the gateway installs
+// entries in: the TPROXY delivery table, the published-routes table and the
+// per-interface WireGuard tables.
+func PolicyTables() []int {
+	out := []int{TProxyRouteTbl, RouteTable}
+	for i := 0; i < WGMaxIfaces; i++ {
+		out = append(out, WGTableBase+i)
+	}
+	return out
+}
+
 // WGPeer is the remote side of a kernel WireGuard interface.
 type WGPeer struct {
 	PublicKey    string   `json:"public_key"`

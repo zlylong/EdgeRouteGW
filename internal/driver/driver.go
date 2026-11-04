@@ -22,6 +22,7 @@ const (
 	ActionStart   ActionKind = "start"   // unit was down; start it
 	ActionExec    ActionKind = "exec"    // run a command (nft -f, ip rule)
 	ActionSkipped ActionKind = "skipped" // component not applicable in this mode
+	ActionRepair  ActionKind = "repair"  // re-install state something else removed (drift)
 )
 
 // Action is one planned step.
@@ -51,6 +52,18 @@ func (p Plan) Changes() bool {
 		}
 	}
 	return false
+}
+
+// Repairs lists the details of the plan's repair actions: state the driver
+// had applied that was removed behind its back and is being put back.
+func (p Plan) Repairs() []string {
+	var out []string
+	for _, a := range p.Actions {
+		if a.Kind == ActionRepair {
+			out = append(out, a.Detail)
+		}
+	}
+	return out
 }
 
 // Summary joins the action kinds for logs and apply_log.

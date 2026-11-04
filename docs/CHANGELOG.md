@@ -1,5 +1,13 @@
 # EdgeRouteGW 变更记录
 
+## [2.0.5] - 2026-11-04
+
+- 修复:策略路由只在启动时下发一次,被别人删掉后不会自愈。生产网关 2026-11-04 06:07 UTC 因 unattended-upgrades 触发 needrestart 重启了 systemd-networkd,networkd 默认 `ManageForeignRoutingPolicyRules=yes`,启动时把 `ip rule fwmark 0x1 lookup 100`(TPROXY)与 `fwmark 0x100 lookup 300`(内核 WireGuard)全部删除;nft 仍在打标,包按 main 表转发到上游而不是进本机 TPROXY,整段设备断公网 21 分钟,而服务状态 active、无任何报错,直到人工 `systemctl restart edgeroutegw`。现在:
+  - 运行时守护:控制面订阅 netlink 的 rule / route 删除事件(`internal/policyroute`),我们表(100、200、300~363)里的条目被删后约 1 秒内触发一次协调;nftables 与 WireGuard 驱动在每次 Plan 时都用 netlink 核对自己的 ip rule 与路由(此前只看 nft 表是否存在),缺了就以 `repair` 动作补回,写一条 WARN 日志和一条 `reconcile / drift.repaired` 警告事件,顶栏变更预览里显示为「修复」。订阅不可用时退回原有 30 秒对账,同样会补。
+  - 组件健康:nftables / WireGuard 的状态在条目缺失时显示 degraded 并说明缺了什么;`edgeroutegw doctor` 新增「policy routing (tproxy)」检查(服务运行中缺失为 FAIL);系统调优新增「systemd-networkd 保留外来策略路由」一项,提示 drop-in 是否就位。
+  - deb 包自带 `/etc/systemd/networkd.conf.d/50-edgeroutegw.conf`(`ManageForeignRoutingPolicyRules=no`、`ManageForeignRoutes=no`),让 networkd 重启根本不再碰这些条目;该文件在 networkd 下次启动时生效,安装包不会替你重启 networkd。单元加 `After=systemd-networkd.service`。评估过 `PartOf=systemd-networkd.service`,不采用:它会让网关随 networkd 停止,对 NetworkManager / ifupdown 主机无意义,而自愈已经覆盖了重启场景。
+  - 不是 deb 安装、或先于 2.0.5 升级就想堵住这个口子的:手工写入上面的 drop-in 即可,内容见 docs/OPERATIONS.md 第 7 节。
+
 ## [2.0.4] - 2026-10-31
 
 - 新增:系统 → 「日志与保留」。可设历史记录(事件、变更、下发记录、部署输出)与流量样本的保留天数、/run 运行时日志的单文件上限、systemd journal 的保留天数与总上限(写 `/etc/systemd/journald.conf.d/60-edgeroutegw.conf` 并立即 vacuum);每小时自动清理,保存即生效;「立即清理」额外清空运行时日志、压缩数据库、收紧 journal。面板显示各项当前占用。生产机上 1.x 留下的 2.1 GB journal 就是这里一键收掉的。默认 90 天 / 90 天 / 64 MB / 30 天 / 500 MB。API:`GET/PUT /system/retention`、`POST /system/retention/cleanup`。

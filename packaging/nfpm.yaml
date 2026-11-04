@@ -41,6 +41,11 @@ contents:
     dst: /lib/systemd/system/edgeroutegw-mosdns.service
     file_info:
       mode: 0644
+  - src: packaging/systemd/networkd-50-edgeroutegw.conf
+    dst: /etc/systemd/networkd.conf.d/50-edgeroutegw.conf
+    type: config
+    file_info:
+      mode: 0644
   - src: packaging/sysctl/99-edgeroutegw.conf
     dst: /etc/sysctl.d/99-edgeroutegw.conf
     type: config

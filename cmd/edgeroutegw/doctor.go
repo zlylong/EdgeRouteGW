@@ -6,6 +6,7 @@ import (
 	"flag"
 	"fmt"
 	"github.com/zlylong/EdgeRouteGW/internal/driver/execx"
+	"github.com/zlylong/EdgeRouteGW/internal/driver/nft"
 	"github.com/zlylong/EdgeRouteGW/internal/netinfo"
 	"github.com/zlylong/EdgeRouteGW/internal/tune"
 	"io"
@@ -92,15 +93,28 @@ func cmdDoctor(args []string, stdout, stderr io.Writer, env config.LookupEnv) in
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	sd := systemd.NewDBus()
+	serving := false
 	if st, err := sd.State(ctx, "edgeroutegw.service"); err != nil {
 		check(false, true, "systemd D-Bus", err.Error())
 	} else {
+		serving = st.Active()
 		check(true, false, "systemd D-Bus", "edgeroutegw.service is "+st.ActiveState)
 		for _, u := range []string{"edgeroutegw-xray.service", "edgeroutegw-mosdns.service", "frr.service"} {
 			if st, err := sd.State(ctx, u); err == nil {
 				check(st.Active(), true, u, st.ActiveState+"/"+st.SubState)
 			}
 		}
+	}
+	// The TPROXY path needs "ip rule fwmark 1 lookup 100" and the local
+	// default route in table 100. They are installed by the service and
+	// restored by it when removed (systemd-networkd restarts drop them);
+	// missing while the service runs means clients have no internet.
+	if missing, err := nft.VerifyPolicyRouting(); err != nil {
+		check(false, true, "policy routing (tproxy)", err.Error())
+	} else if len(missing) == 0 {
+		check(true, false, "policy routing (tproxy)", "ip rule fwmark 0x1 lookup 100 + local default route present")
+	} else {
+		check(false, !serving, "policy routing (tproxy)", "missing: "+strings.Join(missing, ", ")+map[bool]string{true: " (the service restores it within seconds; if it stays missing, systemctl restart edgeroutegw)", false: " (expected while the service is stopped)"}[serving])
 	}
 	if _, err := os.Stat("/etc/frr/daemons"); err == nil {
 		b, _ := os.ReadFile("/etc/frr/daemons")

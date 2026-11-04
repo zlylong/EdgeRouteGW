@@ -17,6 +17,8 @@ type Fake struct {
 	Handshake map[string]time.Time
 	Calls     []string
 	FailOn    string
+	// Missing is what Verify reports per interface (nothing by default).
+	Missing map[string][]string
 }
 
 // NewFake returns an empty backend.
@@ -33,6 +35,15 @@ func (f *Fake) Ensure(w render.WGIface) error {
 	}
 	f.Ifaces[w.Name] = w
 	return nil
+}
+
+func (f *Fake) Verify(w render.WGIface) ([]string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if _, ok := f.Ifaces[w.Name]; !ok {
+		return []string{"link " + w.Name}, nil
+	}
+	return f.Missing[w.Name], nil
 }
 
 func (f *Fake) Remove(name string, table, mark int) error {

@@ -57,8 +57,8 @@ async function applyNow() {
   } finally { applying.value = false }
 }
 
-const kindLabel: Record<string, string> = { noop: '无变化', write: '写文件', hot: '热更新', restart: '重启', start: '启动', exec: '执行', skipped: '跳过' }
-const kindTone: Record<string, 'neutral' | 'ok' | 'warn' | 'danger' | 'info'> = { noop: 'neutral', write: 'info', hot: 'ok', restart: 'warn', start: 'warn', exec: 'info', skipped: 'neutral' }
+const kindLabel: Record<string, string> = { noop: '无变化', write: '写文件', hot: '热更新', restart: '重启', start: '启动', exec: '执行', skipped: '跳过', repair: '修复' }
+const kindTone: Record<string, 'neutral' | 'ok' | 'warn' | 'danger' | 'info'> = { noop: 'neutral', write: 'info', hot: 'ok', restart: 'warn', start: 'warn', exec: 'info', skipped: 'neutral', repair: 'warn' }
 </script>
 
 <template>

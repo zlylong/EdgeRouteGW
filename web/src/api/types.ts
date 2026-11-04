@@ -37,7 +37,7 @@ export interface StateResponse {
   schema_version: string
 }
 
-export type ActionKind = 'noop' | 'write' | 'hot' | 'restart' | 'start' | 'exec' | 'skipped'
+export type ActionKind = 'noop' | 'write' | 'hot' | 'restart' | 'start' | 'exec' | 'skipped' | 'repair'
 export interface PlanAction { kind: ActionKind; detail: string }
 export interface Plan { component: Component; actions: PlanAction[]; diff?: string }
 export interface PlanResponse {

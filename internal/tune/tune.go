@@ -88,6 +88,7 @@ func (t *Tuner) Run(ctx context.Context, apply bool) *Report {
 	r.Items = append(r.Items, t.nic(ctx, r.Host, apply)...)
 	r.Items = append(r.Items, t.wireguard())
 	r.Items = append(r.Items, t.conntrack(apply))
+	r.Items = append(r.Items, t.networkd(ctx))
 	t.mu.Lock()
 	t.last = r
 	t.mu.Unlock()
@@ -370,6 +371,30 @@ func (t *Tuner) wireguard() Item {
 		it.Status, it.Detail = StatusFallback, "模块未加载,WireGuard 节点由 Xray 用户态实现(吞吐约为内核的一半以下)"
 		it.Hint = "modprobe wireguard;包已写入 /etc/modules-load.d/edgeroutegw.conf,重启后自动加载"
 	}
+	return it
+}
+
+// --- systemd-networkd ---------------------------------------------------
+
+// NetworkdDropIn is the file the package installs so a networkd restart
+// leaves the gateway's ip rules and routes alone.
+const NetworkdDropIn = "/etc/systemd/networkd.conf.d/50-edgeroutegw.conf"
+
+func (t *Tuner) networkd(ctx context.Context) Item {
+	it := Item{Key: "networkd", Title: "systemd-networkd 保留外来策略路由"}
+	res, err := t.Exec.Run(ctx, "systemctl", "is-active", "systemd-networkd.service")
+	if err != nil || strings.TrimSpace(string(res.Output)) != "active" {
+		it.Status, it.Detail = StatusInfo, "本机不由 systemd-networkd 管理网络,无需设置"
+		return it
+	}
+	b, err := os.ReadFile(NetworkdDropIn)
+	if err == nil && strings.Contains(normalize(string(b)), "ManageForeignRoutingPolicyRules=no") {
+		it.Status, it.Detail = StatusOK, NetworkdDropIn+" 已就位,networkd 重启不再清掉网关的 ip rule;下次 networkd 重启时生效"
+		return it
+	}
+	it.Status = StatusUnavailable
+	it.Detail = "缺少 " + NetworkdDropIn + ":networkd 每次(重)启动都会删除不是它配置的 ip rule,TPROXY 与 WireGuard 的策略路由随之消失,控制面会在数秒内补回,但其间设备断网"
+	it.Hint = "写入 " + NetworkdDropIn + ":[Network] 段下 ManageForeignRoutingPolicyRules=no 与 ManageForeignRoutes=no(deb 包 2.0.5 起自带)"
 	return it
 }
 

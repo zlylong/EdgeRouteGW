@@ -33,6 +33,7 @@ import (
 	"github.com/zlylong/EdgeRouteGW/internal/netinfo"
 	"github.com/zlylong/EdgeRouteGW/internal/observe"
 	"github.com/zlylong/EdgeRouteGW/internal/paths"
+	"github.com/zlylong/EdgeRouteGW/internal/policyroute"
 	"github.com/zlylong/EdgeRouteGW/internal/provision"
 	"github.com/zlylong/EdgeRouteGW/internal/reconcile"
 	"github.com/zlylong/EdgeRouteGW/internal/render"
@@ -258,6 +259,10 @@ func cmdServe(args []string, stdout, stderr io.Writer, env config.LookupEnv) int
 	g.Go(func() error { return latency.Run(gctx) })
 	if !*noReconcile {
 		g.Go(func() error { return traffic.Run(gctx) })
+		// A deleted ip rule or route in one of our tables (systemd-networkd
+		// restarting, an operator's "ip rule flush") triggers a pass right
+		// away; the drivers' Plan re-installs what is missing.
+		g.Go(func() error { return policyroute.Watch(gctx, render.PolicyTables(), rec.Notify, log) })
 	}
 	g.Go(func() error { return httpserver.Serve(gctx, cfg.ListenAddr, h, log, nil) })
 	if err := g.Wait(); err != nil {

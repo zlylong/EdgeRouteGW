@@ -1,7 +1,13 @@
 [Unit]
 Description=EdgeRouteGW 2.0 control plane
 Documentation=https://github.com/zlylong/EdgeRouteGW
-After=network-online.target nss-lookup.target
+# After networkd so its startup (which drops foreign ip rules unless the
+# drop-in in /etc/systemd/networkd.conf.d says otherwise) never races our
+# first apply. Deliberately not PartOf=systemd-networkd.service: the control
+# plane re-installs policy routing itself when it goes missing, and tying
+# the gateway's lifecycle to networkd would stop it with networkd and do
+# nothing on hosts using NetworkManager or ifupdown.
+After=network-online.target nss-lookup.target systemd-networkd.service
 Wants=network-online.target
 
 [Service]

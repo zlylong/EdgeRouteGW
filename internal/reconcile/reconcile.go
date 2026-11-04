@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strings"
 	"sync"
 	"time"
 
@@ -245,6 +246,14 @@ func (r *Reconciler) pass(ctx context.Context) error {
 		} else {
 			r.setGood(comp, arts)
 			r.Log.Info("applied", "component", comp, "plan", plan.Summary(), "generation", snap.Generation, "dur_ms", entry.DurationMs)
+			if repaired := plan.Repairs(); len(repaired) > 0 {
+				// State we had applied was removed behind our back and is
+				// back now; this is worth an operator's attention because
+				// the gateway was broken until this pass.
+				r.Log.Warn("drift repaired", "component", comp, "detail", strings.Join(repaired, "; "))
+				_ = r.Store.AddEvent(ctx, model.Event{Level: model.LevelWarn, Module: "reconcile", Type: "drift.repaired",
+					Message: fmt.Sprintf("%s: %s", comp, strings.Join(repaired, "; "))})
+			}
 		}
 		_ = r.Store.RecordApply(ctx, entry)
 	}
