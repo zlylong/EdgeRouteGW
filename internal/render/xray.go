@@ -199,6 +199,12 @@ func renderXray(snap *desired.Snapshot, d Deps, a *Artifacts) error {
 	if a.XrayRules, err = json.Marshal(rules); err != nil {
 		return err
 	}
+	a.XrayBalancers = nil
+	if bl, ok := routing["balancers"]; ok {
+		if a.XrayBalancers, err = json.Marshal(bl); err != nil {
+			return err
+		}
+	}
 	// Structural hash: the config minus the two hot-updatable parts.
 	structural := map[string]any{}
 	for k, v := range cfg {

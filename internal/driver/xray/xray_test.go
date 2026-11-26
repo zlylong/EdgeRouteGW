@@ -182,6 +182,45 @@ func TestHotFailureFallsBackToRestart(t *testing.T) {
 	}
 }
 
+// The rule-reload API rebuilds balancers from its payload, so a hot update
+// must carry them or rules that point at a group are refused.
+func TestHotUpdateSendsBalancersWithRules(t *testing.T) {
+	d, run, sd := newDriver(t, true)
+	ctx := context.Background()
+	prev := arts("s1", map[string]string{"node-a": `{"v":1}`}, `[]`)
+	plan, _ := d.Plan(ctx, nil, prev)
+	_ = d.Apply(ctx, plan, prev)
+	sd.Restarts = map[string]int{}
+	var sent []byte
+	run.Handler = func(name string, args []string) (execx.Result, error) {
+		if len(args) > 1 && args[0] == "api" && args[1] == "adrules" {
+			sent, _ = os.ReadFile(args[len(args)-1])
+		}
+		return execx.Result{}, nil
+	}
+	next := arts("s1", map[string]string{"node-a": `{"v":1}`}, `[{"type":"field","balancerTag":"group-1","ip":["1.1.1.1"]}]`)
+	next.XrayBalancers = json.RawMessage(`[{"tag":"group-1","selector":["node-a"]}]`)
+	plan, _ = d.Plan(ctx, prev, next)
+	if err := d.Apply(ctx, plan, next); err != nil {
+		t.Fatal(err)
+	}
+	if sd.Restarts[d.Unit] != 0 {
+		t.Fatalf("hot update expected, got restarts %v (plan %s)", sd.Restarts, kinds(plan))
+	}
+	var body struct {
+		Routing struct {
+			Balancers []map[string]any `json:"balancers"`
+			Rules     []map[string]any `json:"rules"`
+		} `json:"routing"`
+	}
+	if err := json.Unmarshal(sent, &body); err != nil {
+		t.Fatalf("adrules payload %q: %v", sent, err)
+	}
+	if len(body.Routing.Balancers) != 1 || body.Routing.Balancers[0]["tag"] != "group-1" || len(body.Routing.Rules) != 1 {
+		t.Fatalf("payload %s", sent)
+	}
+}
+
 func TestInvalidConfigIsRejectedBeforeWrite(t *testing.T) {
 	d, run, _ := newDriver(t, true)
 	ctx := context.Background()

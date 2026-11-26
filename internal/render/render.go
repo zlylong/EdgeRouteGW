@@ -57,6 +57,10 @@ type Artifacts struct {
 	Xray               []byte
 	XrayOutbounds      map[string]json.RawMessage // tag -> outbound object
 	XrayRules          json.RawMessage            // routing.rules array
+	// XrayBalancers is routing.balancers (nil without groups). Balancers are
+	// structural, but the rule-reload API rebuilds them from its payload, so
+	// the hot update has to send them along with the rules.
+	XrayBalancers json.RawMessage
 	XrayStructuralHash string
 
 	MosdnsConfig       []byte

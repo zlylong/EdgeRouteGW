@@ -172,9 +172,16 @@ func (d *Driver) hotUpdate(ctx context.Context, prevOutbounds map[string]json.Ra
 			return fmt.Errorf("ado: %w", err)
 		}
 	}
-	// adrules replaces the whole rule list by default; include domainStrategy
-	// so the payload is a complete routing object.
-	payload, _ := json.Marshal(map[string]any{"routing": map[string]any{"domainStrategy": "IPIfNonMatch", "rules": next.XrayRules}})
+	// adrules replaces the whole rule list by default, and Xray rebuilds its
+	// balancer table from the same payload: a rule whose balancerTag is not
+	// in it is refused ("balancer ... not found"), which used to turn every
+	// rule edit on a gateway with outbound groups into a restart. Send the
+	// complete routing object.
+	routing := map[string]any{"domainStrategy": "IPIfNonMatch", "rules": next.XrayRules}
+	if len(next.XrayBalancers) > 0 {
+		routing["balancers"] = next.XrayBalancers
+	}
+	payload, _ := json.Marshal(map[string]any{"routing": routing})
 	if err := d.runWithTempFile(ctx, "adrules", payload); err != nil {
 		return fmt.Errorf("adrules: %w", err)
 	}

@@ -1,5 +1,8 @@
 # EdgeRouteGW 变更记录
 
+## [2.0.6] - 2026-11-26
+
+- 修复:有出站组(故障转移 / 负载均衡)的网关上,每次改分流规则 Xray 热更新都失败并退化成整进程重启,所有经代理的连接断一次(生产上 11-20 调整规则的几分钟里连续重启 9 次)。原因是 Xray 的规则重载接口会用同一份请求重建 balancer 表,而热更新只发了规则,引用出站组的规则被拒(`balancer … not found`)。现在热更新把 `routing.balancers` 与规则一起下发,规则的增删改和排序不再重启 Xray;出站组本身的增删仍按结构性变更重启。
 ## [2.0.5] - 2026-11-04
 
 - 修复:策略路由只在启动时下发一次,被别人删掉后不会自愈。生产网关 2026-11-04 06:07 UTC 因 unattended-upgrades 触发 needrestart 重启了 systemd-networkd,networkd 默认 `ManageForeignRoutingPolicyRules=yes`,启动时把 `ip rule fwmark 0x1 lookup 100`(TPROXY)与 `fwmark 0x100 lookup 300`(内核 WireGuard)全部删除;nft 仍在打标,包按 main 表转发到上游而不是进本机 TPROXY,整段设备断公网 21 分钟,而服务状态 active、无任何报错,直到人工 `systemctl restart edgeroutegw`。现在:
